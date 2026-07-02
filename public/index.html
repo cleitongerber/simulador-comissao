@@ -1,0 +1,223 @@
+﻿<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simulador de Comissao</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">%</div>
+          <div>
+            <h1>Comissoes</h1>
+            <p>Area Cabo e Nao Cabo</p>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-button" data-view="dashboard" type="button">Dashboard</button>
+          <button class="nav-button" data-view="admin" type="button">Admin</button>
+          <button class="nav-button active" data-view="colaborador" type="button">Colaborador</button>
+        </nav>
+        <div class="period-card">
+          <label for="periodMonth">Mes</label>
+          <input id="periodMonth" type="text" />
+          <div class="period-grid">
+            <label>
+              Dias realizados
+              <input id="daysDone" min="1" type="number" />
+            </label>
+            <label>
+              Dias uteis
+              <input id="daysTotal" min="1" type="number" />
+            </label>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="topbar">
+          <div>
+            <p class="eyebrow">Simulador operacional</p>
+            <h2 id="viewTitle">Colaborador</h2>
+          </div>
+          <div class="actions">
+            <span id="saveStatus" class="save-status">Conectando ao banco</span>
+            <button id="importData" class="ghost-button" type="button">Importar backup</button>
+            <input id="importDataFile" type="file" accept="application/json" hidden />
+            <button id="exportData" class="ghost-button" type="button">Exportar backup</button>
+            <button id="resetData" class="danger-button" type="button">Restaurar padrao</button>
+          </div>
+        </section>
+
+        <section id="dashboardView" class="view">
+          <div class="filter-row">
+            <label class="branch-filter">
+              Filial
+              <select id="branchFilter"></select>
+            </label>
+            <div class="segmented" role="tablist" aria-label="Filtro de area">
+              <button class="area-filter active" data-area="Todas" type="button">Todas</button>
+              <button class="area-filter" data-area="Cabo" type="button">Cabo</button>
+              <button class="area-filter" data-area="Nao Cabo" type="button">Nao Cabo</button>
+            </div>
+          </div>
+          <div id="kpiGrid" class="kpi-grid"></div>
+          <div class="dashboard-grid">
+            <section class="panel wide">
+              <div class="panel-header">
+                <h3>Resultado por vendedor</h3>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Vendedor</th>
+                      <th>Filial</th>
+                      <th>Area</th>
+                      <th>Atual</th>
+                      <th>Projetado</th>
+                      <th>Deflator</th>
+                      <th>Ganho</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sellerSummaryBody"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Comissao por area</h3>
+              </div>
+              <div id="areaBars" class="bar-stack"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Ranking de ganho potencial</h3>
+              </div>
+              <div id="rankingList" class="ranking-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="adminView" class="view">
+          <div class="admin-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Vendedores</h3>
+                <button id="addSeller" class="icon-button" type="button" title="Adicionar vendedor">+</button>
+              </div>
+              <div id="sellerEditorList" class="editor-list"></div>
+            </section>
+
+            <section class="panel wide">
+              <div class="panel-header">
+                <h3>Metas e realizados</h3>
+                <select id="adminSellerSelect"></select>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Metricas</th>
+                      <th>Meta</th>
+                      <th>Realizado</th>
+                      <th>Atual</th>
+                      <th>Projetado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="adminMetricsBody"></tbody>
+                </table>
+              </div>
+              <div id="adminDeflatorSummary" class="summary-strip"></div>
+            </section>
+
+            <section class="panel full">
+              <div class="panel-header">
+                <h3>Regras por area</h3>
+                <select id="ruleAreaSelect">
+                  <option>Cabo</option>
+                  <option>Nao Cabo</option>
+                </select>
+              </div>
+              <div id="rulesEditor" class="rules-grid"></div>
+            </section>
+
+            <section class="panel full">
+              <div class="panel-header">
+                <h3>Deflatores</h3>
+              </div>
+              <div id="deflatorEditor" class="rules-grid"></div>
+            </section>
+
+            <section class="panel full">
+              <div class="panel-header">
+                <h3>Senha admin</h3>
+              </div>
+              <div class="password-panel">
+                <label>
+                  Nova senha
+                  <input id="newAdminPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" />
+                </label>
+                <p>A senha padrao inicial e admin123.</p>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="colaboradorView" class="view active">
+          <div class="collab-layout">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Meu painel</h3>
+                <select id="collabSellerSelect"></select>
+              </div>
+              <div id="collabHero" class="collab-hero"></div>
+            </section>
+            <section class="panel wide">
+              <div class="panel-header">
+                <h3>Simular resultado</h3>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Metricas</th>
+                      <th>Meta</th>
+                      <th>Realizado</th>
+                      <th>Falta</th>
+                      <th>Projetado</th>
+                      <th>Comissao proj.</th>
+                    </tr>
+                  </thead>
+                  <tbody id="collabMetricsBody"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="adminLock" class="modal-backdrop">
+      <div class="modal">
+        <h3>Acesso Admin</h3>
+        <p>Digite a senha para abrir a tela administrativa.</p>
+        <input id="adminPassword" type="password" placeholder="Senha" />
+        <span id="adminLoginError" class="form-error"></span>
+        <div class="modal-actions">
+          <button id="adminCancel" class="ghost-button" type="button">Cancelar</button>
+          <button id="adminLogin" class="nav-button active" type="button">Entrar</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
+
+

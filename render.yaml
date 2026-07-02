@@ -1,0 +1,14 @@
+﻿services:
+  - type: web
+    name: simulador-comissao
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PGSSL
+        value: true
+      - key: ADMIN_PASSWORD
+        value: admin123
+      - key: DATABASE_URL
+        sync: false
