@@ -330,6 +330,7 @@ function renderAdmin() {
       <label>Seguro<input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.insurance || 0}"></label>
       <label>Carrossel<input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.carousel || 0}"></label>
       <label>Senha colaborador<input data-seller-field="password" data-seller-id="${seller.id}" type="text" value="${seller.password || "1234"}"></label>
+      <button class="delete-seller-button" data-delete-seller="${seller.id}" type="button">Excluir vendedor</button>
     </div>
   `).join("");
   renderAdminMetrics();
@@ -507,6 +508,24 @@ document.addEventListener("click", (event) => {
     renderAll();
   }
 
+  const deleteButton = event.target.closest("[data-delete-seller]");
+  if (deleteButton) {
+    const sellerId = deleteButton.dataset.deleteSeller;
+    const seller = state.sellers.find((item) => item.id === sellerId);
+    if (!seller) return;
+    if (state.sellers.length <= 1) {
+      alert("Mantenha pelo menos um vendedor cadastrado.");
+      return;
+    }
+    if (!confirm(`Excluir o vendedor ${seller.name}?`)) return;
+    state.sellers = state.sellers.filter((item) => item.id !== sellerId);
+    if (activeCollaboratorId === sellerId) {
+      activeCollaboratorId = "";
+      sessionStorage.removeItem(COLLAB_SESSION_KEY);
+    }
+    saveState("Vendedor excluido");
+    renderAll();
+  }
   if (event.target.id === "resetData" && confirm("Restaurar os dados padrao?")) {
     state = seedState();
     saveState();
@@ -664,6 +683,7 @@ state.settings = state.settings || { adminPassword: adminPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 loadStateFromCloud();
+
 
 
 
