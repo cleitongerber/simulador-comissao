@@ -2,6 +2,7 @@
 const ADMIN_PASSWORD_KEY = "commission-admin-password";
 const ADMIN_SESSION_KEY = "commission-admin-session";
 const COLLAB_SESSION_KEY = "commission-collaborator-session";
+const MANAGER_SESSION_KEY = "commission-manager-branch-session";
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const pct = new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -72,10 +73,16 @@ const defaultRules = {
 };
 
 const defaultDeflators = {
-  Cabo: { grossMin: 0.8, tvMin: 0.8, penaltyRate: 0.5 },
-  "Nao Cabo": { grossMin: 0.8, tvMin: 0.25, penaltyRate: 0.5 },
+  Cabo: [
+    { id: "def-cabo-gross", metricId: "gross", name: "GROSS minimo", min: 0.8, penaltyRate: 0.5 },
+    { id: "def-cabo-tv", metricId: "tv", name: "TV minimo", min: 0.8, penaltyRate: 0.5 },
+    { id: "def-cabo-bl", metricId: "banda", name: "BL minimo", min: 0.8, penaltyRate: 0.5 },
+  ],
+  "Nao Cabo": [
+    { id: "def-nao-cabo-gross", metricId: "gross", name: "GROSS minimo", min: 0.8, penaltyRate: 0.5 },
+    { id: "def-nao-cabo-tv", metricId: "tv", name: "TV minimo", min: 0.25, penaltyRate: 0.5 },
+  ],
 };
-
 function seedState() {
   return {
     period: { month: "JUNHO", daysDone: 15, daysTotal: 26 },
@@ -85,14 +92,17 @@ function seedState() {
       { id: makeId(), name: "VENDEDOR CABO", branch: "FRAIBURGO", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", values: {} },
     ],
     rules: structuredClone(defaultRules),
+    customMetrics: { Cabo: [], "Nao Cabo": [] },
     deflators: structuredClone(defaultDeflators),
+    managerAccess: {},
   };
 }
 
-let state = loadState();
+var state = loadState();
 let activeAreaFilter = "Todas";
 let activeBranchFilter = "Todas";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
+let activeManagerBranch = sessionStorage.getItem(MANAGER_SESSION_KEY) || "";
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("commission-simulator-v1");
@@ -117,6 +127,46 @@ function updateSaveStatus(message = "Salvo no banco") {
   }, 2200);
 }
 
+function normalizeCustomMetrics(source) {
+  return {
+    Cabo: Array.isArray(source?.Cabo) ? source.Cabo : [],
+    "Nao Cabo": Array.isArray(source?.["Nao Cabo"]) ? source["Nao Cabo"] : [],
+  };
+}
+
+function normalizeDeflators(source) {
+  const normalized = structuredClone(defaultDeflators);
+  for (const area of ["Cabo", "Nao Cabo"]) {
+    const current = source?.[area];
+    if (Array.isArray(current)) {
+      normalized[area] = current.map((item) => ({
+        id: item.id || makeId(),
+        metricId: item.metricId || "gross",
+        name: item.name || "Deflator",
+        min: Number(item.min ?? item.grossMin ?? 0) || 0,
+        penaltyRate: Number(item.penaltyRate) || 0,
+      }));
+    } else if (current && typeof current === "object") {
+      normalized[area] = [
+        { id: `legacy-${area}-gross`, metricId: "gross", name: "GROSS minimo", min: Number(current.grossMin) || 0, penaltyRate: Number(current.penaltyRate) || 0 },
+        { id: `legacy-${area}-tv`, metricId: "tv", name: "TV minimo", min: Number(current.tvMin) || 0, penaltyRate: Number(current.penaltyRate) || 0 },
+      ];
+    }
+  }
+  if (!normalized.Cabo.some((item) => item.metricId === "banda")) {
+    normalized.Cabo.push({ id: "def-cabo-bl", metricId: "banda", name: "BL minimo", min: 0.8, penaltyRate: 0.5 });
+  }
+  return normalized;
+}
+
+function normalizeManagerAccess(source, sellers = []) {
+  const access = source && typeof source === "object" && !Array.isArray(source) ? { ...source } : {};
+  for (const seller of sellers) {
+    const branch = seller.branch || "Sem filial";
+    if (!access[branch]) access[branch] = "1234";
+  }
+  return access;
+}
 function normalizeState(candidate) {
   if (!candidate || typeof candidate !== "object" || !Array.isArray(candidate.sellers)) {
     throw new Error("Arquivo de backup invalido.");
@@ -124,11 +174,16 @@ function normalizeState(candidate) {
   candidate.period = candidate.period || { month: "JUNHO", daysDone: 1, daysTotal: 1 };
   candidate.settings = candidate.settings || { adminPassword: "admin123" };
   candidate.rules = candidate.rules || structuredClone(defaultRules);
-  candidate.deflators = candidate.deflators || structuredClone(defaultDeflators);
-  for (const seller of candidate.sellers) ensureSellerValues(seller);
+  candidate.customMetrics = normalizeCustomMetrics(candidate.customMetrics);
+  candidate.deflators = normalizeDeflators(candidate.deflators);
+  candidate.managerAccess = normalizeManagerAccess(candidate.managerAccess, candidate.sellers);
+  for (const area of ["Cabo", "Nao Cabo"]) {
+    candidate.rules[area] = candidate.rules[area] || {};
+    for (const metric of metricsFor(area, candidate)) candidate.rules[area][metric.id] = candidate.rules[area][metric.id] || [];
+  }
+  for (const seller of candidate.sellers) ensureSellerValues(seller, candidate);
   return candidate;
 }
-
 let cloudSaveTimer = 0;
 
 async function loadStateFromCloud() {
@@ -174,15 +229,17 @@ function flushSaveState(message = "Salvo no banco") {
   return saveStateToCloud(message);
 }
 
-function metricsFor(area) {
-  return areaMetrics[area] || [];
+function metricsFor(area, sourceState = state) {
+  const defaults = areaMetrics[area] || [];
+  const custom = sourceState?.customMetrics?.[area] || [];
+  return [...defaults, ...custom];
 }
 
-function ensureSellerValues(seller) {
+function ensureSellerValues(seller, sourceState = state) {
   seller.values = seller.values || {};
   seller.adjustments = seller.adjustments || { quality: 0, insurance: 0, carousel: 0 };
   if (!seller.password) seller.password = "1234";
-  for (const metric of metricsFor(seller.area)) {
+  for (const metric of metricsFor(seller.area, sourceState)) {
     if (!seller.values[metric.id]) seller.values[metric.id] = { goal: metric.goal, realized: 0 };
   }
 }
@@ -420,18 +477,101 @@ function renderRules() {
 
 function renderDeflators() {
   document.getElementById("deflatorEditor").innerHTML = ["Cabo", "Nao Cabo"].map((area) => {
-    const config = state.deflators[area] || defaultDeflators[area];
-    return `<div class="rule-card">
-      <h4>${area}</h4>
-      <div class="band-grid">
-        <label>Gross minimo<input data-deflator="grossMin" data-deflator-area="${area}" type="number" step="0.01" value="${config.grossMin}"></label>
-        <label>TV minimo<input data-deflator="tvMin" data-deflator-area="${area}" type="number" step="0.01" value="${config.tvMin}"></label>
-        <label>Penalidade<input data-deflator="penaltyRate" data-deflator-area="${area}" type="number" step="0.01" value="${config.penaltyRate}"></label>
+    const rules = state.deflators[area] || [];
+    const rows = rules.map((item) => `<div class="metric-row">
+      <label>Nome<input data-deflator-field="name" data-deflator-area="${area}" data-deflator-id="${item.id}" value="${item.name}"></label>
+      <label>Item da meta<select data-deflator-field="metricId" data-deflator-area="${area}" data-deflator-id="${item.id}">${metricOptions(area, item.metricId)}</select></label>
+      <label>Minimo %<input data-deflator-field="min" data-deflator-area="${area}" data-deflator-id="${item.id}" type="number" step="0.01" value="${item.min}"></label>
+      <label>Penalidade %<input data-deflator-field="penaltyRate" data-deflator-area="${area}" data-deflator-id="${item.id}" type="number" step="0.01" value="${item.penaltyRate}"></label>
+      <button class="danger-button" data-delete-deflator="${item.id}" data-deflator-area="${area}" type="button">Excluir</button>
+    </div>`).join("");
+    return `<div class="rule-card"><h4>${area}</h4>${rows}<button class="ghost-button" data-add-deflator="${area}" type="button">Adicionar deflator</button></div>`;
+  }).join("");
+}
+function metricOptions(area, selectedId) {
+  return metricsFor(area).map((metric) => `<option value="${metric.id}" ${metric.id === selectedId ? "selected" : ""}>${metric.name}</option>`).join("");
+}
+
+function renderMetricCatalogEditor() {
+  const container = document.getElementById("metricCatalogEditor");
+  if (!container) return;
+  container.innerHTML = ["Cabo", "Nao Cabo"].map((area) => {
+    const custom = state.customMetrics?.[area] || [];
+    const rows = custom.length ? custom.map((metric) => `
+      <div class="metric-row">
+        <label>Nome<input data-custom-metric-field="name" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}" value="${metric.name}"></label>
+        <label>Unidade<input data-custom-metric-field="unit" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}" value="${metric.unit || "Qtd."}"></label>
+        <label>Tipo
+          <select data-custom-metric-field="type" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}">
+            <option value="unit100" ${metric.type === "unit100" ? "selected" : ""}>Quantidade x taxa x 100</option>
+            <option value="revenue" ${metric.type === "revenue" ? "selected" : ""}>Receita x taxa</option>
+          </select>
+        </label>
+        <label>Meta padrao<input data-custom-metric-field="goal" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}" type="number" step="0.01" value="${metric.goal || 0}"></label>
+        <button class="danger-button" data-delete-custom-metric="${metric.id}" data-custom-metric-area="${area}" type="button">Excluir item</button>
       </div>
-    </div>`;
+    `).join("") : `<p class="muted-note">Nenhum item extra cadastrado.</p>`;
+    return `<div class="rule-card"><h4>${area}</h4>${rows}<button class="ghost-button" data-add-custom-metric="${area}" type="button">Adicionar meta</button></div>`;
   }).join("");
 }
 
+function renderManagerAccessEditor() {
+  const container = document.getElementById("managerAccessEditor");
+  if (!container) return;
+  state.managerAccess = normalizeManagerAccess(state.managerAccess, state.sellers);
+  container.innerHTML = branches().map((branch) => `
+    <div class="rule-card compact-rule">
+      <h4>${branch}</h4>
+      <label>Senha do gerente<input data-manager-password="${branch}" type="text" value="${state.managerAccess[branch] || "1234"}"></label>
+    </div>
+  `).join("");
+}
+
+function dashboardSummaryMarkup(sellers) {
+  const totals = sellers.reduce((acc, seller) => {
+    const result = sellerResult(seller);
+    acc.current += result.current;
+    acc.projected += result.projected;
+    acc.gain += result.gain;
+    acc.deflator += result.projectedDeflator;
+    return acc;
+  }, { current: 0, projected: 0, gain: 0, deflator: 0 });
+  const kpis = [
+    ["Total atual", money.format(totals.current)],
+    ["Total projetado", money.format(totals.projected)],
+    ["Ganho potencial", money.format(totals.gain)],
+    ["Deflator projetado", money.format(totals.deflator)],
+  ].map(([label, value]) => `<article class="kpi"><span>${label}</span><strong>${value}</strong></article>`).join("");
+  const rows = sellers.map((seller) => {
+    const result = sellerResult(seller);
+    const status = statusFor(seller);
+    return `<tr><td>${seller.name}</td><td>${seller.area}</td><td>${money.format(result.current)}</td><td>${money.format(result.projected)}</td><td>${money.format(result.projectedDeflator)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
+  }).join("");
+  return `<div class="kpi-grid manager-kpis">${kpis}</div><div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Area</th><th>Atual</th><th>Projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderManager() {
+  const loginPanel = document.getElementById("managerLoginPanel");
+  const dashboard = document.getElementById("managerDashboard");
+  if (!loginPanel || !dashboard) return;
+  const options = branches().map((branch) => `<option value="${branch}" ${branch === activeManagerBranch ? "selected" : ""}>${branch}</option>`).join("");
+  if (!activeManagerBranch) {
+    loginPanel.innerHTML = `
+      <label>Filial<select id="managerBranchSelect">${options}</select></label>
+      <label>Senha<input id="managerPassword" type="password" placeholder="Senha do gerente"></label>
+      <span id="managerLoginError" class="form-error"></span>
+      <button id="managerLogin" class="nav-button active" type="button">Entrar</button>
+    `;
+    dashboard.innerHTML = `<div class="empty-state">Selecione a filial e informe a senha para ver o dashboard da loja.</div>`;
+    return;
+  }
+  const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === activeManagerBranch);
+  loginPanel.innerHTML = `
+    <div class="hero-number"><span>Filial</span><strong>${activeManagerBranch}</strong></div>
+    <button id="managerLogout" class="ghost-button" type="button">Trocar filial</button>
+  `;
+  dashboard.innerHTML = dashboardSummaryMarkup(sellers);
+}
 function selectedCollabSeller() {
   const id = activeCollaboratorId || document.getElementById("collabSellerSelect").value || state.sellers[0]?.id;
   return state.sellers.find((seller) => seller.id === id) || state.sellers[0];
@@ -558,6 +698,61 @@ document.addEventListener("click", (event) => {
     flushSaveState("Salvo manualmente");
   }
 
+
+  const addMetricButton = event.target.closest("[data-add-custom-metric]");
+  if (addMetricButton) {
+    const area = addMetricButton.dataset.addCustomMetric;
+    state.customMetrics[area].push({ id: `custom_${makeId()}`, name: "NOVA META", unit: "Qtd.", type: "unit100", goal: 1 });
+    saveState("Meta adicionada");
+    renderAll();
+  }
+
+  const deleteMetricButton = event.target.closest("[data-delete-custom-metric]");
+  if (deleteMetricButton) {
+    const area = deleteMetricButton.dataset.customMetricArea;
+    const metricId = deleteMetricButton.dataset.deleteCustomMetric;
+    if (!confirm("Excluir este item de meta?")) return;
+    state.customMetrics[area] = state.customMetrics[area].filter((metric) => metric.id !== metricId);
+    state.deflators[area] = state.deflators[area].filter((item) => item.metricId !== metricId);
+    for (const seller of state.sellers.filter((item) => item.area === area)) delete seller.values[metricId];
+    delete state.rules[area][metricId];
+    saveState("Meta excluida");
+    renderAll();
+  }
+
+  const addDeflatorButton = event.target.closest("[data-add-deflator]");
+  if (addDeflatorButton) {
+    const area = addDeflatorButton.dataset.addDeflator;
+    state.deflators[area].push({ id: makeId(), metricId: metricsFor(area)[0]?.id || "gross", name: "Novo deflator", min: 0.8, penaltyRate: 0.1 });
+    saveState("Deflator adicionado");
+    renderAll();
+  }
+
+  const deleteDeflatorButton = event.target.closest("[data-delete-deflator]");
+  if (deleteDeflatorButton) {
+    const area = deleteDeflatorButton.dataset.deflatorArea;
+    state.deflators[area] = state.deflators[area].filter((item) => item.id !== deleteDeflatorButton.dataset.deleteDeflator);
+    saveState("Deflator excluido");
+    renderAll();
+  }
+
+  if (event.target.id === "managerLogin") {
+    const branch = document.getElementById("managerBranchSelect").value;
+    const typed = document.getElementById("managerPassword").value;
+    if (typed === String(state.managerAccess?.[branch] || "1234")) {
+      activeManagerBranch = branch;
+      sessionStorage.setItem(MANAGER_SESSION_KEY, branch);
+      renderAll();
+    } else {
+      document.getElementById("managerLoginError").textContent = "Senha incorreta";
+    }
+  }
+
+  if (event.target.id === "managerLogout") {
+    activeManagerBranch = "";
+    sessionStorage.removeItem(MANAGER_SESSION_KEY);
+    renderAll();
+  }
   if (event.target.id === "addSeller") {
     state.sellers.push({ id: makeId(), name: "NOVO VENDEDOR", branch: "FILIAL", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", values: {} });
     saveState();
@@ -660,6 +855,28 @@ document.addEventListener("input", (event) => {
     }
   }
 
+
+  if (target.dataset.customMetricField) {
+    const area = target.dataset.customMetricArea;
+    const metric = state.customMetrics[area].find((item) => item.id === target.dataset.customMetricId);
+    if (!metric) return;
+    const field = target.dataset.customMetricField;
+    metric[field] = field === "goal" ? Number(target.value) || 0 : target.value;
+    state.rules[area][metric.id] = state.rules[area][metric.id] || [];
+    for (const seller of state.sellers.filter((item) => item.area === area)) ensureSellerValues(seller);
+    saveState("Meta atualizada");
+    renderDashboard();
+    renderAdminMetrics();
+    renderManager();
+    renderCollaborator();
+    return;
+  }
+
+  if (target.dataset.managerPassword) {
+    state.managerAccess[target.dataset.managerPassword] = target.value || "1234";
+    saveState("Senha gerente salva");
+    return;
+  }
   if (target.dataset.sellerField) {
     updateSeller(target.dataset.sellerId, target.dataset.sellerField, target.value);
     return;
@@ -709,16 +926,19 @@ document.addEventListener("input", (event) => {
     renderCollaborator();
   }
 
-  if (target.dataset.deflator) {
+  if (target.dataset.deflatorField) {
     const area = target.dataset.deflatorArea;
-    state.deflators[area][target.dataset.deflator] = Number(target.value) || 0;
-    saveState();
+    const item = state.deflators[area].find((deflator) => deflator.id === target.dataset.deflatorId);
+    if (!item) return;
+    const field = target.dataset.deflatorField;
+    item[field] = field === "name" || field === "metricId" ? target.value : Number(target.value) || 0;
+    saveState("Deflator atualizado");
     renderDashboard();
     renderAdminMetrics();
+    renderManager();
     renderCollaborator();
     return;
   }
-
   saveState();
 });
 
@@ -741,7 +961,7 @@ document.addEventListener("change", (event) => {
     reader.readAsText(file);
   }
 
-  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator]")) renderAll();
+  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-custom-metric-field], [data-manager-password]")) renderAll();
   if (event.target.id === "adminSellerSelect") renderAdminMetrics();
   if (event.target.id === "collabSellerSelect") renderCollaborator();
   if (event.target.id === "ruleAreaSelect") renderRules();
@@ -758,21 +978,13 @@ document.addEventListener("keydown", (event) => {
 });
 
 for (const seller of state.sellers) ensureSellerValues(seller);
-state.deflators = state.deflators || structuredClone(defaultDeflators);
+state.customMetrics = normalizeCustomMetrics(state.customMetrics);
+state.deflators = normalizeDeflators(state.deflators);
+state.managerAccess = normalizeManagerAccess(state.managerAccess, state.sellers);
 state.settings = state.settings || { adminPassword: adminPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 loadStateFromCloud();
-
-
-
-
-
-
-
-
-
-
 
 
 

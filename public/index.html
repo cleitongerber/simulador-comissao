@@ -19,6 +19,7 @@
         <nav class="nav">
           <button class="nav-button" data-view="dashboard" type="button">Dashboard</button>
           <button class="nav-button" data-view="admin" type="button">Admin</button>
+          <button class="nav-button" data-view="gerente" type="button">Gerente PDV</button>
           <button class="nav-button active" data-view="colaborador" type="button">Colaborador</button>
         </nav>
         <div class="period-card">
@@ -149,9 +150,23 @@
 
             <section class="panel full">
               <div class="panel-header">
+                <h3>Itens de metas</h3>
+              </div>
+              <div id="metricCatalogEditor" class="rules-grid"></div>
+            </section>
+
+            <section class="panel full">
+              <div class="panel-header">
                 <h3>Deflatores</h3>
               </div>
               <div id="deflatorEditor" class="rules-grid"></div>
+            </section>
+
+            <section class="panel full">
+              <div class="panel-header">
+                <h3>Acesso gerente por filial</h3>
+              </div>
+              <div id="managerAccessEditor" class="rules-grid"></div>
             </section>
 
             <section class="panel full">
@@ -165,6 +180,23 @@
                 </label>
                 <p>A senha padrao inicial e admin123.</p>
               </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="gerenteView" class="view">
+          <div class="manager-layout">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Acesso da loja</h3>
+              </div>
+              <div id="managerLoginPanel" class="collab-login"></div>
+            </section>
+            <section class="panel wide">
+              <div class="panel-header">
+                <h3>Dashboard da filial</h3>
+              </div>
+              <div id="managerDashboard"></div>
             </section>
           </div>
         </section>
@@ -219,8 +251,4 @@
     <script src="./app.js"></script>
   </body>
 </html>
-
-
-
-
 
