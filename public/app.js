@@ -483,6 +483,13 @@ function renderCollaborator() {
   }).join("");
 }
 
+function updateActionVisibility() {
+  const isPrivilegedView = document.getElementById("adminView").classList.contains("active") || document.getElementById("dashboardView").classList.contains("active");
+  document.querySelectorAll(".admin-action").forEach((item) => {
+    item.hidden = !isPrivilegedView;
+  });
+}
+
 function renderAll() {
   document.getElementById("periodMonth").value = state.period.month;
   document.getElementById("daysDone").value = state.period.daysDone;
@@ -490,6 +497,7 @@ function renderAll() {
   renderDashboard();
   renderAdmin();
   renderCollaborator();
+  updateActionVisibility();
 }
 
 function updateSeller(id, field, value) {
@@ -531,6 +539,7 @@ function openView(view) {
   document.querySelectorAll(".view").forEach((panel) => panel.classList.remove("active"));
   document.getElementById(`${view}View`).classList.add("active");
   document.getElementById("viewTitle").textContent = document.querySelector(`[data-view="${view}"]`).textContent;
+  updateActionVisibility();
 }
 
 document.addEventListener("click", (event) => {
@@ -754,6 +763,8 @@ state.settings = state.settings || { adminPassword: adminPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 loadStateFromCloud();
+
+
 
 
 

@@ -45,11 +45,11 @@
           </div>
           <div class="actions">
             <span id="saveStatus" class="save-status">Conectando ao banco</span>
-            <button id="saveNow" class="ghost-button" type="button">Salvar agora</button>
-            <button id="importData" class="ghost-button" type="button">Importar backup</button>
+            <button id="saveNow" class="ghost-button admin-action" type="button" hidden>Salvar agora</button>
+            <button id="importData" class="ghost-button admin-action" type="button" hidden>Importar backup</button>
             <input id="importDataFile" type="file" accept="application/json" hidden />
-            <button id="exportData" class="ghost-button" type="button">Exportar backup</button>
-            <button id="resetData" class="danger-button" type="button">Restaurar padrao</button>
+            <button id="exportData" class="ghost-button admin-action" type="button" hidden>Exportar backup</button>
+            <button id="resetData" class="danger-button admin-action" type="button" hidden>Restaurar padrao</button>
           </div>
         </section>
 
@@ -219,6 +219,7 @@
     <script src="./app.js"></script>
   </body>
 </html>
+
 
 
 
