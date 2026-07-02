@@ -454,23 +454,26 @@ function renderAll() {
 
 function updateSeller(id, field, value) {
   const seller = state.sellers.find((item) => item.id === id);
-  if (!seller) return;
+  if (!seller) return false;
   if (field === "area" && seller.area !== value) {
     seller.area = value;
     seller.values = {};
     ensureSellerValues(seller);
-  } else {
-    seller[field] = value;
+    saveState();
+    renderAll();
+    return true;
   }
+  seller[field] = value;
   saveState();
-  renderAll();
+  renderDashboard();
+  renderSelectors();
+  return false;
 }
 
 function setMetricValue(seller, metricId, field, value) {
   ensureSellerValues(seller);
   seller.values[metricId][field] = Number(value) || 0;
   saveState();
-  renderAll();
 }
 
 function showAdminLogin() {
@@ -604,20 +607,40 @@ document.addEventListener("input", (event) => {
     }
   }
 
-  if (target.dataset.sellerField) updateSeller(target.dataset.sellerId, target.dataset.sellerField, target.value);
+  if (target.dataset.sellerField) {
+    updateSeller(target.dataset.sellerId, target.dataset.sellerField, target.value);
+    return;
+  }
   if (target.dataset.adjustment) {
     const seller = state.sellers.find((item) => item.id === target.dataset.sellerId);
     seller.adjustments[target.dataset.adjustment] = Number(target.value) || 0;
     saveState();
-    renderAll();
+    renderDashboard();
+    renderAdminMetrics();
+    renderCollaborator();
+    return;
   }
 
   const adminSeller = selectedAdminSeller();
-  if (target.dataset.metricGoal) setMetricValue(adminSeller, target.dataset.metricGoal, "goal", target.value);
-  if (target.dataset.metricRealized) setMetricValue(adminSeller, target.dataset.metricRealized, "realized", target.value);
+  if (target.dataset.metricGoal) {
+    setMetricValue(adminSeller, target.dataset.metricGoal, "goal", target.value);
+    renderDashboard();
+    renderCollaborator();
+    return;
+  }
+  if (target.dataset.metricRealized) {
+    setMetricValue(adminSeller, target.dataset.metricRealized, "realized", target.value);
+    renderDashboard();
+    renderCollaborator();
+    return;
+  }
 
   const collabSeller = selectedCollabSeller();
-  if (target.dataset.collabRealized) setMetricValue(collabSeller, target.dataset.collabRealized, "realized", target.value);
+  if (target.dataset.collabRealized) {
+    setMetricValue(collabSeller, target.dataset.collabRealized, "realized", target.value);
+    renderDashboard();
+    return;
+  }
 
   if (target.dataset.ruleAt || target.dataset.ruleRate) {
     const area = document.getElementById("ruleAreaSelect").value;
@@ -637,7 +660,10 @@ document.addEventListener("input", (event) => {
     const area = target.dataset.deflatorArea;
     state.deflators[area][target.dataset.deflator] = Number(target.value) || 0;
     saveState();
-    renderAll();
+    renderDashboard();
+    renderAdminMetrics();
+    renderCollaborator();
+    return;
   }
 
   saveState();
@@ -662,6 +688,7 @@ document.addEventListener("change", (event) => {
     reader.readAsText(file);
   }
 
+  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator]")) renderAll();
   if (event.target.id === "adminSellerSelect") renderAdminMetrics();
   if (event.target.id === "collabSellerSelect") renderCollaborator();
   if (event.target.id === "ruleAreaSelect") renderRules();
@@ -683,6 +710,8 @@ state.settings = state.settings || { adminPassword: adminPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 loadStateFromCloud();
+
+
 
 
 
