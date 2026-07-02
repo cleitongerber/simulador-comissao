@@ -129,9 +129,49 @@ function normalizeState(candidate) {
   return candidate;
 }
 
+let cloudSaveTimer = 0;
+
+async function loadStateFromCloud() {
+  try {
+    const response = await fetch("/api/state", { cache: "no-store" });
+    if (!response.ok) throw new Error("Falha ao carregar banco.");
+    state = normalizeState(await response.json());
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    updateSaveStatus("Dados carregados do banco");
+    renderAll();
+  } catch (error) {
+    console.error(error);
+    updateSaveStatus("Modo offline: salvando local");
+  }
+}
+
+async function saveStateToCloud(message) {
+  try {
+    const response = await fetch("/api/state", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+    });
+    if (!response.ok) throw new Error("Falha ao salvar banco.");
+    updateSaveStatus(message);
+  } catch (error) {
+    console.error(error);
+    updateSaveStatus("Offline: salvo neste navegador");
+  }
+}
+
 function saveState(message = "Salvo no banco") {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  updateSaveStatus(message);
+  updateSaveStatus("Salvando...");
+  window.clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = window.setTimeout(() => saveStateToCloud(message), 350);
+}
+
+function flushSaveState(message = "Salvo no banco") {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  updateSaveStatus("Salvando...");
+  window.clearTimeout(cloudSaveTimer);
+  return saveStateToCloud(message);
 }
 
 function metricsFor(area) {
@@ -505,6 +545,10 @@ document.addEventListener("click", (event) => {
     renderDashboard();
   }
 
+  if (event.target.id === "saveNow") {
+    flushSaveState("Salvo manualmente");
+  }
+
   if (event.target.id === "addSeller") {
     state.sellers.push({ id: makeId(), name: "NOVO VENDEDOR", branch: "FILIAL", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", values: {} });
     saveState();
@@ -710,6 +754,8 @@ state.settings = state.settings || { adminPassword: adminPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 loadStateFromCloud();
+
+
 
 
 
