@@ -302,10 +302,16 @@ function percentFor(seller, metricId, useProjected) {
 
 function deflatorFor(seller, subtotal, useProjected) {
   const config = state.deflators?.[seller.area] || defaultDeflators[seller.area];
-  const gross = percentFor(seller, "gross", useProjected);
-  const tv = percentFor(seller, "tv", useProjected);
-  const applies = gross < Number(config.grossMin) || tv < Number(config.tvMin);
-  return applies ? -subtotal * Number(config.penaltyRate || 0) : 0;
+  const rules = Array.isArray(config) ? config : [
+    { metricId: "gross", min: Number(config?.grossMin) || 0, penaltyRate: Number(config?.penaltyRate) || 0 },
+    { metricId: "tv", min: Number(config?.tvMin) || 0, penaltyRate: Number(config?.penaltyRate) || 0 },
+  ];
+  const penaltyRate = rules.reduce((max, rule) => {
+    const min = Number(rule.min) || 0;
+    if (!rule.metricId || percentFor(seller, rule.metricId, useProjected) >= min) return max;
+    return Math.max(max, Number(rule.penaltyRate) || 0);
+  }, 0);
+  return penaltyRate ? -subtotal * penaltyRate : 0;
 }
 
 function sellerResult(seller) {
@@ -681,6 +687,44 @@ function branchMetricRows(sellers) {
   return [...byMetric.values()].map((row) => ({ ...row, percent: row.goal ? row.projected / row.goal : 0 }));
 }
 
+function sellerGapSummary(seller) {
+  const gaps = metricsFor(seller.area)
+    .filter((metric) => metric.type !== "deviceRevenue")
+    .map((metric) => {
+      const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+      const goal = Number(value.goal) || 0;
+      const projectedValue = projected(value.realized);
+      const percent = goal ? projectedValue / goal : 0;
+      return {
+        name: metric.name,
+        percent,
+        missing: Math.max(goal - projectedValue, 0),
+      };
+    })
+    .filter((gap) => gap.missing > 0 && gap.percent < 1)
+    .sort((a, b) => a.percent - b.percent)
+    .slice(0, 3);
+  if (!gaps.length) return `<span class="status ok">Sem gaps projetados</span>`;
+  return `<div class="gap-list">${gaps.map((gap) => `<span>${escapeHtml(gap.name)}: ${pct.format(gap.percent)} | falta ${num.format(gap.missing)}</span>`).join("")}</div>`;
+}
+
+function branchSellerRows(sellers) {
+  const rows = [...sellers].sort((a, b) => sellerAttainment(a) - sellerAttainment(b));
+  return rows.map((seller) => {
+    const result = sellerResult(seller);
+    const status = statusFor(seller);
+    return `<tr>
+      <td>${escapeHtml(seller.name)}</td>
+      <td>${escapeHtml(seller.area)}</td>
+      <td>${pct.format(sellerAttainment(seller))}</td>
+      <td>${money.format(result.current)}</td>
+      <td>${money.format(result.projected)}</td>
+      <td>${money.format(result.projectedDeflator)}</td>
+      <td><span class="status ${status.cls}">${status.label}</span></td>
+      <td>${sellerGapSummary(seller)}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="8">Nenhum vendedor vinculado a esta filial.</td></tr>`;
+}
 function branchDashboardMarkup(branch, sellers) {
   const rows = branchMetricRows(sellers);
   const totalGoal = rows.reduce((sum, row) => sum + row.goal, 0);
@@ -694,7 +738,11 @@ function branchDashboardMarkup(branch, sellers) {
       <article class="kpi"><span>Atingimento total</span><strong>${pct.format(totalPercent)}</strong></article>
       <article class="kpi"><span>Projetado total</span><strong>${num.format(totalProjected)}</strong></article>
     </div>
-    <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>Projetado</th><th>Atingimento</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>Projetado</th><th>Atingimento</th></tr></thead><tbody>${tableRows || `<tr><td colspan="5">Nenhuma meta encontrada para esta filial.</td></tr>`}</tbody></table></div>
+    <section class="branch-seller-panel">
+      <div class="panel-header"><h3>Resultado individual por vendedor</h3></div>
+      <div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Area</th><th>Atingimento</th><th>Atual</th><th>Projetado</th><th>Deflator</th><th>Status</th><th>Principais gaps</th></tr></thead><tbody>${branchSellerRows(sellers)}</tbody></table></div>
+    </section>
   `;
 }
 function dashboardSummaryMarkup(sellers) {
@@ -1241,4 +1289,5 @@ state.settings = state.settings || { adminPassword: adminPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 loadStateFromCloud();
+
 

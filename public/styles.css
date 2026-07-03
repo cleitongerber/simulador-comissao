@@ -644,6 +644,24 @@ td select {
 .manager-kpis {
   padding: 16px 16px 0;
 }
+.branch-seller-panel {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.gap-list {
+  display: grid;
+  gap: 4px;
+  min-width: 260px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+.gap-list span {
+  white-space: normal;
+}
+
 
 @media (max-width: 980px) {
   .manager-layout,
