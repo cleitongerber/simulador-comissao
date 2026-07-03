@@ -732,17 +732,18 @@ function branchMetricRows(sellers) {
   const byMetric = new Map();
   for (const seller of sellers) {
     ensureSellerValues(seller);
-    for (const metric of metricsFor(seller.area).filter((item) => item.type !== "deviceRevenue")) {
+    for (const metric of metricsFor(seller.area)) {
       const key = `${seller.area}::${metric.id}`;
-      const current = byMetric.get(key) || { name: `${metric.name} (${seller.area})`, goal: 0, realized: 0, projected: 0 };
+      const current = byMetric.get(key) || { name: `${metric.name} (${seller.area})`, goal: 0, realized: 0, projected: 0, hasGoal: false };
       const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
       current.goal += Number(value.goal) || 0;
+      current.hasGoal = current.hasGoal || Number(value.goal) > 0;
       current.realized += Number(value.realized) || 0;
       current.projected += projected(value.realized);
       byMetric.set(key, current);
     }
   }
-  return [...byMetric.values()].map((row) => ({ ...row, percent: row.goal ? row.projected / row.goal : 0 }));
+  return [...byMetric.values()].map((row) => ({ ...row, percent: row.goal ? row.projected / row.goal : null }));
 }
 
 function sellerGapSummary(seller) {
@@ -785,10 +786,12 @@ function branchSellerRows(sellers) {
 }
 function branchDashboardMarkup(branch, sellers) {
   const rows = branchMetricRows(sellers);
-  const totalGoal = rows.reduce((sum, row) => sum + row.goal, 0);
+  const attainmentRows = rows.filter((row) => row.percent !== null);
+  const totalGoal = attainmentRows.reduce((sum, row) => sum + row.goal, 0);
+  const projectedForAttainment = attainmentRows.reduce((sum, row) => sum + row.projected, 0);
   const totalProjected = rows.reduce((sum, row) => sum + row.projected, 0);
-  const totalPercent = totalGoal ? totalProjected / totalGoal : 0;
-  const tableRows = rows.map((row) => `<tr><td>${row.name}</td><td>${num.format(row.goal)}</td><td>${num.format(row.realized)}</td><td>${num.format(row.projected)}</td><td>${pct.format(row.percent)}</td></tr>`).join("");
+  const totalPercent = totalGoal ? projectedForAttainment / totalGoal : 0;
+  const tableRows = rows.map((row) => `<tr><td>${row.name}</td><td>${row.hasGoal ? num.format(row.goal) : "-"}</td><td>${num.format(row.realized)}</td><td>${num.format(row.projected)}</td><td>${row.percent === null ? "-" : pct.format(row.percent)}</td></tr>`).join("");
   return `
     <div class="kpi-grid manager-kpis">
       <article class="kpi"><span>Filial</span><strong>${branch}</strong></article>
