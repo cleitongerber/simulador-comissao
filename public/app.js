@@ -378,29 +378,51 @@ function metricAttainmentRows(sellers) {
   return rows;
 }
 
+function sellerRankCard(seller, index, cls = "") {
+  const attainment = sellerAttainment(seller);
+  const result = sellerResult(seller);
+  const status = statusFor(seller);
+  return `<div class="rank-card ${cls}">
+    <strong>${index + 1}. ${escapeHtml(seller.name)}</strong><br>
+    <span>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)} - ${pct.format(attainment)} - ${money.format(result.projected)} - <span class="status ${status.cls}">${status.label}</span></span>
+  </div>`;
+}
+
 function renderAchievementBars(sellers) {
   const container = document.getElementById("achievementBars");
   if (!container) return;
-  const ranked = [...sellers].sort((a, b) => sellerAttainment(b) - sellerAttainment(a)).slice(0, 8);
-  container.innerHTML = ranked.map((seller) => {
-    const attainment = sellerAttainment(seller);
-    return `<div class="bar-row"><div class="bar-label"><span>${seller.name}</span><span>${pct.format(attainment)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, Math.max(2, attainment * 100))}%"></div></div></div>`;
-  }).join("") || `<p class="muted-note">Sem vendedores no filtro.</p>`;
+  const highlights = [...sellers]
+    .filter((seller) => sellerAttainment(seller) >= 1)
+    .sort((a, b) => sellerAttainment(b) - sellerAttainment(a));
+  container.innerHTML = highlights.map((seller, index) => sellerRankCard(seller, index, "ok-card")).join("") || `<p class="muted-note">Nenhum vendedor com meta batida no filtro atual.</p>`;
 }
 
 function renderDashboardInsights(sellers) {
-  const insight = document.getElementById("insightList");
+  const offendersContainer = document.getElementById("insightList");
   const goals = document.getElementById("goalOffenderList");
-  if (!insight || !goals) return;
-  const ranked = [...sellers].sort((a, b) => sellerAttainment(b) - sellerAttainment(a));
-  const highlights = ranked.slice(0, 5).map((seller, index) => `<div class="rank-card ok-card"><strong>${index + 1}. ${seller.name}</strong><br><span>${seller.branch} - ${pct.format(sellerAttainment(seller))}</span></div>`).join("");
-  const offenders = ranked.slice(-5).reverse().map((seller, index) => `<div class="rank-card bad-card"><strong>${index + 1}. ${seller.name}</strong><br><span>${seller.branch} - ${pct.format(sellerAttainment(seller))}</span></div>`).join("");
-  insight.innerHTML = `<div class="split-list"><div><h4>Destaques</h4>${highlights || `<p class="muted-note">Sem dados.</p>`}</div><div><h4>Ofensores</h4>${offenders || `<p class="muted-note">Sem dados.</p>`}</div></div>`;
+  if (!offendersContainer || !goals) return;
 
-  const rows = metricAttainmentRows(sellers).sort((a, b) => a.percent - b.percent).slice(0, 12);
-  goals.innerHTML = rows.map((row) => `<div class="rank-card"><strong>${row.seller.name} - ${row.metric.name}</strong><br><span>${row.seller.branch} | Meta ${num.format(row.goal)} | Proj. ${num.format(row.projected)} | ${pct.format(row.percent)}</span></div>`).join("") || `<p class="muted-note">Sem metas no filtro.</p>`;
+  const offenders = [...sellers]
+    .filter((seller) => sellerAttainment(seller) < 1)
+    .sort((a, b) => sellerAttainment(a) - sellerAttainment(b));
+  offendersContainer.innerHTML = offenders.map((seller, index) => sellerRankCard(seller, index, "bad-card")).join("") || `<p class="muted-note">Todos os vendedores do filtro bateram meta.</p>`;
+
+  const rows = criticalGoalRows(sellers).slice(0, 20);
+  goals.innerHTML = rows.map((row, index) => `<div class="rank-card bad-card">
+    <strong>${index + 1}. ${escapeHtml(row.metric.name)} - ${escapeHtml(row.seller.name)}</strong><br>
+    <span>${escapeHtml(row.seller.branch)} | ${escapeHtml(row.seller.area)} | Ating. ${pct.format(row.percent)} | Falta ${num.format(row.missing)} | Meta ${num.format(row.goal)} | Proj. ${num.format(row.projected)}</span>
+  </div>`).join("") || `<p class="muted-note">Sem indicadores críticos no filtro atual.</p>`;
 }
 
+function criticalGoalRows(sellers) {
+  return metricAttainmentRows(sellers)
+    .map((row) => ({ ...row, missing: Math.max((Number(row.goal) || 0) - (Number(row.projected) || 0), 0) }))
+    .filter((row) => row.goal > 0 && row.percent < 1)
+    .sort((a, b) => {
+      const gap = (1 - b.percent) - (1 - a.percent);
+      return gap || b.missing - a.missing;
+    });
+}
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
 }
@@ -419,12 +441,18 @@ function exportDashboardExcel() {
   const sellers = visibleSellers();
   const rows = sellers.map((seller) => {
     const result = sellerResult(seller);
-    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${sellerAttainment(seller)}</td><td>${result.current}</td><td>${result.projected}</td><td>${result.projectedDeflator}</td><td>${result.gain}</td></tr>`;
+    const status = statusFor(seller);
+    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${money.format(result.current)}</td><td>${money.format(result.projected)}</td><td>${money.format(result.projectedDeflator)}</td><td>${money.format(result.gain)}</td><td>${escapeHtml(status.label)}</td></tr>`;
   }).join("");
-  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atingimento medio</th><th>Atual</th><th>Projetado</th><th>Deflator</th><th>Ganho</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>Projetado</th><th>Deflator</th><th>Ganho</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
   downloadFile(`resultado-vendedores-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
 }
 
+function exportCriticalGoalsExcel() {
+  const rows = criticalGoalRows(visibleSellers()).map((row) => `<tr><td>${escapeHtml(row.seller.name)}</td><td>${escapeHtml(row.seller.branch)}</td><td>${escapeHtml(row.seller.area)}</td><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td>${num.format(row.realized)}</td><td>${num.format(row.projected)}</td><td>${pct.format(row.percent)}</td><td>${num.format(row.missing)}</td></tr>`).join("");
+  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Indicador</th><th>Meta</th><th>Realizado</th><th>Projetado</th><th>Atingimento</th><th>Falta projetada</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  downloadFile(`metas-criticas-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
+}
 function csvCell(value) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
@@ -514,6 +542,8 @@ function renderDashboard() {
 
   renderAreaBars(sellers);
   renderRanking(sellers);
+  renderAchievementBars(sellers);
+  renderDashboardInsights(sellers);
 }
 
 function renderAreaBars(sellers) {
@@ -941,6 +971,10 @@ document.addEventListener("click", (event) => {
 
   if (event.target.id === "exportDashboardXls") {
     exportDashboardExcel();
+  }
+
+  if (event.target.id === "exportCriticalGoalsXls") {
+    exportCriticalGoalsExcel();
   }
 
   if (event.target.id === "downloadGoalTemplate") {

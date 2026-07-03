@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Simulador de Comissões</title>
-    <link rel="stylesheet" href="./styles.css?v=20260703-claro-parceira" />
+    <link rel="stylesheet" href="./styles.css?v=20260703-dashboard-rankings-2" />
   </head>
   <body>
     <div class="app-shell">
@@ -72,6 +72,7 @@
             <section class="panel wide">
               <div class="panel-header">
                 <h3>Resultado por vendedor</h3>
+                <button id="exportDashboardXls" class="ghost-button" type="button">Exportar Excel</button>
               </div>
               <div class="table-wrap">
                 <table>
@@ -105,20 +106,20 @@
             </section>
             <section class="panel">
               <div class="panel-header">
-                <h3>Atingimento por vendedor</h3>
+                <h3>Destaques</h3>
               </div>
               <div id="achievementBars" class="bar-stack"></div>
             </section>
             <section class="panel">
               <div class="panel-header">
-                <h3>Destaques e ofensores</h3>
+                <h3>Ofensores</h3>
               </div>
               <div id="insightList" class="ranking-list"></div>
             </section>
             <section class="panel full">
               <div class="panel-header">
                 <h3>Metas criticas</h3>
-                <button id="exportDashboardXls" class="ghost-button" type="button">Exportar Excel</button>
+                <button id="exportCriticalGoalsXls" class="ghost-button" type="button">Exportar Excel</button>
               </div>
               <div id="goalOffenderList" class="ranking-list"></div>
             </section>
@@ -301,7 +302,7 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260703-claro-parceira"></script>
+    <script src="./app.js?v=20260703-dashboard-rankings-2"></script>
   </body>
 </html>
 
