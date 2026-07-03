@@ -799,22 +799,40 @@ function sellerGapSummary(seller) {
   return `<div class="gap-list">${gaps.map((gap) => `<span>${escapeHtml(gap.name)}: ${pct.format(gap.percent)} | falta ${num.format(gap.missing)}</span>`).join("")}</div>`;
 }
 
+function sellerIndicatorRows(seller) {
+  ensureSellerValues(seller);
+  return metricsFor(seller.area).map((metric) => {
+    const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+    const goal = Number(value.goal) || 0;
+    const realized = Number(value.realized) || 0;
+    const projectedValue = projected(realized);
+    const percent = goal ? projectedValue / goal : null;
+    return `<tr>
+      <td>${escapeHtml(metric.name)}</td>
+      <td>${goal ? num.format(goal) : "-"}</td>
+      <td>${num.format(realized)}</td>
+      <td>${num.format(projectedValue)}</td>
+      <td>${percent === null ? "-" : pct.format(percent)}</td>
+    </tr>`;
+  }).join("");
+}
+
 function branchSellerRows(sellers) {
   const rows = [...sellers].sort((a, b) => sellerAttainment(a) - sellerAttainment(b));
   return rows.map((seller) => {
     const result = sellerResult(seller);
     const status = statusFor(seller);
-    return `<tr>
-      <td>${escapeHtml(seller.name)}</td>
-      <td>${escapeHtml(seller.area)}</td>
-      <td>${pct.format(sellerAttainment(seller))}</td>
-      <td>${money.format(result.current)}</td>
-      <td>${money.format(result.projected)}</td>
-      <td>${money.format(result.projectedDeflator)}</td>
-      <td><span class="status ${status.cls}">${status.label}</span></td>
-      <td>${sellerGapSummary(seller)}</td>
-    </tr>`;
-  }).join("") || `<tr><td colspan="8">Nenhum vendedor vinculado a esta filial.</td></tr>`;
+    return `<article class="seller-indicator-card">
+      <div class="seller-indicator-header">
+        <div><span>Vendedor</span><strong>${escapeHtml(seller.name)}</strong></div>
+        <div><span>Area</span><strong>${escapeHtml(seller.area)}</strong></div>
+        <div><span>Atingimento</span><strong>${pct.format(sellerAttainment(seller))}</strong></div>
+        <div><span>Projetado</span><strong>${money.format(result.projected)}</strong></div>
+        <div><span>Status</span><strong><span class="status ${status.cls}">${status.label}</span></strong></div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>Projetado</th><th>Atingimento</th></tr></thead><tbody>${sellerIndicatorRows(seller)}</tbody></table></div>
+    </article>`;
+  }).join("") || `<p class="muted-note">Nenhum vendedor vinculado a esta filial.</p>`;
 }
 function branchDashboardMarkup(branch, sellers) {
   const rows = branchMetricRows(sellers);
@@ -834,7 +852,7 @@ function branchDashboardMarkup(branch, sellers) {
     <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>Projetado</th><th>Atingimento</th></tr></thead><tbody>${tableRows || `<tr><td colspan="5">Nenhuma meta encontrada para esta filial.</td></tr>`}</tbody></table></div>
     <section class="branch-seller-panel">
       <div class="panel-header"><h3>Resultado individual por vendedor</h3></div>
-      <div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Area</th><th>Atingimento</th><th>Atual</th><th>Projetado</th><th>Deflator</th><th>Status</th><th>Principais gaps</th></tr></thead><tbody>${branchSellerRows(sellers)}</tbody></table></div>
+      <div class="seller-indicator-list">${branchSellerRows(sellers)}</div>
     </section>
   `;
 }

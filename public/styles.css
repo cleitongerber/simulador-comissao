@@ -684,6 +684,43 @@ td select {
 .manager-kpis {
   padding: 16px 16px 0;
 }
+
+.seller-indicator-list {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.seller-indicator-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.seller-indicator-header {
+  display: grid;
+  grid-template-columns: 1.3fr repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  padding: 12px;
+  background: #fff6f6;
+  border-bottom: 1px solid var(--line);
+}
+
+.seller-indicator-header span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.seller-indicator-header strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 15px;
+}
+
 .branch-seller-panel {
   margin-top: 16px;
   border-top: 1px solid var(--line);
@@ -798,6 +835,11 @@ td select {
 
   .admin-action-buttons .ghost-button {
     width: 100%;
+  }
+}
+@media (max-width: 760px) {
+  .seller-indicator-header {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
