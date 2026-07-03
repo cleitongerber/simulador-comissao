@@ -181,6 +181,11 @@ function normalizeManagers(managers, legacyAccess, sellers = []) {
       normalized.push({ id: makeId(), name: `Gerente ${branch}`, branch, password: password || "1234" });
     }
   }
+  if (!normalized.length) {
+    for (const branch of normalizeBranches(null, sellers)) {
+      normalized.push({ id: makeId(), name: `Gerente ${branch}`, branch, password: "1234" });
+    }
+  }
   return normalized;
 }
 
@@ -802,15 +807,22 @@ function updateActionVisibility() {
   });
 }
 
+function safeRender(label, action) {
+  try {
+    action();
+  } catch (error) {
+    console.error(`Erro ao renderizar ${label}`, error);
+  }
+}
 function renderAll() {
   document.getElementById("periodMonth").value = state.period.month;
   document.getElementById("daysDone").value = state.period.daysDone;
   document.getElementById("daysTotal").value = state.period.daysTotal;
-  renderDashboard();
-  renderManager();
-  renderAdmin();
-  renderCollaborator();
-  updateActionVisibility();
+  safeRender("dashboard", renderDashboard);
+  safeRender("filial", renderManager);
+  safeRender("admin", renderAdmin);
+  safeRender("colaborador", renderCollaborator);
+  safeRender("acoes", updateActionVisibility);
 }
 
 function updateSeller(id, field, value) {
