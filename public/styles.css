@@ -410,6 +410,28 @@ td select {
   background: var(--soft);
 }
 
+
+.critical-goal-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: center;
+}
+
+.critical-goal-card > span:last-child {
+  grid-column: 1 / -1;
+}
+
+.critical-count {
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: #fde2e1;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .seller-card {
   display: grid;
   grid-template-columns: 1.3fr 1fr;

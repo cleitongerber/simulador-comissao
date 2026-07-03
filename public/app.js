@@ -408,19 +408,42 @@ function renderDashboardInsights(sellers) {
   offendersContainer.innerHTML = offenders.map((seller, index) => sellerRankCard(seller, index, "bad-card")).join("") || `<p class="muted-note">Todos os vendedores do filtro bateram meta.</p>`;
 
   const rows = criticalGoalRows(sellers).slice(0, 20);
-  goals.innerHTML = rows.map((row, index) => `<div class="rank-card bad-card">
-    <strong>${index + 1}. ${escapeHtml(row.metric.name)} - ${escapeHtml(row.seller.name)}</strong><br>
-    <span>${escapeHtml(row.seller.branch)} | ${escapeHtml(row.seller.area)} | Ating. ${pct.format(row.percent)} | Falta ${num.format(row.missing)} | Meta ${num.format(row.goal)} | Proj. ${num.format(row.projected)}</span>
+  goals.innerHTML = rows.map((row, index) => `<div class="rank-card bad-card critical-goal-card">
+    <strong>${index + 1}. ${escapeHtml(row.metricName)} (${escapeHtml(row.area)})</strong>
+    <span class="critical-count">${row.sellerCount} vendedor${row.sellerCount === 1 ? "" : "es"} abaixo</span>
+    <span>Ating. medio ${pct.format(row.percent)} | Falta total ${num.format(row.missing)} | Meta total ${num.format(row.goal)} | Proj. total ${num.format(row.projected)}</span>
   </div>`).join("") || `<p class="muted-note">Sem indicadores críticos no filtro atual.</p>`;
 }
 
 function criticalGoalRows(sellers) {
-  return metricAttainmentRows(sellers)
-    .map((row) => ({ ...row, missing: Math.max((Number(row.goal) || 0) - (Number(row.projected) || 0), 0) }))
-    .filter((row) => row.goal > 0 && row.percent < 1)
+  const grouped = new Map();
+  for (const row of metricAttainmentRows(sellers)) {
+    const goal = Number(row.goal) || 0;
+    const projectedValue = Number(row.projected) || 0;
+    const percent = goal ? projectedValue / goal : 0;
+    if (goal <= 0 || percent >= 1) continue;
+    const key = `${row.seller.area}::${row.metric.id}`;
+    const current = grouped.get(key) || {
+      area: row.seller.area,
+      metricName: row.metric.name,
+      sellerCount: 0,
+      goal: 0,
+      realized: 0,
+      projected: 0,
+      missing: 0,
+    };
+    current.sellerCount += 1;
+    current.goal += goal;
+    current.realized += Number(row.realized) || 0;
+    current.projected += projectedValue;
+    current.missing += Math.max(goal - projectedValue, 0);
+    grouped.set(key, current);
+  }
+  return [...grouped.values()]
+    .map((row) => ({ ...row, percent: row.goal ? row.projected / row.goal : 0 }))
     .sort((a, b) => {
       const gap = (1 - b.percent) - (1 - a.percent);
-      return gap || b.missing - a.missing;
+      return gap || b.sellerCount - a.sellerCount || b.missing - a.missing;
     });
 }
 function escapeHtml(value) {
@@ -449,8 +472,8 @@ function exportDashboardExcel() {
 }
 
 function exportCriticalGoalsExcel() {
-  const rows = criticalGoalRows(visibleSellers()).map((row) => `<tr><td>${escapeHtml(row.seller.name)}</td><td>${escapeHtml(row.seller.branch)}</td><td>${escapeHtml(row.seller.area)}</td><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td>${num.format(row.realized)}</td><td>${num.format(row.projected)}</td><td>${pct.format(row.percent)}</td><td>${num.format(row.missing)}</td></tr>`).join("");
-  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Indicador</th><th>Meta</th><th>Realizado</th><th>Projetado</th><th>Atingimento</th><th>Falta projetada</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const rows = criticalGoalRows(visibleSellers()).map((row) => `<tr><td>${escapeHtml(row.metricName)}</td><td>${escapeHtml(row.area)}</td><td>${row.sellerCount}</td><td>${num.format(row.goal)}</td><td>${num.format(row.realized)}</td><td>${num.format(row.projected)}</td><td>${pct.format(row.percent)}</td><td>${num.format(row.missing)}</td></tr>`).join("");
+  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Indicador</th><th>Area</th><th>Vendedores abaixo</th><th>Meta total</th><th>Realizado total</th><th>Projetado total</th><th>Atingimento medio</th><th>Falta total</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
   downloadFile(`metas-criticas-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
 }
 function csvCell(value) {
