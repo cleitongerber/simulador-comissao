@@ -1044,11 +1044,12 @@ function renderCollaborator() {
   ensureSellerValues(seller);
   const result = sellerResult(seller);
   const status = statusFor(seller);
+  const projectedTotalBeforeDeflator = result.projectedSubtotal + result.adjustments;
   document.getElementById("collabHero").innerHTML = `
     <div class="hero-number"><span>${seller.name}</span><strong>${seller.area}</strong></div>
-    <div class="hero-number"><span>Comissao atual</span><strong>${money.format(result.current)}</strong></div>
-    <div class="hero-number"><span>Comissao projetada</span><strong>${money.format(result.projected)}</strong></div>
-    <div class="hero-number"><span>Deflator projetado</span><strong>${money.format(result.projectedDeflator)}</strong></div>
+    <div class="hero-number"><span>Comissao total proj.</span><strong>${money.format(projectedTotalBeforeDeflator)}</strong></div>
+    <div class="hero-number"><span>Deflator</span><strong>${money.format(result.projectedDeflator)}</strong></div>
+    <div class="hero-number"><span>Comissao final proj.</span><strong>${money.format(result.projected)}</strong></div>
     <div class="hero-number"><span>Status</span><strong><span class="status ${status.cls}">${status.label}</span></strong></div>
     <button id="collabLogout" class="ghost-button" type="button">Trocar colaborador</button>
   `;
