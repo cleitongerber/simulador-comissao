@@ -743,6 +743,10 @@ function renderSelectors() {
 
 function renderAdmin() {
   renderSelectors();
+  const adminPeriodMonth = document.getElementById("adminPeriodMonth");
+  const adminDaysTotal = document.getElementById("adminDaysTotal");
+  if (adminPeriodMonth) adminPeriodMonth.value = state.period.month;
+  if (adminDaysTotal) adminDaysTotal.value = state.period.daysTotal;
   const list = document.getElementById("sellerEditorList");
   list.innerHTML = state.sellers.map((seller) => `
     <div class="seller-card">
@@ -1070,9 +1074,9 @@ function safeRender(label, action) {
 }
 function renderAll() {
   renderBrand();
-  document.getElementById("periodMonth").value = state.period.month;
+  document.getElementById("periodMonthDisplay").textContent = state.period.month;
   document.getElementById("daysDone").value = state.period.daysDone;
-  document.getElementById("daysTotal").value = state.period.daysTotal;
+  document.getElementById("daysTotalDisplay").textContent = state.period.daysTotal;
   safeRender("dashboard", renderDashboard);
   safeRender("filial", renderManager);
   safeRender("admin", renderAdmin);
@@ -1313,13 +1317,16 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("input", (event) => {
   const target = event.target;
-  if (target.id === "periodMonth") state.period.month = target.value;
   if (target.id === "daysDone") state.period.daysDone = Number(target.value) || 1;
-  if (target.id === "daysTotal") state.period.daysTotal = Number(target.value) || 1;
-  if (target.id === "periodMonth" || target.id === "daysDone" || target.id === "daysTotal") {
+  if (target.id === "adminPeriodMonth") state.period.month = target.value;
+  if (target.id === "adminDaysTotal") state.period.daysTotal = Number(target.value) || 1;
+  if (target.id === "daysDone" || target.id === "adminPeriodMonth" || target.id === "adminDaysTotal") {
     saveState();
+    document.getElementById("periodMonthDisplay").textContent = state.period.month;
+    document.getElementById("daysTotalDisplay").textContent = state.period.daysTotal;
     renderDashboard();
     renderAdminMetrics();
+    renderManager();
     renderCollaborator();
   }
 

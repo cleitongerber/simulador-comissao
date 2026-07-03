@@ -144,6 +144,37 @@ label {
   gap: 10px;
 }
 
+.period-readonly {
+  display: grid;
+  gap: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.period-readonly strong {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 16px;
+}
+
+.period-readonly.compact strong {
+  justify-content: center;
+}
+
+.period-admin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 16px;
+}
+
 input,
 select {
   width: 100%;
@@ -514,6 +545,7 @@ td select {
 
   .kpi-grid,
   .period-grid,
+  .period-admin-grid,
   .band-grid,
   .seller-card {
     grid-template-columns: 1fr;

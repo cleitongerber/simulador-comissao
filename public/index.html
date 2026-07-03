@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Simulador de Comissões</title>
-    <link rel="stylesheet" href="./styles.css?v=20260703-import-autocreate" />
+    <link rel="stylesheet" href="./styles.css?v=20260703-admin-period" />
   </head>
   <body>
     <div class="app-shell">
@@ -24,17 +24,19 @@
           <button class="nav-button active" data-view="colaborador" type="button">Colaborador</button>
         </nav>
         <div class="period-card">
-          <label for="periodMonth">Mes</label>
-          <input id="periodMonth" type="text" />
+          <div class="period-readonly">
+            <span>Mes</span>
+            <strong id="periodMonthDisplay">JUNHO</strong>
+          </div>
           <div class="period-grid">
             <label>
               Dias realizados
               <input id="daysDone" min="1" type="number" />
             </label>
-            <label>
-              Dias uteis
-              <input id="daysTotal" min="1" type="number" />
-            </label>
+            <div class="period-readonly compact">
+              <span>Dias uteis</span>
+              <strong id="daysTotalDisplay">26</strong>
+            </div>
           </div>
         </div>
       </aside>
@@ -149,6 +151,22 @@
                 <h3>Vendedores</h3>
               </div>
               <div id="sellerEditorList" class="editor-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Periodo da campanha</h3>
+              </div>
+              <div class="period-admin-grid">
+                <label>
+                  Mes
+                  <input id="adminPeriodMonth" type="text" />
+                </label>
+                <label>
+                  Dias uteis
+                  <input id="adminDaysTotal" min="1" type="number" />
+                </label>
+              </div>
             </section>
 
             <section class="panel wide">
@@ -308,7 +326,7 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260703-import-autocreate"></script>
+    <script src="./app.js?v=20260703-admin-period"></script>
   </body>
 </html>
 
