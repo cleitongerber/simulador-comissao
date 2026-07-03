@@ -2,7 +2,7 @@
 const ADMIN_PASSWORD_KEY = "commission-admin-password";
 const ADMIN_SESSION_KEY = "commission-admin-session";
 const COLLAB_SESSION_KEY = "commission-collaborator-session";
-const MANAGER_SESSION_KEY = "commission-manager-branch-session";
+const BRANCH_SESSION_KEY = "commission-branch-session";
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const pct = new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -95,10 +95,7 @@ function seedState() {
     customMetrics: { Cabo: [], "Nao Cabo": [] },
     branches: ["CURITIBANOS", "FRAIBURGO"],
     deflators: structuredClone(defaultDeflators),
-    managers: [
-      { id: makeId(), name: "Gerente CURITIBANOS", branch: "CURITIBANOS", password: "1234" },
-      { id: makeId(), name: "Gerente FRAIBURGO", branch: "FRAIBURGO", password: "1234" },
-    ],
+    branchPasswords: { CURITIBANOS: "1234", FRAIBURGO: "1234" },
   };
 }
 
@@ -106,7 +103,7 @@ var state = loadState();
 let activeAreaFilter = "Todas";
 let activeBranchFilter = "Todas";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
-let activeManagerId = sessionStorage.getItem(MANAGER_SESSION_KEY) || "";
+let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("commission-simulator-v1");
@@ -168,27 +165,17 @@ function normalizeBranches(branches, sellers = []) {
   const fromSellers = sellers.map((seller) => seller.branch || "Sem filial");
   return [...new Set([...values, ...fromSellers].filter(Boolean))].sort();
 }
-function normalizeManagers(managers, legacyAccess, sellers = []) {
-  const list = Array.isArray(managers) ? managers : [];
-  const normalized = list.map((manager) => ({
-    id: manager.id || makeId(),
-    name: manager.name || "Gerente",
-    branch: manager.branch || branchesFromSellers(sellers)[0] || "FILIAL",
-    password: manager.password || "1234",
-  }));
-  if (!normalized.length && legacyAccess && typeof legacyAccess === "object" && !Array.isArray(legacyAccess)) {
-    for (const [branch, password] of Object.entries(legacyAccess)) {
-      normalized.push({ id: makeId(), name: `Gerente ${branch}`, branch, password: password || "1234" });
-    }
+function normalizeBranchPasswords(source, legacyAccess, managers, branchesList) {
+  const passwords = source && typeof source === "object" && !Array.isArray(source) ? { ...source } : {};
+  if (legacyAccess && typeof legacyAccess === "object" && !Array.isArray(legacyAccess)) {
+    for (const [branch, password] of Object.entries(legacyAccess)) if (!passwords[branch]) passwords[branch] = password || "1234";
   }
-  if (!normalized.length) {
-    for (const branch of normalizeBranches(null, sellers)) {
-      normalized.push({ id: makeId(), name: `Gerente ${branch}`, branch, password: "1234" });
-    }
+  if (Array.isArray(managers)) {
+    for (const manager of managers) if (manager.branch && !passwords[manager.branch]) passwords[manager.branch] = manager.password || "1234";
   }
-  return normalized;
+  for (const branch of branchesList || []) if (!passwords[branch]) passwords[branch] = "1234";
+  return passwords;
 }
-
 function branchesFromSellers(sellers = state?.sellers || []) {
   return [...new Set(sellers.map((seller) => seller.branch || "Sem filial"))].sort();
 }
@@ -201,7 +188,8 @@ function normalizeState(candidate) {
   candidate.rules = candidate.rules || structuredClone(defaultRules);
   candidate.customMetrics = normalizeCustomMetrics(candidate.customMetrics);
   candidate.deflators = normalizeDeflators(candidate.deflators);
-  candidate.managers = normalizeManagers(candidate.managers, candidate.managerAccess, candidate.sellers);
+  candidate.branches = normalizeBranches(candidate.branches, candidate.sellers);
+  candidate.branchPasswords = normalizeBranchPasswords(candidate.branchPasswords, candidate.managerAccess, candidate._legacyManagers, candidate.branches);
   for (const area of ["Cabo", "Nao Cabo"]) {
     candidate.rules[area] = candidate.rules[area] || {};
     for (const metric of metricsFor(area, candidate)) candidate.rules[area][metric.id] = candidate.rules[area][metric.id] || [];
@@ -550,6 +538,7 @@ function renderBranchEditor() {
   container.innerHTML = state.branches.map((branch, index) => `
     <div class="branch-card">
       <label>Filial<input data-branch-index="${index}" value="${branch}"></label>
+      <label>Senha da filial<input data-branch-password="${branch}" type="text" value="${state.branchPasswords?.[branch] || "1234"}"></label>
       <button class="danger-button" data-delete-branch="${branch}" type="button">Excluir filial</button>
     </div>
   `).join("");
@@ -675,31 +664,38 @@ function renderMetricCatalogEditor() {
   }).join("");
 }
 
-function renderManagerAccessEditor() {
-  const container = document.getElementById("managerAccessEditor");
-  if (!container) return;
-  state.managers = normalizeManagers(state.managers, state.managerAccess, state.sellers);
-  const branchOptions = branches().map((branch) => `<option value="${branch}">${branch}</option>`).join("");
-  if (!state.managers.length) {
-    container.innerHTML = `<p class="muted-note">Nenhum gerente cadastrado.</p>`;
-    return;
+function branchMetricRows(sellers) {
+  const byMetric = new Map();
+  for (const seller of sellers) {
+    ensureSellerValues(seller);
+    for (const metric of metricsFor(seller.area).filter((item) => item.type !== "deviceRevenue")) {
+      const key = `${seller.area}::${metric.id}`;
+      const current = byMetric.get(key) || { name: `${metric.name} (${seller.area})`, goal: 0, realized: 0, projected: 0 };
+      const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+      current.goal += Number(value.goal) || 0;
+      current.realized += Number(value.realized) || 0;
+      current.projected += projected(value.realized);
+      byMetric.set(key, current);
+    }
   }
-  container.innerHTML = state.managers.map((manager) => `
-    <div class="manager-card">
-      <label>Nome<input data-manager-field="name" data-manager-id="${manager.id}" value="${manager.name}"></label>
-      <label>Filial
-        <select data-manager-field="branch" data-manager-id="${manager.id}">
-          ${branches().map((branch) => `<option value="${branch}" ${branch === manager.branch ? "selected" : ""}>${branch}</option>`).join("") || branchOptions}
-        </select>
-      </label>
-      <label>Senha<input data-manager-field="password" data-manager-id="${manager.id}" type="text" value="${manager.password || "1234"}"></label>
-      <button class="danger-button" data-delete-manager="${manager.id}" type="button">Excluir gerente</button>
-    </div>
-  `).join("");
+  return [...byMetric.values()].map((row) => ({ ...row, percent: row.goal ? row.projected / row.goal : 0 }));
 }
 
-function selectedManager() {
-  return state.managers.find((manager) => manager.id === activeManagerId) || state.managers.find((manager) => manager.branch === activeManagerId) || null;
+function branchDashboardMarkup(branch, sellers) {
+  const rows = branchMetricRows(sellers);
+  const totalGoal = rows.reduce((sum, row) => sum + row.goal, 0);
+  const totalProjected = rows.reduce((sum, row) => sum + row.projected, 0);
+  const totalPercent = totalGoal ? totalProjected / totalGoal : 0;
+  const tableRows = rows.map((row) => `<tr><td>${row.name}</td><td>${num.format(row.goal)}</td><td>${num.format(row.realized)}</td><td>${num.format(row.projected)}</td><td>${pct.format(row.percent)}</td></tr>`).join("");
+  return `
+    <div class="kpi-grid manager-kpis">
+      <article class="kpi"><span>Filial</span><strong>${branch}</strong></article>
+      <article class="kpi"><span>Vendedores</span><strong>${sellers.length}</strong></article>
+      <article class="kpi"><span>Atingimento total</span><strong>${pct.format(totalPercent)}</strong></article>
+      <article class="kpi"><span>Projetado total</span><strong>${num.format(totalProjected)}</strong></article>
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>Projetado</th><th>Atingimento</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+  `;
 }
 function dashboardSummaryMarkup(sellers) {
   const totals = sellers.reduce((acc, seller) => {
@@ -728,26 +724,25 @@ function renderManager() {
   const loginPanel = document.getElementById("managerLoginPanel");
   const dashboard = document.getElementById("managerDashboard");
   if (!loginPanel || !dashboard) return;
-  state.managers = normalizeManagers(state.managers, state.managerAccess, state.sellers);
-  const manager = selectedManager();
-  if (!manager) {
-    const options = managerBranches().map((branch) => `<option value="${branch}">${branch}</option>`).join("");
+  state.branches = normalizeBranches(state.branches, state.sellers);
+  state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.managerAccess, state._legacyManagers, state.branches);
+  if (!activeBranchSession || !state.branches.includes(activeBranchSession)) {
+    const options = state.branches.map((branch) => `<option value="${branch}">${branch}</option>`).join("");
     loginPanel.innerHTML = options ? `
       <label>Filial<select id="managerBranchSelect">${options}</select></label>
-      <label>Senha<input id="managerPassword" type="password" placeholder="Senha do gerente"></label>
+      <label>Senha<input id="managerPassword" type="password" placeholder="Senha da filial"></label>
       <span id="managerLoginError" class="form-error"></span>
       <button id="managerLogin" class="nav-button active" type="button">Entrar</button>
-    ` : `<div class="empty-state">Cadastre uma filial e um gerente no Admin para liberar esta visao.</div>`;
-    dashboard.innerHTML = `<div class="empty-state">A filial acessa somente os vendedores vinculados a ela.</div>`;
+    ` : `<div class="empty-state">Cadastre uma filial no Admin para liberar esta visao.</div>`;
+    dashboard.innerHTML = `<div class="empty-state">A filial acessa somente o atingimento dos vendedores vinculados a ela.</div>`;
     return;
   }
-  const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === manager.branch);
+  const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === activeBranchSession);
   loginPanel.innerHTML = `
-    <div class="hero-number"><span>Filial</span><strong>${manager.branch}</strong></div>
-    <div class="hero-number"><span>Gerente</span><strong>${manager.name}</strong></div>
+    <div class="hero-number"><span>Filial</span><strong>${activeBranchSession}</strong></div>
     <button id="managerLogout" class="ghost-button" type="button">Trocar filial</button>
   `;
-  dashboard.innerHTML = dashboardSummaryMarkup(sellers);
+  dashboard.innerHTML = branchDashboardMarkup(activeBranchSession, sellers);
 }
 function selectedCollabSeller() {
   const id = activeCollaboratorId || document.getElementById("collabSellerSelect").value || state.sellers[0]?.id;
@@ -897,6 +892,8 @@ document.addEventListener("click", (event) => {
     let count = 2;
     while (branches().includes(name)) name = `${base} ${count++}`;
     state.branches.push(name);
+    state.branchPasswords = state.branchPasswords || {};
+    state.branchPasswords[name] = "1234";
     saveState("Filial adicionada");
     renderAll();
   }
@@ -904,33 +901,14 @@ document.addEventListener("click", (event) => {
   const deleteBranchButton = event.target.closest("[data-delete-branch]");
   if (deleteBranchButton) {
     const branch = deleteBranchButton.dataset.deleteBranch;
-    const inUse = state.sellers.some((seller) => seller.branch === branch) || state.managers.some((manager) => manager.branch === branch);
+    const inUse = state.sellers.some((seller) => seller.branch === branch);
     if (inUse) {
-      alert("Esta filial esta vinculada a vendedor ou gerente. Altere os cadastros antes de excluir.");
+      alert("Esta filial esta vinculada a vendedor. Altere o cadastro antes de excluir.");
       return;
     }
     state.branches = state.branches.filter((item) => item !== branch);
+    if (state.branchPasswords) delete state.branchPasswords[branch];
     saveState("Filial excluida");
-    renderAll();
-  }
-  if (event.target.id === "addManager") {
-    state.managers = normalizeManagers(state.managers, state.managerAccess, state.sellers);
-    state.managers.push({ id: makeId(), name: "NOVO GERENTE", branch: branches()[0] || "FILIAL", password: "1234" });
-    saveState("Gerente adicionado");
-    renderAll();
-  }
-
-  const deleteManagerButton = event.target.closest("[data-delete-manager]");
-  if (deleteManagerButton) {
-    const manager = state.managers.find((item) => item.id === deleteManagerButton.dataset.deleteManager);
-    if (!manager) return;
-    if (!confirm(`Excluir o gerente ${manager.name}?`)) return;
-    state.managers = state.managers.filter((item) => item.id !== manager.id);
-    if (activeManagerId === manager.id) {
-      activeManagerId = "";
-      sessionStorage.removeItem(MANAGER_SESSION_KEY);
-    }
-    saveState("Gerente excluido");
     renderAll();
   }
   if (event.target.id === "saveNow") {
@@ -978,18 +956,18 @@ document.addEventListener("click", (event) => {
   if (event.target.id === "managerLogin") {
     const branch = document.getElementById("managerBranchSelect").value;
     const typed = document.getElementById("managerPassword").value;
-    const manager = state.managers.find((item) => item.branch === branch && typed === String(item.password || "1234"));
-    if (manager) {
-      activeManagerId = manager.id;
-      sessionStorage.setItem(MANAGER_SESSION_KEY, manager.id);
+    if (typed === String(state.branchPasswords?.[branch] || "1234")) {
+      activeBranchSession = branch;
+      sessionStorage.setItem(BRANCH_SESSION_KEY, branch);
       renderAll();
     } else {
       document.getElementById("managerLoginError").textContent = "Senha incorreta";
     }
   }
+
   if (event.target.id === "managerLogout") {
-    activeManagerId = "";
-    sessionStorage.removeItem(MANAGER_SESSION_KEY);
+    activeBranchSession = "";
+    sessionStorage.removeItem(BRANCH_SESSION_KEY);
     renderAll();
   }
   if (event.target.id === "addSeller") {
@@ -1112,23 +1090,24 @@ document.addEventListener("input", (event) => {
   }
 
 
+  if (target.dataset.branchPassword) {
+    state.branchPasswords = state.branchPasswords || {};
+    state.branchPasswords[target.dataset.branchPassword] = target.value || "1234";
+    saveState("Senha da filial salva");
+    return;
+  }
   if (target.dataset.branchIndex) {
     const index = Number(target.dataset.branchIndex);
     const oldBranch = state.branches[index];
     const newBranch = target.value.trim() || oldBranch;
     state.branches[index] = newBranch;
     for (const seller of state.sellers) if (seller.branch === oldBranch) seller.branch = newBranch;
-    for (const manager of state.managers) if (manager.branch === oldBranch) manager.branch = newBranch;
+    if (state.branchPasswords?.[oldBranch] && !state.branchPasswords[newBranch]) {
+      state.branchPasswords[newBranch] = state.branchPasswords[oldBranch];
+      delete state.branchPasswords[oldBranch];
+    }
     saveState("Filial atualizada");
     renderDashboard();
-    renderManager();
-    return;
-  }
-  if (target.dataset.managerField) {
-    const manager = state.managers.find((item) => item.id === target.dataset.managerId);
-    if (!manager) return;
-    manager[target.dataset.managerField] = target.value || (target.dataset.managerField === "password" ? "1234" : "");
-    saveState("Gerente atualizado");
     renderManager();
     return;
   }
@@ -1232,7 +1211,7 @@ document.addEventListener("change", (event) => {
     reader.readAsText(file);
   }
 
-  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-custom-metric-field], [data-manager-field], [data-branch-index]")) renderAll();
+  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-custom-metric-field], [data-branch-index], [data-branch-password]")) renderAll();
   if (event.target.id === "adminSellerSelect") renderAdminMetrics();
   if (event.target.id === "collabSellerSelect") renderCollaborator();
   if (event.target.id === "ruleAreaSelect") renderRules();
@@ -1252,7 +1231,7 @@ for (const seller of state.sellers) ensureSellerValues(seller);
 state.customMetrics = normalizeCustomMetrics(state.customMetrics);
 state.branches = normalizeBranches(state.branches, state.sellers);
 state.deflators = normalizeDeflators(state.deflators);
-state.managers = normalizeManagers(state.managers, state.managerAccess, state.sellers);
+state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.managerAccess, state._legacyManagers, state.branches);
 state.settings = state.settings || { adminPassword: adminPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
