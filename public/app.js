@@ -1029,7 +1029,7 @@ function prepareCollaboratorPdfExport() {
     `;
   }
   document.body.classList.add("print-collaborator");
-  window.print();
+  window.setTimeout(() => window.print(), 150);
 }
 
 function renderCollaborator() {

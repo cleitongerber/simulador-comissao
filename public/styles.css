@@ -880,8 +880,20 @@ td select {
 }
 
 @media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   body.print-collaborator {
     background: #fff;
+    color: #111;
+    font-size: 10px;
   }
 
   body.print-collaborator .sidebar,
@@ -895,6 +907,7 @@ td select {
 
   body.print-collaborator .app-shell {
     display: block;
+    min-height: auto;
   }
 
   body.print-collaborator .main {
@@ -912,27 +925,101 @@ td select {
 
   body.print-collaborator .collab-layout {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 10px;
+    grid-template-columns: 250px 1fr;
+    gap: 8px;
+    align-items: start;
+    width: 100%;
   }
 
   body.print-collaborator .panel {
     border: 1px solid #ddd;
+    border-radius: 4px;
     box-shadow: none;
     break-inside: avoid;
+    overflow: visible;
+  }
+
+  body.print-collaborator .panel-header {
+    padding: 8px 10px;
+    min-height: auto;
+  }
+
+  body.print-collaborator .panel-header h3 {
+    font-size: 12px;
   }
 
   body.print-collaborator .export-stamp {
     display: grid;
-    gap: 4px;
-    padding: 12px 16px;
+    gap: 2px;
+    padding: 8px 10px;
     border-bottom: 1px solid #ddd;
     color: #222;
-    font-size: 12px;
+    font-size: 10px;
   }
 
   body.print-collaborator .export-stamp strong {
-    font-size: 16px;
+    font-size: 13px;
+  }
+
+  body.print-collaborator .collab-hero {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  body.print-collaborator .hero-number {
+    padding: 8px;
+    border-radius: 4px;
+  }
+
+  body.print-collaborator .hero-number span {
+    font-size: 8px;
+  }
+
+  body.print-collaborator .hero-number strong {
+    margin-top: 2px;
+    font-size: 15px;
+  }
+
+  body.print-collaborator .status {
+    padding: 2px 5px;
+    font-size: 9px;
+  }
+
+  body.print-collaborator .table-wrap {
+    overflow: visible;
+  }
+
+  body.print-collaborator table {
+    min-width: 0;
+    table-layout: fixed;
+    font-size: 9px;
+  }
+
+  body.print-collaborator th,
+  body.print-collaborator td {
+    padding: 5px 6px;
+    white-space: normal;
+  }
+
+  body.print-collaborator th:nth-child(1),
+  body.print-collaborator td:nth-child(1) {
+    width: 26%;
+  }
+
+  body.print-collaborator th:nth-child(2),
+  body.print-collaborator td:nth-child(2),
+  body.print-collaborator th:nth-child(3),
+  body.print-collaborator td:nth-child(3),
+  body.print-collaborator th:nth-child(4),
+  body.print-collaborator td:nth-child(4),
+  body.print-collaborator th:nth-child(5),
+  body.print-collaborator td:nth-child(5) {
+    width: 13%;
+  }
+
+  body.print-collaborator th:nth-child(6),
+  body.print-collaborator td:nth-child(6) {
+    width: 22%;
   }
 
   body.print-collaborator input {
@@ -940,13 +1027,12 @@ td select {
     padding: 0;
     min-height: auto;
     font: inherit;
+    background: transparent;
   }
 
   body.print-collaborator th {
     background: #c80013 !important;
     color: #fff !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
   }
 }
 
