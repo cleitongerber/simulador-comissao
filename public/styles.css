@@ -704,3 +704,42 @@ td select {
   }
 }
 
+
+.admin-actions-panel {
+  box-shadow: none;
+}
+
+.admin-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px;
+}
+
+.admin-action-buttons .ghost-button {
+  min-width: 170px;
+  font-weight: 700;
+}
+
+.branch-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+@media (max-width: 620px) {
+  .admin-action-buttons,
+  .branch-card {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-action-buttons .ghost-button {
+    width: 100%;
+  }
+}
+

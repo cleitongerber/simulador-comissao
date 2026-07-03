@@ -584,7 +584,10 @@ function renderAdmin() {
   `).join("");
   renderAdminMetrics();
   renderRules();
+  renderBranchEditor();
+  renderMetricCatalogEditor();
   renderDeflators();
+  renderManagerAccessEditor();
 }
 
 function selectedAdminSeller() {
@@ -723,21 +726,21 @@ function renderManager() {
   state.managers = normalizeManagers(state.managers, state.managerAccess, state.sellers);
   const manager = selectedManager();
   if (!manager) {
-    const options = state.managers.map((item) => `<option value="${item.id}">${item.name} - ${item.branch}</option>`).join("");
-    loginPanel.innerHTML = state.managers.length ? `
-      <label>Gerente<select id="managerSelect">${options}</select></label>
+    const options = managerBranches().map((branch) => `<option value="${branch}">${branch}</option>`).join("");
+    loginPanel.innerHTML = options ? `
+      <label>Filial<select id="managerBranchSelect">${options}</select></label>
       <label>Senha<input id="managerPassword" type="password" placeholder="Senha do gerente"></label>
       <span id="managerLoginError" class="form-error"></span>
       <button id="managerLogin" class="nav-button active" type="button">Entrar</button>
-    ` : `<div class="empty-state">Cadastre um gerente no Admin para liberar esta visao.</div>`;
-    dashboard.innerHTML = `<div class="empty-state">O gerente vera somente os vendedores vinculados a filial dele.</div>`;
+    ` : `<div class="empty-state">Cadastre uma filial e um gerente no Admin para liberar esta visao.</div>`;
+    dashboard.innerHTML = `<div class="empty-state">A filial acessa somente os vendedores vinculados a ela.</div>`;
     return;
   }
   const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === manager.branch);
   loginPanel.innerHTML = `
-    <div class="hero-number"><span>Gerente</span><strong>${manager.name}</strong></div>
     <div class="hero-number"><span>Filial</span><strong>${manager.branch}</strong></div>
-    <button id="managerLogout" class="ghost-button" type="button">Trocar gerente</button>
+    <div class="hero-number"><span>Gerente</span><strong>${manager.name}</strong></div>
+    <button id="managerLogout" class="ghost-button" type="button">Trocar filial</button>
   `;
   dashboard.innerHTML = dashboardSummaryMarkup(sellers);
 }
@@ -960,10 +963,10 @@ document.addEventListener("click", (event) => {
   }
 
   if (event.target.id === "managerLogin") {
-    const managerId = document.getElementById("managerSelect").value;
-    const manager = state.managers.find((item) => item.id === managerId);
+    const branch = document.getElementById("managerBranchSelect").value;
     const typed = document.getElementById("managerPassword").value;
-    if (manager && typed === String(manager.password || "1234")) {
+    const manager = state.managers.find((item) => item.branch === branch && typed === String(item.password || "1234"));
+    if (manager) {
       activeManagerId = manager.id;
       sessionStorage.setItem(MANAGER_SESSION_KEY, manager.id);
       renderAll();
@@ -971,7 +974,6 @@ document.addEventListener("click", (event) => {
       document.getElementById("managerLoginError").textContent = "Senha incorreta";
     }
   }
-
   if (event.target.id === "managerLogout") {
     activeManagerId = "";
     sessionStorage.removeItem(MANAGER_SESSION_KEY);

@@ -19,7 +19,7 @@
         <nav class="nav">
           <button class="nav-button" data-view="dashboard" type="button">Dashboard</button>
           <button class="nav-button" data-view="admin" type="button">Admin</button>
-          <button class="nav-button" data-view="gerente" type="button">Gerente PDV</button>
+          <button class="nav-button" data-view="gerente" type="button">Filial</button>
           <button class="nav-button active" data-view="colaborador" type="button">Colaborador</button>
         </nav>
         <div class="period-card">
@@ -126,10 +126,20 @@
 
         <section id="adminView" class="view">
           <div class="admin-grid">
-            <section class="panel">
+            
+            <section class="panel full admin-actions-panel">
+              <div class="panel-header">
+                <h3>Acoes administrativas</h3>
+              </div>
+              <div id="adminQuickActions" class="admin-action-buttons">
+                <button id="addSeller" class="ghost-button" type="button">Adicionar vendedor</button>
+                <button id="addBranch" class="ghost-button" type="button">Adicionar filial</button>
+                <button id="addManager" class="ghost-button" type="button">Adicionar gerente</button>
+              </div>
+            </section>
+<section class="panel">
               <div class="panel-header">
                 <h3>Vendedores</h3>
-                <button id="addSeller" class="icon-button" type="button" title="Adicionar vendedor">+</button>
               </div>
               <div id="sellerEditorList" class="editor-list"></div>
             </section>
@@ -170,7 +180,6 @@
             <section class="panel full">
               <div class="panel-header">
                 <h3>Cadastro de filiais</h3>
-                <button id="addBranch" class="icon-button" type="button" title="Adicionar filial">+</button>
               </div>
               <div id="branchEditorList" class="rules-grid"></div>
             </section>
@@ -203,7 +212,6 @@
             <section class="panel full">
               <div class="panel-header">
                 <h3>Cadastro de gerentes</h3>
-                <button id="addManager" class="icon-button" type="button" title="Adicionar gerente">+</button>
               </div>
               <div id="managerAccessEditor" class="rules-grid"></div>
             </section>
