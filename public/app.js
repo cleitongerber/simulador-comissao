@@ -7,6 +7,7 @@ const BRANCH_SESSION_KEY = "commission-branch-session";
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const pct = new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const num = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
+const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
 function makeId() {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -1012,6 +1013,25 @@ function collaboratorLoginMarkup(seller) {
   </div>`;
 }
 
+function prepareCollaboratorPdfExport() {
+  const seller = selectedCollabSeller();
+  if (!seller || activeCollaboratorId !== seller.id) {
+    alert("Entre com a senha do colaborador antes de exportar.");
+    return;
+  }
+  const stamp = document.getElementById("collabExportStamp");
+  if (stamp) {
+    stamp.innerHTML = `
+      <strong>Relatorio do colaborador</strong>
+      <span>${seller.name} - ${seller.branch} - ${seller.area}</span>
+      <span>Mes: ${state.period.month} | Dias realizados: ${state.period.daysDone} | Dias uteis: ${state.period.daysTotal}</span>
+      <span>Exportado em ${dateTime.format(new Date())}</span>
+    `;
+  }
+  document.body.classList.add("print-collaborator");
+  window.print();
+}
+
 function renderCollaborator() {
   renderSelectors();
   const seller = selectedCollabSeller();
@@ -1283,6 +1303,10 @@ document.addEventListener("click", (event) => {
     updateSaveStatus("Backup exportado");
   }
 
+  if (event.target.id === "exportCollaboratorPdf") {
+    prepareCollaboratorPdfExport();
+  }
+
   if (event.target.id === "collabLogin") {
     const seller = selectedCollabSeller();
     const typed = document.getElementById("collabPassword").value;
@@ -1509,6 +1533,10 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && document.getElementById("adminLock").classList.contains("active")) {
     document.getElementById("adminLogin").click();
   }
+});
+
+window.addEventListener("afterprint", () => {
+  document.body.classList.remove("print-collaborator");
 });
 
 for (const seller of state.sellers) ensureSellerValues(seller);

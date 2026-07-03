@@ -662,6 +662,10 @@ td select {
   text-align: center;
 }
 
+.export-stamp {
+  display: none;
+}
+
 .delete-seller-button {
   align-self: end;
   min-height: 36px;
@@ -872,6 +876,77 @@ td select {
 @media (max-width: 760px) {
   .seller-indicator-header {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media print {
+  body.print-collaborator {
+    background: #fff;
+  }
+
+  body.print-collaborator .sidebar,
+  body.print-collaborator .topbar,
+  body.print-collaborator .modal-backdrop,
+  body.print-collaborator .panel-header select,
+  body.print-collaborator .panel-header button,
+  body.print-collaborator #collabLogout {
+    display: none !important;
+  }
+
+  body.print-collaborator .app-shell {
+    display: block;
+  }
+
+  body.print-collaborator .main {
+    padding: 0;
+    overflow: visible;
+  }
+
+  body.print-collaborator .view {
+    display: none !important;
+  }
+
+  body.print-collaborator #colaboradorView {
+    display: block !important;
+  }
+
+  body.print-collaborator .collab-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  body.print-collaborator .panel {
+    border: 1px solid #ddd;
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  body.print-collaborator .export-stamp {
+    display: grid;
+    gap: 4px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #ddd;
+    color: #222;
+    font-size: 12px;
+  }
+
+  body.print-collaborator .export-stamp strong {
+    font-size: 16px;
+  }
+
+  body.print-collaborator input {
+    border: 0;
+    padding: 0;
+    min-height: auto;
+    font: inherit;
+  }
+
+  body.print-collaborator th {
+    background: #c80013 !important;
+    color: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
 

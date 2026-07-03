@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Simulador de Comissões</title>
-    <link rel="stylesheet" href="./styles.css?v=20260703-admin-period" />
+    <link rel="stylesheet" href="./styles.css?v=20260703-collab-pdf" />
   </head>
   <body>
     <div class="app-shell">
@@ -291,7 +291,9 @@
             <section class="panel wide">
               <div class="panel-header">
                 <h3>Simular resultado</h3>
+                <button id="exportCollaboratorPdf" class="ghost-button" type="button">Exportar PDF</button>
               </div>
+              <div id="collabExportStamp" class="export-stamp"></div>
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -326,7 +328,7 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260703-admin-period"></script>
+    <script src="./app.js?v=20260703-collab-pdf"></script>
   </body>
 </html>
 
