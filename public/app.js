@@ -93,8 +93,12 @@ function seedState() {
     ],
     rules: structuredClone(defaultRules),
     customMetrics: { Cabo: [], "Nao Cabo": [] },
+    branches: ["CURITIBANOS", "FRAIBURGO"],
     deflators: structuredClone(defaultDeflators),
-    managerAccess: {},
+    managers: [
+      { id: makeId(), name: "Gerente CURITIBANOS", branch: "CURITIBANOS", password: "1234" },
+      { id: makeId(), name: "Gerente FRAIBURGO", branch: "FRAIBURGO", password: "1234" },
+    ],
   };
 }
 
@@ -102,7 +106,7 @@ var state = loadState();
 let activeAreaFilter = "Todas";
 let activeBranchFilter = "Todas";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
-let activeManagerBranch = sessionStorage.getItem(MANAGER_SESSION_KEY) || "";
+let activeManagerId = sessionStorage.getItem(MANAGER_SESSION_KEY) || "";
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("commission-simulator-v1");
@@ -159,13 +163,29 @@ function normalizeDeflators(source) {
   return normalized;
 }
 
-function normalizeManagerAccess(source, sellers = []) {
-  const access = source && typeof source === "object" && !Array.isArray(source) ? { ...source } : {};
-  for (const seller of sellers) {
-    const branch = seller.branch || "Sem filial";
-    if (!access[branch]) access[branch] = "1234";
+function normalizeBranches(branches, sellers = []) {
+  const values = Array.isArray(branches) ? branches : [];
+  const fromSellers = sellers.map((seller) => seller.branch || "Sem filial");
+  return [...new Set([...values, ...fromSellers].filter(Boolean))].sort();
+}
+function normalizeManagers(managers, legacyAccess, sellers = []) {
+  const list = Array.isArray(managers) ? managers : [];
+  const normalized = list.map((manager) => ({
+    id: manager.id || makeId(),
+    name: manager.name || "Gerente",
+    branch: manager.branch || branchesFromSellers(sellers)[0] || "FILIAL",
+    password: manager.password || "1234",
+  }));
+  if (!normalized.length && legacyAccess && typeof legacyAccess === "object" && !Array.isArray(legacyAccess)) {
+    for (const [branch, password] of Object.entries(legacyAccess)) {
+      normalized.push({ id: makeId(), name: `Gerente ${branch}`, branch, password: password || "1234" });
+    }
   }
-  return access;
+  return normalized;
+}
+
+function branchesFromSellers(sellers = state?.sellers || []) {
+  return [...new Set(sellers.map((seller) => seller.branch || "Sem filial"))].sort();
 }
 function normalizeState(candidate) {
   if (!candidate || typeof candidate !== "object" || !Array.isArray(candidate.sellers)) {
@@ -176,7 +196,7 @@ function normalizeState(candidate) {
   candidate.rules = candidate.rules || structuredClone(defaultRules);
   candidate.customMetrics = normalizeCustomMetrics(candidate.customMetrics);
   candidate.deflators = normalizeDeflators(candidate.deflators);
-  candidate.managerAccess = normalizeManagerAccess(candidate.managerAccess, candidate.sellers);
+  candidate.managers = normalizeManagers(candidate.managers, candidate.managerAccess, candidate.sellers);
   for (const area of ["Cabo", "Nao Cabo"]) {
     candidate.rules[area] = candidate.rules[area] || {};
     for (const metric of metricsFor(area, candidate)) candidate.rules[area][metric.id] = candidate.rules[area][metric.id] || [];
@@ -317,7 +337,8 @@ function statusFor(seller) {
 }
 
 function branches() {
-  return [...new Set(state.sellers.map((seller) => seller.branch || "Sem filial"))].sort();
+  state.branches = normalizeBranches(state.branches, state.sellers);
+  return state.branches;
 }
 
 function visibleSellers() {
@@ -328,6 +349,122 @@ function visibleSellers() {
   });
 }
 
+function sellerAttainment(seller) {
+  const metrics = metricsFor(seller.area).filter((metric) => metric.type !== "deviceRevenue");
+  if (!metrics.length) return 0;
+  const total = metrics.reduce((sum, metric) => sum + percentFor(seller, metric.id, true), 0);
+  return total / metrics.length;
+}
+
+function metricAttainmentRows(sellers) {
+  const rows = [];
+  for (const seller of sellers) {
+    for (const metric of metricsFor(seller.area).filter((item) => item.type !== "deviceRevenue")) {
+      const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+      rows.push({
+        seller,
+        metric,
+        percent: percentFor(seller, metric.id, true),
+        goal: Number(value.goal) || 0,
+        realized: Number(value.realized) || 0,
+        projected: projected(value.realized),
+      });
+    }
+  }
+  return rows;
+}
+
+function renderAchievementBars(sellers) {
+  const container = document.getElementById("achievementBars");
+  if (!container) return;
+  const ranked = [...sellers].sort((a, b) => sellerAttainment(b) - sellerAttainment(a)).slice(0, 8);
+  container.innerHTML = ranked.map((seller) => {
+    const attainment = sellerAttainment(seller);
+    return `<div class="bar-row"><div class="bar-label"><span>${seller.name}</span><span>${pct.format(attainment)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, Math.max(2, attainment * 100))}%"></div></div></div>`;
+  }).join("") || `<p class="muted-note">Sem vendedores no filtro.</p>`;
+}
+
+function renderDashboardInsights(sellers) {
+  const insight = document.getElementById("insightList");
+  const goals = document.getElementById("goalOffenderList");
+  if (!insight || !goals) return;
+  const ranked = [...sellers].sort((a, b) => sellerAttainment(b) - sellerAttainment(a));
+  const highlights = ranked.slice(0, 5).map((seller, index) => `<div class="rank-card ok-card"><strong>${index + 1}. ${seller.name}</strong><br><span>${seller.branch} - ${pct.format(sellerAttainment(seller))}</span></div>`).join("");
+  const offenders = ranked.slice(-5).reverse().map((seller, index) => `<div class="rank-card bad-card"><strong>${index + 1}. ${seller.name}</strong><br><span>${seller.branch} - ${pct.format(sellerAttainment(seller))}</span></div>`).join("");
+  insight.innerHTML = `<div class="split-list"><div><h4>Destaques</h4>${highlights || `<p class="muted-note">Sem dados.</p>`}</div><div><h4>Ofensores</h4>${offenders || `<p class="muted-note">Sem dados.</p>`}</div></div>`;
+
+  const rows = metricAttainmentRows(sellers).sort((a, b) => a.percent - b.percent).slice(0, 12);
+  goals.innerHTML = rows.map((row) => `<div class="rank-card"><strong>${row.seller.name} - ${row.metric.name}</strong><br><span>${row.seller.branch} | Meta ${num.format(row.goal)} | Proj. ${num.format(row.projected)} | ${pct.format(row.percent)}</span></div>`).join("") || `<p class="muted-note">Sem metas no filtro.</p>`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+}
+
+function downloadFile(filename, mime, content) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportDashboardExcel() {
+  const sellers = visibleSellers();
+  const rows = sellers.map((seller) => {
+    const result = sellerResult(seller);
+    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${sellerAttainment(seller)}</td><td>${result.current}</td><td>${result.projected}</td><td>${result.projectedDeflator}</td><td>${result.gain}</td></tr>`;
+  }).join("");
+  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atingimento medio</th><th>Atual</th><th>Projetado</th><th>Deflator</th><th>Ganho</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  downloadFile(`resultado-vendedores-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function downloadGoalTemplateCsv() {
+  const lines = [["vendedor", "filial", "area", "metrica", "meta", "realizado"]];
+  for (const seller of state.sellers) {
+    ensureSellerValues(seller);
+    for (const metric of metricsFor(seller.area)) {
+      const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+      lines.push([seller.name, seller.branch, seller.area, metric.name, value.goal, value.realized]);
+    }
+  }
+  downloadFile("modelo-metas-comissao.csv", "text/csv;charset=utf-8", lines.map((line) => line.map(csvCell).join(";")).join("\n"));
+}
+
+function parseCsv(text) {
+  const separator = text.includes(";") ? ";" : ",";
+  return text.trim().split(/\r?\n/).map((line) => line.split(separator).map((cell) => cell.trim().replace(/^"|"$/g, "").replace(/""/g, '"')));
+}
+
+function importGoalTemplateCsv(text) {
+  const rows = parseCsv(text);
+  const header = rows.shift()?.map((item) => item.replace(/^\uFEFF/, "").toLowerCase()) || [];
+  const index = (name) => header.indexOf(name);
+  let updated = 0;
+  for (const row of rows) {
+    const sellerName = row[index("vendedor")] || "";
+    const branch = row[index("filial")] || "";
+    const metricName = row[index("metrica")] || "";
+    const seller = state.sellers.find((item) => item.name.toLowerCase() === sellerName.toLowerCase() && item.branch.toLowerCase() === branch.toLowerCase());
+    if (!seller) continue;
+    const metric = metricsFor(seller.area).find((item) => item.name.toLowerCase() === metricName.toLowerCase() || item.id.toLowerCase() === metricName.toLowerCase());
+    if (!metric) continue;
+    ensureSellerValues(seller);
+    const goalValue = row[index("meta")];
+    const realizedValue = row[index("realizado")];
+    if (goalValue !== undefined && goalValue !== "") seller.values[metric.id].goal = Number(String(goalValue).replace(",", ".")) || 0;
+    if (realizedValue !== undefined && realizedValue !== "") seller.values[metric.id].realized = Number(String(realizedValue).replace(",", ".")) || 0;
+    updated += 1;
+  }
+  saveState(`${updated} linhas importadas`);
+  renderAll();
+}
 function renderBranchFilter() {
   const select = document.getElementById("branchFilter");
   if (!select) return;
@@ -397,6 +534,21 @@ function renderRanking(sellers) {
   }).join("");
 }
 
+function branchOptions(selected) {
+  return branches().map((branch) => `<option value="${branch}" ${branch === selected ? "selected" : ""}>${branch}</option>`).join("");
+}
+
+function renderBranchEditor() {
+  const container = document.getElementById("branchEditorList");
+  if (!container) return;
+  state.branches = normalizeBranches(state.branches, state.sellers);
+  container.innerHTML = state.branches.map((branch, index) => `
+    <div class="branch-card">
+      <label>Filial<input data-branch-index="${index}" value="${branch}"></label>
+      <button class="danger-button" data-delete-branch="${branch}" type="button">Excluir filial</button>
+    </div>
+  `).join("");
+}
 function renderSelectors() {
   const adminSelected = document.getElementById("adminSellerSelect")?.value;
   const collabSelected = activeCollaboratorId || document.getElementById("collabSellerSelect")?.value;
@@ -422,7 +574,7 @@ function renderAdmin() {
           <option ${seller.area === "Nao Cabo" ? "selected" : ""}>Nao Cabo</option>
         </select>
       </label>
-      <label>Filial<input data-seller-field="branch" data-seller-id="${seller.id}" value="${seller.branch}"></label>
+      <label>Filial<select data-seller-field="branch" data-seller-id="${seller.id}">${branchOptions(seller.branch)}</select></label>
       <label>Qualidade<input data-adjustment="quality" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.quality || 0}"></label>
       <label>Seguro<input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.insurance || 0}"></label>
       <label>Carrossel<input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.carousel || 0}"></label>
@@ -518,15 +670,29 @@ function renderMetricCatalogEditor() {
 function renderManagerAccessEditor() {
   const container = document.getElementById("managerAccessEditor");
   if (!container) return;
-  state.managerAccess = normalizeManagerAccess(state.managerAccess, state.sellers);
-  container.innerHTML = branches().map((branch) => `
-    <div class="rule-card compact-rule">
-      <h4>${branch}</h4>
-      <label>Senha do gerente<input data-manager-password="${branch}" type="text" value="${state.managerAccess[branch] || "1234"}"></label>
+  state.managers = normalizeManagers(state.managers, state.managerAccess, state.sellers);
+  const branchOptions = branches().map((branch) => `<option value="${branch}">${branch}</option>`).join("");
+  if (!state.managers.length) {
+    container.innerHTML = `<p class="muted-note">Nenhum gerente cadastrado.</p>`;
+    return;
+  }
+  container.innerHTML = state.managers.map((manager) => `
+    <div class="manager-card">
+      <label>Nome<input data-manager-field="name" data-manager-id="${manager.id}" value="${manager.name}"></label>
+      <label>Filial
+        <select data-manager-field="branch" data-manager-id="${manager.id}">
+          ${branches().map((branch) => `<option value="${branch}" ${branch === manager.branch ? "selected" : ""}>${branch}</option>`).join("") || branchOptions}
+        </select>
+      </label>
+      <label>Senha<input data-manager-field="password" data-manager-id="${manager.id}" type="text" value="${manager.password || "1234"}"></label>
+      <button class="danger-button" data-delete-manager="${manager.id}" type="button">Excluir gerente</button>
     </div>
   `).join("");
 }
 
+function selectedManager() {
+  return state.managers.find((manager) => manager.id === activeManagerId) || state.managers.find((manager) => manager.branch === activeManagerId) || null;
+}
 function dashboardSummaryMarkup(sellers) {
   const totals = sellers.reduce((acc, seller) => {
     const result = sellerResult(seller);
@@ -554,21 +720,24 @@ function renderManager() {
   const loginPanel = document.getElementById("managerLoginPanel");
   const dashboard = document.getElementById("managerDashboard");
   if (!loginPanel || !dashboard) return;
-  const options = branches().map((branch) => `<option value="${branch}" ${branch === activeManagerBranch ? "selected" : ""}>${branch}</option>`).join("");
-  if (!activeManagerBranch) {
-    loginPanel.innerHTML = `
-      <label>Filial<select id="managerBranchSelect">${options}</select></label>
+  state.managers = normalizeManagers(state.managers, state.managerAccess, state.sellers);
+  const manager = selectedManager();
+  if (!manager) {
+    const options = state.managers.map((item) => `<option value="${item.id}">${item.name} - ${item.branch}</option>`).join("");
+    loginPanel.innerHTML = state.managers.length ? `
+      <label>Gerente<select id="managerSelect">${options}</select></label>
       <label>Senha<input id="managerPassword" type="password" placeholder="Senha do gerente"></label>
       <span id="managerLoginError" class="form-error"></span>
       <button id="managerLogin" class="nav-button active" type="button">Entrar</button>
-    `;
-    dashboard.innerHTML = `<div class="empty-state">Selecione a filial e informe a senha para ver o dashboard da loja.</div>`;
+    ` : `<div class="empty-state">Cadastre um gerente no Admin para liberar esta visao.</div>`;
+    dashboard.innerHTML = `<div class="empty-state">O gerente vera somente os vendedores vinculados a filial dele.</div>`;
     return;
   }
-  const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === activeManagerBranch);
+  const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === manager.branch);
   loginPanel.innerHTML = `
-    <div class="hero-number"><span>Filial</span><strong>${activeManagerBranch}</strong></div>
-    <button id="managerLogout" class="ghost-button" type="button">Trocar filial</button>
+    <div class="hero-number"><span>Gerente</span><strong>${manager.name}</strong></div>
+    <div class="hero-number"><span>Filial</span><strong>${manager.branch}</strong></div>
+    <button id="managerLogout" class="ghost-button" type="button">Trocar gerente</button>
   `;
   dashboard.innerHTML = dashboardSummaryMarkup(sellers);
 }
@@ -694,6 +863,60 @@ document.addEventListener("click", (event) => {
     renderDashboard();
   }
 
+  if (event.target.id === "exportDashboardXls") {
+    exportDashboardExcel();
+  }
+
+  if (event.target.id === "downloadGoalTemplate") {
+    downloadGoalTemplateCsv();
+  }
+
+  if (event.target.id === "importGoalSheet") {
+    document.getElementById("goalSheetFile").click();
+  }
+
+  if (event.target.id === "addBranch") {
+    let base = "NOVA FILIAL";
+    let name = base;
+    let count = 2;
+    while (branches().includes(name)) name = `${base} ${count++}`;
+    state.branches.push(name);
+    saveState("Filial adicionada");
+    renderAll();
+  }
+
+  const deleteBranchButton = event.target.closest("[data-delete-branch]");
+  if (deleteBranchButton) {
+    const branch = deleteBranchButton.dataset.deleteBranch;
+    const inUse = state.sellers.some((seller) => seller.branch === branch) || state.managers.some((manager) => manager.branch === branch);
+    if (inUse) {
+      alert("Esta filial esta vinculada a vendedor ou gerente. Altere os cadastros antes de excluir.");
+      return;
+    }
+    state.branches = state.branches.filter((item) => item !== branch);
+    saveState("Filial excluida");
+    renderAll();
+  }
+  if (event.target.id === "addManager") {
+    state.managers = normalizeManagers(state.managers, state.managerAccess, state.sellers);
+    state.managers.push({ id: makeId(), name: "NOVO GERENTE", branch: branches()[0] || "FILIAL", password: "1234" });
+    saveState("Gerente adicionado");
+    renderAll();
+  }
+
+  const deleteManagerButton = event.target.closest("[data-delete-manager]");
+  if (deleteManagerButton) {
+    const manager = state.managers.find((item) => item.id === deleteManagerButton.dataset.deleteManager);
+    if (!manager) return;
+    if (!confirm(`Excluir o gerente ${manager.name}?`)) return;
+    state.managers = state.managers.filter((item) => item.id !== manager.id);
+    if (activeManagerId === manager.id) {
+      activeManagerId = "";
+      sessionStorage.removeItem(MANAGER_SESSION_KEY);
+    }
+    saveState("Gerente excluido");
+    renderAll();
+  }
   if (event.target.id === "saveNow") {
     flushSaveState("Salvo manualmente");
   }
@@ -737,11 +960,12 @@ document.addEventListener("click", (event) => {
   }
 
   if (event.target.id === "managerLogin") {
-    const branch = document.getElementById("managerBranchSelect").value;
+    const managerId = document.getElementById("managerSelect").value;
+    const manager = state.managers.find((item) => item.id === managerId);
     const typed = document.getElementById("managerPassword").value;
-    if (typed === String(state.managerAccess?.[branch] || "1234")) {
-      activeManagerBranch = branch;
-      sessionStorage.setItem(MANAGER_SESSION_KEY, branch);
+    if (manager && typed === String(manager.password || "1234")) {
+      activeManagerId = manager.id;
+      sessionStorage.setItem(MANAGER_SESSION_KEY, manager.id);
       renderAll();
     } else {
       document.getElementById("managerLoginError").textContent = "Senha incorreta";
@@ -749,7 +973,7 @@ document.addEventListener("click", (event) => {
   }
 
   if (event.target.id === "managerLogout") {
-    activeManagerBranch = "";
+    activeManagerId = "";
     sessionStorage.removeItem(MANAGER_SESSION_KEY);
     renderAll();
   }
@@ -872,9 +1096,25 @@ document.addEventListener("input", (event) => {
     return;
   }
 
-  if (target.dataset.managerPassword) {
-    state.managerAccess[target.dataset.managerPassword] = target.value || "1234";
-    saveState("Senha gerente salva");
+
+  if (target.dataset.branchIndex) {
+    const index = Number(target.dataset.branchIndex);
+    const oldBranch = state.branches[index];
+    const newBranch = target.value.trim() || oldBranch;
+    state.branches[index] = newBranch;
+    for (const seller of state.sellers) if (seller.branch === oldBranch) seller.branch = newBranch;
+    for (const manager of state.managers) if (manager.branch === oldBranch) manager.branch = newBranch;
+    saveState("Filial atualizada");
+    renderDashboard();
+    renderManager();
+    return;
+  }
+  if (target.dataset.managerField) {
+    const manager = state.managers.find((item) => item.id === target.dataset.managerId);
+    if (!manager) return;
+    manager[target.dataset.managerField] = target.value || (target.dataset.managerField === "password" ? "1234" : "");
+    saveState("Gerente atualizado");
+    renderManager();
     return;
   }
   if (target.dataset.sellerField) {
@@ -943,6 +1183,22 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+
+  if (event.target.id === "goalSheetFile") {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        importGoalTemplateCsv(reader.result);
+      } catch (error) {
+        alert(error.message || "Nao foi possivel importar a planilha de metas.");
+      } finally {
+        event.target.value = "";
+      }
+    };
+    reader.readAsText(file);
+  }
   if (event.target.id === "importDataFile") {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -961,7 +1217,7 @@ document.addEventListener("change", (event) => {
     reader.readAsText(file);
   }
 
-  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-custom-metric-field], [data-manager-password]")) renderAll();
+  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-custom-metric-field], [data-manager-field], [data-branch-index]")) renderAll();
   if (event.target.id === "adminSellerSelect") renderAdminMetrics();
   if (event.target.id === "collabSellerSelect") renderCollaborator();
   if (event.target.id === "ruleAreaSelect") renderRules();
@@ -979,12 +1235,11 @@ document.addEventListener("keydown", (event) => {
 
 for (const seller of state.sellers) ensureSellerValues(seller);
 state.customMetrics = normalizeCustomMetrics(state.customMetrics);
+state.branches = normalizeBranches(state.branches, state.sellers);
 state.deflators = normalizeDeflators(state.deflators);
-state.managerAccess = normalizeManagerAccess(state.managerAccess, state.sellers);
+state.managers = normalizeManagers(state.managers, state.managerAccess, state.sellers);
 state.settings = state.settings || { adminPassword: adminPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 loadStateFromCloud();
-
-
 

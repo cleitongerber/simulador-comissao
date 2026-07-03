@@ -102,6 +102,25 @@
               </div>
               <div id="rankingList" class="ranking-list"></div>
             </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Atingimento por vendedor</h3>
+              </div>
+              <div id="achievementBars" class="bar-stack"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Destaques e ofensores</h3>
+              </div>
+              <div id="insightList" class="ranking-list"></div>
+            </section>
+            <section class="panel full">
+              <div class="panel-header">
+                <h3>Metas criticas</h3>
+                <button id="exportDashboardXls" class="ghost-button" type="button">Exportar Excel</button>
+              </div>
+              <div id="goalOffenderList" class="ranking-list"></div>
+            </section>
           </div>
         </section>
 
@@ -150,6 +169,13 @@
 
             <section class="panel full">
               <div class="panel-header">
+                <h3>Cadastro de filiais</h3>
+                <button id="addBranch" class="icon-button" type="button" title="Adicionar filial">+</button>
+              </div>
+              <div id="branchEditorList" class="rules-grid"></div>
+            </section>
+            <section class="panel full">
+              <div class="panel-header">
                 <h3>Itens de metas</h3>
               </div>
               <div id="metricCatalogEditor" class="rules-grid"></div>
@@ -164,7 +190,20 @@
 
             <section class="panel full">
               <div class="panel-header">
-                <h3>Acesso gerente por filial</h3>
+                <h3>Importar metas por planilha</h3>
+              </div>
+              <div class="password-panel import-panel">
+                <button id="downloadGoalTemplate" class="ghost-button" type="button">Baixar modelo CSV</button>
+                <button id="importGoalSheet" class="ghost-button" type="button">Importar metas CSV</button>
+                <input id="goalSheetFile" type="file" accept=".csv,text/csv" hidden />
+                <p>Use o modelo para atualizar meta e realizado em massa. O arquivo CSV abre normalmente no Excel.</p>
+              </div>
+            </section>
+
+            <section class="panel full">
+              <div class="panel-header">
+                <h3>Cadastro de gerentes</h3>
+                <button id="addManager" class="icon-button" type="button" title="Adicionar gerente">+</button>
               </div>
               <div id="managerAccessEditor" class="rules-grid"></div>
             </section>
