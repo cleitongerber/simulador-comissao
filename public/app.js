@@ -20,6 +20,10 @@ function isAdminUnlocked() {
   return sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok";
 }
 
+function defaultSettings() {
+  return { adminPassword: "admin123", partnerName: "" };
+}
+
 const areaMetrics = {
   Cabo: [
     { id: "gross", name: "GROSS", unit: "R$", type: "revenue", goal: 2100 },
@@ -96,6 +100,7 @@ function seedState() {
     branches: ["CURITIBANOS", "FRAIBURGO"],
     deflators: structuredClone(defaultDeflators),
     branchPasswords: { CURITIBANOS: "1234", FRAIBURGO: "1234" },
+    settings: defaultSettings(),
   };
 }
 
@@ -108,7 +113,7 @@ let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("commission-simulator-v1");
   const fallback = seedState();
-  fallback.settings = fallback.settings || { adminPassword: "admin123" };
+  fallback.settings = { ...defaultSettings(), ...(fallback.settings || {}) };
   if (!saved) return fallback;
   try {
     const parsed = normalizeState(JSON.parse(saved));
@@ -184,7 +189,7 @@ function normalizeState(candidate) {
     throw new Error("Arquivo de backup invalido.");
   }
   candidate.period = candidate.period || { month: "JUNHO", daysDone: 1, daysTotal: 1 };
-  candidate.settings = candidate.settings || { adminPassword: "admin123" };
+  candidate.settings = { ...defaultSettings(), ...(candidate.settings || {}) };
   candidate.rules = candidate.rules || structuredClone(defaultRules);
   candidate.customMetrics = normalizeCustomMetrics(candidate.customMetrics);
   candidate.deflators = normalizeDeflators(candidate.deflators);
@@ -850,6 +855,17 @@ function updateActionVisibility() {
   });
 }
 
+function renderBrand() {
+  const partner = (state.settings?.partnerName || "").trim();
+  const display = document.getElementById("partnerNameDisplay");
+  const partnerInput = document.getElementById("partnerName");
+  if (display) {
+    display.textContent = partner;
+    display.hidden = !partner;
+  }
+  if (partnerInput && document.activeElement !== partnerInput) partnerInput.value = partner;
+}
+
 function safeRender(label, action) {
   try {
     action();
@@ -858,6 +874,7 @@ function safeRender(label, action) {
   }
 }
 function renderAll() {
+  renderBrand();
   document.getElementById("periodMonth").value = state.period.month;
   document.getElementById("daysDone").value = state.period.daysDone;
   document.getElementById("daysTotal").value = state.period.daysTotal;
@@ -1112,9 +1129,17 @@ document.addEventListener("input", (event) => {
     renderDashboard();
   }
 
+  if (target.id === "partnerName") {
+    state.settings = { ...defaultSettings(), ...(state.settings || {}) };
+    state.settings.partnerName = target.value.trim();
+    saveState("Nome da parceira salvo");
+    renderBrand();
+    return;
+  }
+
   if (target.id === "newAdminPassword") {
     if (target.value.trim().length >= 4) {
-      state.settings = state.settings || {};
+      state.settings = { ...defaultSettings(), ...(state.settings || {}) };
       state.settings.adminPassword = target.value.trim();
       saveState("Senha admin salva");
     }
@@ -1285,9 +1310,8 @@ state.customMetrics = normalizeCustomMetrics(state.customMetrics);
 state.branches = normalizeBranches(state.branches, state.sellers);
 state.deflators = normalizeDeflators(state.deflators);
 state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.managerAccess, state._legacyManagers, state.branches);
-state.settings = state.settings || { adminPassword: adminPassword() };
+state.settings = { ...defaultSettings(), ...(state.settings || {}), adminPassword: adminPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 loadStateFromCloud();
-
 

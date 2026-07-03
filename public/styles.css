@@ -1,16 +1,16 @@
 ﻿:root {
-  --ink: #172126;
-  --muted: #66737a;
-  --line: #d9e2e7;
+  --ink: #231f20;
+  --muted: #6f5d60;
+  --line: #ead7da;
   --panel: #ffffff;
-  --soft: #f4f7f8;
-  --teal: #174e5d;
-  --teal-2: #2e6f73;
+  --soft: #fff6f6;
+  --teal: #e30613;
+  --teal-2: #b00012;
   --green: #166534;
   --amber: #854d0e;
   --red: #991b1b;
-  --blue: #2456a6;
-  --shadow: 0 14px 38px rgba(22, 43, 51, 0.08);
+  --blue: #e30613;
+  --shadow: 0 14px 38px rgba(130, 0, 18, 0.08);
 }
 
 * {
@@ -20,7 +20,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: #edf2f4;
+  background: #f7f2f3;
   color: var(--ink);
   font-family: Arial, Helvetica, sans-serif;
   letter-spacing: 0;
@@ -34,12 +34,12 @@ select {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 292px 1fr;
+  grid-template-columns: 320px 1fr;
   min-height: 100vh;
 }
 
 .sidebar {
-  background: #153b45;
+  background: #b00012;
   color: #fff;
   padding: 24px;
 }
@@ -57,22 +57,40 @@ select {
   width: 44px;
   height: 44px;
   border-radius: 8px;
-  background: #f6c85f;
-  color: #173b45;
+  background: #ffffff;
+  color: #e30613;
   font-weight: 800;
 }
 
+
+.partner-name {
+  display: block;
+  margin: 0 0 3px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
 .brand h1 {
   margin: 0;
-  font-size: 21px;
+  font-size: 20px;
+  line-height: 1.12;
 }
 
 .brand p,
 .eyebrow {
   margin: 2px 0 0;
-  color: #b9ccd2;
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.brand p {
+  color: #ffd9dd;
+}
+
+.eyebrow {
+  color: #9b6b72;
 }
 
 .nav {
@@ -93,13 +111,13 @@ select {
 .nav-button {
   text-align: left;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
   color: #eaf3f5;
 }
 
 .nav-button.active {
   background: #ffffff;
-  color: #153b45;
+  color: #b00012;
   font-weight: 700;
 }
 
@@ -107,9 +125,9 @@ select {
   display: grid;
   gap: 10px;
   padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 label {
@@ -427,7 +445,7 @@ td select {
 .hero-number {
   padding: 16px;
   border-radius: 8px;
-  background: #eff6f7;
+  background: #fff1f2;
 }
 
 .hero-number span {
@@ -499,7 +517,7 @@ td select {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #eff6f7;
+  background: #fff1f2;
   color: var(--muted);
   font-size: 13px;
 }

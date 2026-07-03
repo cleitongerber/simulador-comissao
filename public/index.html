@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Simulador de Comissao</title>
-    <link rel="stylesheet" href="./styles.css?v=20260703-filial-vendedor" />
+    <title>Simulador de Comissões</title>
+    <link rel="stylesheet" href="./styles.css?v=20260703-claro-parceira" />
   </head>
   <body>
     <div class="app-shell">
@@ -12,7 +12,8 @@
         <div class="brand">
           <div class="brand-mark">%</div>
           <div>
-            <h1>Comissoes</h1>
+            <p id="partnerNameDisplay" class="partner-name" hidden></p>
+            <h1 id="brandTitle">Simulador de Comissões</h1>
             <p>Area Cabo e Nao Cabo</p>
           </div>
         </div>
@@ -129,7 +130,7 @@
             
             <section class="panel full admin-actions-panel">
               <div class="panel-header">
-                <h3>Acoes administrativas</h3>
+                <h3>Ações administrativas</h3>
               </div>
               <div id="adminQuickActions" class="admin-action-buttons">
                 <button id="addSeller" class="ghost-button" type="button">Adicionar vendedor</button>
@@ -207,6 +208,19 @@
                 <p>Use o modelo para atualizar meta e realizado em massa. O arquivo CSV abre normalmente no Excel.</p>
               </div>
             </section>
+            <section class="panel full">
+              <div class="panel-header">
+                <h3>Identidade da parceira</h3>
+              </div>
+              <div class="password-panel">
+                <label>
+                  Nome da parceira / franquia
+                  <input id="partnerName" type="text" placeholder="Ex.: Franquia Centro" />
+                </label>
+                <p>Este nome aparece no topo do menu lateral para todos os acessos.</p>
+              </div>
+            </section>
+
 
             <section class="panel full">
               <div class="panel-header">
@@ -287,8 +301,7 @@
       </div>
     </div>
 
-    <script src="./app.js?v=20260703-filial-vendedor"></script>
+    <script src="./app.js?v=20260703-claro-parceira"></script>
   </body>
 </html>
-
 
