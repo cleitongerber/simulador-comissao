@@ -497,27 +497,116 @@ function parseCsv(text) {
   return text.trim().split(/\r?\n/).map((line) => line.split(separator).map((cell) => cell.trim().replace(/^"|"$/g, "").replace(/""/g, '"')));
 }
 
+function normalizedKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function parseImportedNumber(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+  if (raw.includes(",")) return Number(raw.replace(/\./g, "").replace(",", ".")) || 0;
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(raw)) return Number(raw.replace(/\./g, "")) || 0;
+  return Number(raw.replace(",", ".")) || 0;
+}
+
+function metricTypeFromName(name) {
+  const key = normalizedKey(name);
+  if (key.includes("receita")) return "deviceRevenue";
+  if (key.includes("aparelhos qtde") || key.includes("aparelho qtde")) return "deviceQty";
+  if (["gross", "peliculas", "acessorios", "delta", "fidel aparelho"].some((item) => key.includes(item))) return "revenue";
+  return "unit100";
+}
+
+function shouldIgnoreImportedMetric(area, metricName) {
+  const areaKey = normalizedKey(area);
+  const metricKey = normalizedKey(metricName);
+  return areaKey === "nao cabo" && (metricKey === "banda larga" || metricKey === "bl" || metricKey === "combo");
+}
+function findOrCreateMetric(area, metricName, goalValue) {
+  state.customMetrics = normalizeCustomMetrics(state.customMetrics);
+  const key = normalizedKey(metricName);
+  let metric = metricsFor(area).find((item) => normalizedKey(item.name) === key || normalizedKey(item.id) === key);
+  if (metric) return metric;
+  const id = `custom_${makeId()}`;
+  metric = {
+    id,
+    name: metricName.trim(),
+    unit: metricTypeFromName(metricName) === "revenue" || metricTypeFromName(metricName) === "deviceRevenue" ? "R$" : "Qtd.",
+    type: metricTypeFromName(metricName),
+    goal: parseImportedNumber(goalValue),
+  };
+  state.customMetrics[area] = state.customMetrics[area] || [];
+  state.customMetrics[area].push(metric);
+  state.rules[area] = state.rules[area] || {};
+  state.rules[area][id] = [];
+  return metric;
+}
+
+function findOrCreateSeller(name, branch, area) {
+  const sellerKey = normalizedKey(name);
+  const branchKey = normalizedKey(branch);
+  let seller = state.sellers.find((item) => normalizedKey(item.name) === sellerKey && normalizedKey(item.branch) === branchKey);
+  if (seller) {
+    if (seller.area !== area) {
+      seller.area = area;
+      ensureSellerValues(seller);
+    }
+    return seller;
+  }
+  seller = { id: makeId(), name: name.trim(), branch: branch.trim(), area, adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", values: {} };
+  state.sellers.push(seller);
+  ensureSellerValues(seller);
+  return seller;
+}
+
 function importGoalTemplateCsv(text) {
   const rows = parseCsv(text);
-  const header = rows.shift()?.map((item) => item.replace(/^\uFEFF/, "").toLowerCase()) || [];
-  const index = (name) => header.indexOf(name);
+  const header = rows.shift()?.map((item) => normalizedKey(item.replace(/^\uFEFF/, ""))) || [];
+  const index = (name) => header.indexOf(normalizedKey(name));
   let updated = 0;
+  let createdSellers = 0;
+  let createdBranches = 0;
+  let createdMetrics = 0;
+  let ignoredRows = 0;
   for (const row of rows) {
     const sellerName = row[index("vendedor")] || "";
     const branch = row[index("filial")] || "";
+    const area = row[index("area")] || "Nao Cabo";
     const metricName = row[index("metrica")] || "";
-    const seller = state.sellers.find((item) => item.name.toLowerCase() === sellerName.toLowerCase() && item.branch.toLowerCase() === branch.toLowerCase());
-    if (!seller) continue;
-    const metric = metricsFor(seller.area).find((item) => item.name.toLowerCase() === metricName.toLowerCase() || item.id.toLowerCase() === metricName.toLowerCase());
-    if (!metric) continue;
-    ensureSellerValues(seller);
     const goalValue = row[index("meta")];
     const realizedValue = row[index("realizado")];
-    if (goalValue !== undefined && goalValue !== "") seller.values[metric.id].goal = Number(String(goalValue).replace(",", ".")) || 0;
-    if (realizedValue !== undefined && realizedValue !== "") seller.values[metric.id].realized = Number(String(realizedValue).replace(",", ".")) || 0;
+    if (!sellerName || !branch || !metricName) continue;
+    if (shouldIgnoreImportedMetric(area, metricName)) {
+      ignoredRows += 1;
+      continue;
+    }
+
+    const branchExists = state.branches.some((item) => normalizedKey(item) === normalizedKey(branch));
+    if (!branchExists) {
+      state.branches.push(branch.trim());
+      state.branchPasswords = state.branchPasswords || {};
+      state.branchPasswords[branch.trim()] = "1234";
+      createdBranches += 1;
+    }
+
+    const sellerExists = state.sellers.some((item) => normalizedKey(item.name) === normalizedKey(sellerName) && normalizedKey(item.branch) === normalizedKey(branch));
+    const seller = findOrCreateSeller(sellerName, branch, area);
+    if (!sellerExists) createdSellers += 1;
+
+    const metricExists = metricsFor(seller.area).some((item) => normalizedKey(item.name) === normalizedKey(metricName) || normalizedKey(item.id) === normalizedKey(metricName));
+    const metric = findOrCreateMetric(seller.area, metricName, goalValue);
+    if (!metricExists) createdMetrics += 1;
+    ensureSellerValues(seller);
+    if (goalValue !== undefined && goalValue !== "") seller.values[metric.id].goal = parseImportedNumber(goalValue);
+    if (realizedValue !== undefined && realizedValue !== "") seller.values[metric.id].realized = parseImportedNumber(realizedValue);
     updated += 1;
   }
-  saveState(`${updated} linhas importadas`);
+  state.branches = normalizeBranches(state.branches, state.sellers);
+  saveState(`${updated} linhas importadas (${createdSellers} vendedores, ${createdBranches} filiais, ${createdMetrics} metas novas, ${ignoredRows} ignoradas)`);
   renderAll();
 }
 function renderBranchFilter() {
