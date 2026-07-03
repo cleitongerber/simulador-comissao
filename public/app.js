@@ -163,7 +163,7 @@ function normalizeDeflators(source) {
 function normalizeBranches(branches, sellers = []) {
   const values = Array.isArray(branches) ? branches : [];
   const fromSellers = sellers.map((seller) => seller.branch || "Sem filial");
-  return [...new Set([...values, ...fromSellers].filter(Boolean))].sort();
+  return [...new Set([...values, ...fromSellers].map((branch) => String(branch || "").trim()).filter(Boolean))];
 }
 function normalizeBranchPasswords(source, legacyAccess, managers, branchesList) {
   const passwords = source && typeof source === "object" && !Array.isArray(source) ? { ...source } : {};
@@ -535,11 +535,11 @@ function renderBranchEditor() {
   const container = document.getElementById("branchEditorList");
   if (!container) return;
   state.branches = normalizeBranches(state.branches, state.sellers);
-  container.innerHTML = state.branches.map((branch, index) => `
+  container.innerHTML = state.branches.map((branch) => `
     <div class="branch-card">
-      <label>Filial<input data-branch-index="${index}" value="${branch}"></label>
-      <label>Senha da filial<input data-branch-password="${branch}" type="text" value="${state.branchPasswords?.[branch] || "1234"}"></label>
-      <button class="danger-button" data-delete-branch="${branch}" type="button">Excluir filial</button>
+      <label>Filial<input data-branch-name="${escapeHtml(branch)}" value="${escapeHtml(branch)}"></label>
+      <label>Senha da filial<input data-branch-password="${escapeHtml(branch)}" type="text" value="${escapeHtml(state.branchPasswords?.[branch] || "1234")}"></label>
+      <button class="danger-button" data-delete-branch="${escapeHtml(branch)}" type="button">Excluir filial</button>
     </div>
   `).join("");
 }
@@ -1096,16 +1096,21 @@ document.addEventListener("input", (event) => {
     saveState("Senha da filial salva");
     return;
   }
-  if (target.dataset.branchIndex) {
-    const index = Number(target.dataset.branchIndex);
-    const oldBranch = state.branches[index];
+  if (target.dataset.branchName) {
+    const oldBranch = target.dataset.branchName;
     const newBranch = target.value.trim() || oldBranch;
-    state.branches[index] = newBranch;
+    if (oldBranch === newBranch) return;
+    state.branches = state.branches.map((branch) => branch === oldBranch ? newBranch : branch);
     for (const seller of state.sellers) if (seller.branch === oldBranch) seller.branch = newBranch;
     if (state.branchPasswords?.[oldBranch] && !state.branchPasswords[newBranch]) {
       state.branchPasswords[newBranch] = state.branchPasswords[oldBranch];
       delete state.branchPasswords[oldBranch];
     }
+    if (activeBranchSession === oldBranch) {
+      activeBranchSession = newBranch;
+      sessionStorage.setItem(BRANCH_SESSION_KEY, newBranch);
+    }
+    target.dataset.branchName = newBranch;
     saveState("Filial atualizada");
     renderDashboard();
     renderManager();
@@ -1211,7 +1216,7 @@ document.addEventListener("change", (event) => {
     reader.readAsText(file);
   }
 
-  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-custom-metric-field], [data-branch-index], [data-branch-password]")) renderAll();
+  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-custom-metric-field], [data-branch-name], [data-branch-password]")) renderAll();
   if (event.target.id === "adminSellerSelect") renderAdminMetrics();
   if (event.target.id === "collabSellerSelect") renderCollaborator();
   if (event.target.id === "ruleAreaSelect") renderRules();
