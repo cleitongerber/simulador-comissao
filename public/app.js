@@ -564,23 +564,55 @@ function renderDashboard() {
   }).join("");
 
   renderAreaBars(sellers);
+  renderBranchAttainmentBars(sellers);
   renderRanking(sellers);
   renderAchievementBars(sellers);
   renderDashboardInsights(sellers);
 }
 
 function renderAreaBars(sellers) {
-  const areas = ["Cabo", "Nao Cabo"].map((area) => ({
-    area,
-    total: sellers.filter((seller) => seller.area === area).reduce((sum, seller) => sum + sellerResult(seller).projected, 0),
-  }));
-  const max = Math.max(1, ...areas.map((item) => Math.abs(item.total)));
-  document.getElementById("areaBars").innerHTML = areas.map((item) => `
+  const byBranch = new Map();
+  for (const seller of sellers) {
+    const branch = seller.branch || "Sem filial";
+    byBranch.set(branch, (byBranch.get(branch) || 0) + sellerResult(seller).projected);
+  }
+  const branches = [...byBranch.entries()]
+    .map(([branch, total]) => ({ branch, total }))
+    .sort((a, b) => b.total - a.total);
+  const max = Math.max(1, ...branches.map((item) => Math.abs(item.total)));
+  document.getElementById("areaBars").innerHTML = branches.map((item) => `
     <div class="bar-row">
-      <div class="bar-label"><span>${item.area}</span><span>${money.format(item.total)}</span></div>
+      <div class="bar-label"><span>${escapeHtml(item.branch)}</span><span>${money.format(item.total)}</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${Math.max(2, Math.abs(item.total) / max * 100)}%"></div></div>
     </div>
-  `).join("");
+  `).join("") || `<p class="muted-note">Sem filiais no filtro atual.</p>`;
+}
+
+function renderBranchAttainmentBars(sellers) {
+  const container = document.getElementById("branchAttainmentBars");
+  if (!container) return;
+  const byBranch = new Map();
+  for (const seller of sellers) {
+    ensureSellerValues(seller);
+    const branch = seller.branch || "Sem filial";
+    const current = byBranch.get(branch) || { branch, sellers: new Set(), goal: 0, projected: 0 };
+    current.sellers.add(seller.id);
+    for (const metric of metricsFor(seller.area).filter((item) => item.type !== "deviceRevenue")) {
+      const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+      current.goal += Number(value.goal) || 0;
+      current.projected += projected(value.realized);
+    }
+    byBranch.set(branch, current);
+  }
+  const rows = [...byBranch.values()]
+    .map((row) => ({ ...row, percent: row.goal ? row.projected / row.goal : 0 }))
+    .sort((a, b) => b.percent - a.percent);
+  container.innerHTML = rows.map((row) => `
+    <div class="bar-row">
+      <div class="bar-label"><span>${escapeHtml(row.branch)} (${row.sellers.size})</span><span>${pct.format(row.percent)}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, Math.max(2, row.percent * 100))}%"></div></div>
+    </div>
+  `).join("") || `<p class="muted-note">Sem filiais no filtro atual.</p>`;
 }
 
 function renderRanking(sellers) {
