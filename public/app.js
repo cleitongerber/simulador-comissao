@@ -807,6 +807,7 @@ function renderAll() {
   document.getElementById("daysDone").value = state.period.daysDone;
   document.getElementById("daysTotal").value = state.period.daysTotal;
   renderDashboard();
+  renderManager();
   renderAdmin();
   renderCollaborator();
   updateActionVisibility();
