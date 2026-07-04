@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Simulador de Comissões</title>
-    <link rel="stylesheet" href="./styles.css?v=20260704-attainment-percent" />
+    <link rel="stylesheet" href="./styles.css?v=20260704-owner-access" />
   </head>
   <body>
     <div class="app-shell">
@@ -324,35 +324,22 @@
       </main>
     </div>
 
-    <div id="adminLock" class="modal-backdrop">
+    <div id="accessLock" class="modal-backdrop">
       <div class="modal">
-        <h3>Acesso Admin</h3>
-        <p>Digite a senha administrativa para alterar cadastros e configuracoes.</p>
-        <input id="adminPassword" type="password" placeholder="Senha admin" />
-        <span id="adminLoginError" class="form-error"></span>
+        <h3>Acesso</h3>
+        <p>Digite sua senha para continuar.</p>
+        <input id="accessPassword" type="password" placeholder="Senha" />
+        <span id="accessLoginError" class="form-error"></span>
         <div class="modal-actions">
-          <button id="adminCancel" class="ghost-button" type="button">Cancelar</button>
-          <button id="adminLogin" class="nav-button active" type="button">Entrar</button>
+          <button id="accessCancel" class="ghost-button" type="button">Cancelar</button>
+          <button id="accessLogin" class="nav-button active" type="button">Entrar</button>
         </div>
       </div>
     </div>
 
-    <div id="dashboardLock" class="modal-backdrop">
-      <div class="modal">
-        <h3>Acesso Dashboard</h3>
-        <p>Digite a senha do Dashboard para visualizar os resultados.</p>
-        <input id="dashboardPassword" type="password" placeholder="Senha Dashboard" />
-        <span id="dashboardLoginError" class="form-error"></span>
-        <div class="modal-actions">
-          <button id="dashboardCancel" class="ghost-button" type="button">Cancelar</button>
-          <button id="dashboardLogin" class="nav-button active" type="button">Entrar</button>
-        </div>
-      </div>
-    </div>
+    <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <div class="owner-credit">by Cleiton Gerber</div>
-
-    <script src="./app.js?v=20260704-attainment-percent"></script>
+    <script src="./app.js?v=20260704-owner-access"></script>
   </body>
 </html>
 

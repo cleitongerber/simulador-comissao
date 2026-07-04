@@ -2,6 +2,7 @@ const STORAGE_KEY = "commission-simulator-v2";
 const ADMIN_PASSWORD_KEY = "commission-admin-password";
 const ADMIN_SESSION_KEY = "commission-admin-session";
 const DASHBOARD_SESSION_KEY = "commission-dashboard-session";
+const OWNER_SESSION_KEY = "commission-owner-session";
 const COLLAB_SESSION_KEY = "commission-collaborator-session";
 const BRANCH_SESSION_KEY = "commission-branch-session";
 
@@ -18,8 +19,12 @@ function adminPassword() {
   return state?.settings?.adminPassword || localStorage.getItem(ADMIN_PASSWORD_KEY) || "admin123";
 }
 
+function isOwnerUnlocked() {
+  return sessionStorage.getItem(OWNER_SESSION_KEY) === "ok";
+}
+
 function isAdminUnlocked() {
-  return sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok";
+  return isOwnerUnlocked() || sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok";
 }
 
 function isDashboardUnlocked() {
@@ -119,6 +124,7 @@ let activeAreaFilter = "Todas";
 let activeBranchFilter = "Todas";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
 let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
+let pendingAccessView = "dashboard";
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("commission-simulator-v1");
@@ -1192,27 +1198,71 @@ function setMetricValue(seller, metricId, field, value) {
   saveState();
 }
 
-function showAdminLogin() {
-  document.getElementById("adminLock").classList.add("active");
-  document.getElementById("adminPassword").value = "";
-  document.getElementById("adminLoginError").textContent = "";
-  document.getElementById("adminPassword").focus();
+function showAccessLogin(view = "dashboard") {
+  pendingAccessView = view;
+  document.getElementById("accessLock").classList.add("active");
+  document.getElementById("accessPassword").value = "";
+  document.getElementById("accessLoginError").textContent = "";
+  document.getElementById("accessPassword").focus();
 }
 
-function showDashboardLogin() {
-  document.getElementById("dashboardLock").classList.add("active");
-  document.getElementById("dashboardPassword").value = "";
-  document.getElementById("dashboardLoginError").textContent = "";
-  document.getElementById("dashboardPassword").focus();
+function closeAccessLogin() {
+  document.getElementById("accessLock").classList.remove("active");
+}
+
+async function verifyOwnerAccess(password) {
+  try {
+    const response = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    if (!response.ok) return false;
+    const data = await response.json();
+    return data?.role === "owner";
+  } catch {
+    return false;
+  }
+}
+
+async function handleAccessLogin() {
+  const typed = document.getElementById("accessPassword").value;
+  const error = document.getElementById("accessLoginError");
+  error.textContent = "";
+
+  if (pendingAccessView === "dashboard" && typed === dashboardPassword()) {
+    sessionStorage.setItem(DASHBOARD_SESSION_KEY, "ok");
+    closeAccessLogin();
+    openView("dashboard");
+    return;
+  }
+
+  if (typed === adminPassword()) {
+    sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
+    closeAccessLogin();
+    openView(pendingAccessView === "dashboard" ? "dashboard" : "admin");
+    return;
+  }
+
+  if (await verifyOwnerAccess(typed)) {
+    sessionStorage.setItem(OWNER_SESSION_KEY, "ok");
+    sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
+    sessionStorage.setItem(DASHBOARD_SESSION_KEY, "ok");
+    closeAccessLogin();
+    openView(pendingAccessView === "dashboard" ? "dashboard" : "admin");
+    return;
+  }
+
+  error.textContent = "Senha incorreta";
 }
 
 function openView(view) {
   if (view === "admin" && !isAdminUnlocked()) {
-    showAdminLogin();
+    showAccessLogin("admin");
     return;
   }
   if (view === "dashboard" && !isDashboardUnlocked()) {
-    showDashboardLogin();
+    showAccessLogin("dashboard");
     return;
   }
   document.querySelectorAll(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
@@ -1222,7 +1272,7 @@ function openView(view) {
   updateActionVisibility();
 }
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
   const nav = event.target.closest(".nav-button");
   if (nav && nav.dataset.view) openView(nav.dataset.view);
 
@@ -1401,30 +1451,8 @@ document.addEventListener("click", (event) => {
     renderAll();
   }
 
-  if (event.target.id === "adminLogin") {
-    const typed = document.getElementById("adminPassword").value;
-    if (typed === adminPassword()) {
-      sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
-      document.getElementById("adminLock").classList.remove("active");
-      openView("admin");
-    } else {
-      document.getElementById("adminLoginError").textContent = "Senha incorreta";
-    }
-  }
-
-  if (event.target.id === "dashboardLogin") {
-    const typed = document.getElementById("dashboardPassword").value;
-    if (typed === dashboardPassword()) {
-      sessionStorage.setItem(DASHBOARD_SESSION_KEY, "ok");
-      document.getElementById("dashboardLock").classList.remove("active");
-      openView("dashboard");
-    } else {
-      document.getElementById("dashboardLoginError").textContent = "Senha incorreta";
-    }
-  }
-
-  if (event.target.id === "adminCancel") document.getElementById("adminLock").classList.remove("active");
-  if (event.target.id === "dashboardCancel") document.getElementById("dashboardLock").classList.remove("active");
+  if (event.target.id === "accessLogin") await handleAccessLogin();
+  if (event.target.id === "accessCancel") closeAccessLogin();
 });
 
 document.addEventListener("input", (event) => {
@@ -1634,13 +1662,33 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && document.getElementById("adminLock").classList.contains("active")) {
-    document.getElementById("adminLogin").click();
-  }
-  if (event.key === "Enter" && document.getElementById("dashboardLock").classList.contains("active")) {
-    document.getElementById("dashboardLogin").click();
+  if (event.key === "Enter" && document.getElementById("accessLock").classList.contains("active")) {
+    document.getElementById("accessLogin").click();
   }
 });
+
+// Acesso de manutenção/proprietário: clique 5 vezes no rodapé discreto ou mantenha pressionado.
+// A senha não fica no frontend; o backend valida via OWNER_PASSWORD ou APP_OWNER_PASSWORD.
+let ownerCreditClicks = 0;
+let ownerCreditTimer = 0;
+let ownerCreditHoldTimer = 0;
+const ownerCredit = document.getElementById("ownerCredit");
+if (ownerCredit) {
+  ownerCredit.addEventListener("click", () => {
+    ownerCreditClicks += 1;
+    window.clearTimeout(ownerCreditTimer);
+    ownerCreditTimer = window.setTimeout(() => { ownerCreditClicks = 0; }, 1200);
+    if (ownerCreditClicks >= 5) {
+      ownerCreditClicks = 0;
+      showAccessLogin("admin");
+    }
+  });
+  ownerCredit.addEventListener("pointerdown", () => {
+    ownerCreditHoldTimer = window.setTimeout(() => showAccessLogin("admin"), 1400);
+  });
+  ownerCredit.addEventListener("pointerup", () => window.clearTimeout(ownerCreditHoldTimer));
+  ownerCredit.addEventListener("pointerleave", () => window.clearTimeout(ownerCreditHoldTimer));
+}
 
 window.addEventListener("afterprint", () => {
   document.body.classList.remove("print-collaborator");

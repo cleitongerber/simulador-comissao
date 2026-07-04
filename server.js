@@ -1,4 +1,5 @@
-﻿import fs from "node:fs/promises";
+import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,22 @@ const stateKey = "commission_state";
 const localStatePath = path.join(__dirname, "data", "state.json");
 let pool = null;
 
+function ownerPassword() {
+  return process.env.OWNER_PASSWORD || process.env.APP_OWNER_PASSWORD || "";
+}
+
+function safeCompare(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""));
+  const rightBuffer = Buffer.from(String(right || ""));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function verifyOwnerPassword(password) {
+  const configured = ownerPassword();
+  if (!configured) return false;
+  return safeCompare(password, configured);
+}
 const defaultState = {
   period: { month: "JUNHO", daysDone: 15, daysTotal: 26 },
   sellers: [
@@ -121,6 +138,15 @@ http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
     if (request.method === "GET" && url.pathname === "/api/health") {
       sendJson(response, 200, { ok: true, database: pool ? "postgres" : "local-file" });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/auth") {
+      const body = await readBody(request);
+      if (verifyOwnerPassword(body?.password)) {
+        sendJson(response, 200, { ok: true, role: "owner" });
+        return;
+      }
+      sendJson(response, 401, { ok: false });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/state") {

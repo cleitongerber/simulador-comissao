@@ -974,7 +974,7 @@ td select {
   color: rgba(30, 30, 30, 0.42);
   font-size: 10px;
   font-weight: 600;
-  pointer-events: none;
+  cursor: default;
   user-select: none;
 }
 
