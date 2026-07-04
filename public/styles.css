@@ -1197,6 +1197,24 @@ select:focus {
   color: #fff;
 }
 
+.collab-login .nav-button,
+.modal-actions .nav-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.collab-login .nav-button::before,
+.modal-actions .nav-button::before {
+  content: none;
+}
+
 .kpi-grid {
   gap: 16px;
   margin-bottom: 18px;
