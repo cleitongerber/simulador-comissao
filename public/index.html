@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260704-pwa" />
+    <link rel="stylesheet" href="./styles.css?v=20260704-redesign" />
   </head>
   <body>
     <div class="app-shell">
@@ -32,32 +32,37 @@
           <button class="nav-button" data-view="gerente" type="button">Filial</button>
           <button class="nav-button active" data-view="colaborador" type="button">Colaborador</button>
         </nav>
-        <div class="period-card">
-          <div class="period-readonly">
-            <span>Mes</span>
-            <strong id="periodMonthDisplay">JUNHO</strong>
-          </div>
-          <div class="period-grid">
-            <label>
-              Dias realizados
-              <input id="daysDone" min="1" type="number" />
-            </label>
-            <div class="period-readonly compact">
-              <span>Dias uteis</span>
-              <strong id="daysTotalDisplay">26</strong>
-            </div>
-          </div>
-        </div>
       </aside>
 
       <main class="main">
         <section class="topbar">
           <div>
+            <div class="mobile-title">
+              <span class="mobile-logo">%</span>
+              <span><strong>Playcell</strong><small>Simulador de Comissões</small></span>
+            </div>
             <p class="eyebrow">Simulador operacional</p>
             <h2 id="viewTitle">Colaborador</h2>
           </div>
+          <div class="period-card">
+            <div class="period-readonly">
+              <span>Mes</span>
+              <strong id="periodMonthDisplay">JUNHO</strong>
+            </div>
+            <div class="period-grid">
+              <label>
+                Dias realizados
+                <input id="daysDone" min="1" type="number" />
+              </label>
+              <div class="period-readonly compact">
+                <span>Dias uteis</span>
+                <strong id="daysTotalDisplay">26</strong>
+              </div>
+            </div>
+          </div>
           <div class="actions">
             <span id="saveStatus" class="save-status">Conectando ao banco</span>
+            <span class="user-avatar" aria-label="Usuario">SC</span>
             <button id="saveNow" class="ghost-button admin-action" type="button" hidden>Salvar agora</button>
             <button id="importData" class="ghost-button admin-action" type="button" hidden>Importar backup</button>
             <input id="importDataFile" type="file" accept="application/json" hidden />
@@ -348,7 +353,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260704-pwa"></script>
+    <script src="./app.js?v=20260704-redesign"></script>
   </body>
 </html>
 

@@ -1122,8 +1122,9 @@ function renderCollaborator() {
     const missing = Math.max((Number(value.goal) || 0) - (Number(value.realized) || 0), 0);
     const currentPercent = Number(value.goal) ? (Number(value.realized) || 0) / Number(value.goal) : null;
     const projectedPercent = Number(value.goal) ? projectedValue / Number(value.goal) : null;
+    const progressPercent = Math.max(0, Math.min(100, (currentPercent || 0) * 100));
     return `<tr>
-      <td>${metric.name}</td>
+      <td><span class="metric-title">${metric.name}</span><span class="metric-progress"><span style="width:${progressPercent}%"></span></span></td>
       <td>${num.format(value.goal)}</td>
       <td><input data-collab-realized="${metric.id}" type="number" value="${value.realized}"></td>
       <td>${achievementPill(currentPercent)}</td>
