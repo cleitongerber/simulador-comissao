@@ -1,0 +1,26 @@
+{
+  "name": "Simulador de Comissoes",
+  "short_name": "Comissoes",
+  "description": "Simulador operacional de comissoes por vendedor, filial e dashboard.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f2f3",
+  "theme_color": "#b00012",
+  "categories": ["business", "productivity", "finance"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
