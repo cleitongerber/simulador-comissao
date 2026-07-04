@@ -375,6 +375,57 @@ td select {
   min-width: 92px;
 }
 
+
+.kpi-detail {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.kpi-detail.ok {
+  color: var(--green);
+}
+
+.kpi-detail.warn {
+  color: var(--amber);
+}
+
+.kpi-detail.bad {
+  color: var(--red);
+}
+
+.achievement-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.achievement-pill.warn {
+  background: #fef3c7;
+  color: var(--amber);
+}
+
+.achievement-pill.ok {
+  background: #dcfce7;
+  color: var(--green);
+}
+
+.achievement-pill.neutral {
+  background: #f1f5f9;
+  color: var(--muted);
+}
+
 .status {
   display: inline-block;
   border-radius: 999px;

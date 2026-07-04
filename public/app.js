@@ -318,6 +318,33 @@ function percentFor(seller, metricId, useProjected) {
   return goal ? realized / goal : 0;
 }
 
+function achievementClass(percent) {
+  if (percent === null || !Number.isFinite(percent)) return "";
+  if (percent >= 1) return "ok";
+  if (percent >= 0.8) return "warn";
+  return "bad";
+}
+
+function achievementPill(percent) {
+  if (percent === null || !Number.isFinite(percent)) return `<span class="achievement-pill neutral">-</span>`;
+  return `<span class="achievement-pill ${achievementClass(percent)}">${pct.format(percent)}</span>`;
+}
+
+function totalAttainmentForSellers(sellers, mode = "projected") {
+  const totals = sellers.reduce((acc, seller) => {
+    ensureSellerValues(seller);
+    for (const metric of metricsFor(seller.area)) {
+      const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+      const goal = Number(value.goal) || 0;
+      if (goal <= 0) continue;
+      acc.goal += goal;
+      acc.value += mode === "projected" ? projected(value.realized) : Number(value.realized) || 0;
+    }
+    return acc;
+  }, { goal: 0, value: 0 });
+  return totals.goal ? totals.value / totals.goal : 0;
+}
+
 function deflatorFor(seller, subtotal, useProjected) {
   if (seller?.emExperiencia === true) return 0;
   const config = state.deflators?.[seller.area] || defaultDeflators[seller.area];
@@ -479,9 +506,9 @@ function exportDashboardExcel() {
   const rows = sellers.map((seller) => {
     const result = sellerResult(seller);
     const status = statusFor(seller);
-    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${money.format(result.current)}</td><td>${money.format(result.projected)}</td><td>${money.format(result.projectedDeflator)}</td><td>${money.format(result.gain)}</td><td>${escapeHtml(status.label)}</td></tr>`;
+    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${money.format(result.current)}</td><td>${pct.format(totalAttainmentForSellers([seller], "current"))}</td><td>${money.format(result.projected)}</td><td>${pct.format(totalAttainmentForSellers([seller], "projected"))}</td><td>${money.format(result.projectedDeflator)}</td><td>${money.format(result.gain)}</td><td>${escapeHtml(status.label)}</td></tr>`;
   }).join("");
-  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>Projetado</th><th>Deflator</th><th>Ganho</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>% atual</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Ganho</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
   downloadFile(`resultado-vendedores-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
 }
 
@@ -644,22 +671,28 @@ function renderDashboard() {
     return acc;
   }, { current: 0, projected: 0, gain: 0, deflator: 0 });
 
+  const totalCurrentPercent = totalAttainmentForSellers(sellers, "current");
+  const totalProjectedPercent = totalAttainmentForSellers(sellers, "projected");
   document.getElementById("kpiGrid").innerHTML = [
-    ["Total atual", money.format(totals.current)],
-    ["Total projetado", money.format(totals.projected)],
-    ["Ganho potencial", money.format(totals.gain)],
-    ["Deflator projetado", money.format(totals.deflator)],
-  ].map(([label, value]) => `<article class="kpi"><span>${label}</span><strong>${value}</strong></article>`).join("");
+    ["Total atual", money.format(totals.current), `Ating. atual ${pct.format(totalCurrentPercent)}`, totalCurrentPercent],
+    ["Total projetado", money.format(totals.projected), `Ating. proj. ${pct.format(totalProjectedPercent)}`, totalProjectedPercent],
+    ["Ganho potencial", money.format(totals.gain), "Comissao projetada - atual", null],
+    ["Deflator projetado", money.format(totals.deflator), "Impacto projetado", null],
+  ].map(([label, value, detail, percent]) => `<article class="kpi"><span>${label}</span><strong>${value}</strong><small class="kpi-detail ${achievementClass(percent)}">${detail}</small></article>`).join("");
 
   document.getElementById("sellerSummaryBody").innerHTML = sellers.map((seller) => {
     const result = sellerResult(seller);
     const status = statusFor(seller);
+    const currentPercent = totalAttainmentForSellers([seller], "current");
+    const projectedPercent = totalAttainmentForSellers([seller], "projected");
     return `<tr>
       <td>${seller.name}</td>
       <td>${seller.branch}</td>
       <td>${seller.area}</td>
       <td>${money.format(result.current)}</td>
+      <td>${achievementPill(currentPercent)}</td>
       <td>${money.format(result.projected)}</td>
+      <td>${achievementPill(projectedPercent)}</td>
       <td>${money.format(result.projectedDeflator)}</td>
       <td>${money.format(result.gain)}</td>
       <td><span class="status ${status.cls}">${status.label}</span></td>
@@ -805,8 +838,9 @@ function renderAdminMetrics() {
       <td>${metric.name}</td>
       <td><input data-metric-goal="${metric.id}" type="number" value="${value.goal}"></td>
       <td><input data-metric-realized="${metric.id}" type="number" value="${value.realized}"></td>
-      <td>${pct.format(percentFor(seller, metric.id, false))}</td>
-      <td>${pct.format(percentFor(seller, metric.id, true))}</td>
+      <td>${achievementPill(percentFor(seller, metric.id, false))}</td>
+      <td>${num.format(projected(value.realized))}</td>
+      <td>${achievementPill(percentFor(seller, metric.id, true))}</td>
     </tr>`;
   }).join("");
 }
@@ -883,7 +917,11 @@ function branchMetricRows(sellers) {
       byMetric.set(key, current);
     }
   }
-  return [...byMetric.values()].map((row) => ({ ...row, percent: row.goal ? row.projected / row.goal : null }));
+  return [...byMetric.values()].map((row) => ({
+    ...row,
+    currentPercent: row.goal ? row.realized / row.goal : null,
+    projectedPercent: row.goal ? row.projected / row.goal : null,
+  }));
 }
 
 function sellerGapSummary(seller) {
@@ -914,13 +952,15 @@ function sellerIndicatorRows(seller) {
     const goal = Number(value.goal) || 0;
     const realized = Number(value.realized) || 0;
     const projectedValue = projected(realized);
-    const percent = goal ? projectedValue / goal : null;
+    const currentPercent = goal ? realized / goal : null;
+    const projectedPercent = goal ? projectedValue / goal : null;
     return `<tr>
       <td>${escapeHtml(metric.name)}</td>
       <td>${goal ? num.format(goal) : "-"}</td>
       <td>${num.format(realized)}</td>
+      <td>${achievementPill(currentPercent)}</td>
       <td>${num.format(projectedValue)}</td>
-      <td>${percent === null ? "-" : pct.format(percent)}</td>
+      <td>${achievementPill(projectedPercent)}</td>
     </tr>`;
   }).join("");
 }
@@ -938,26 +978,29 @@ function branchSellerRows(sellers) {
         <div><span>Projetado</span><strong>${money.format(result.projected)}</strong></div>
         <div><span>Status</span><strong><span class="status ${status.cls}">${status.label}</span></strong></div>
       </div>
-      <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>Projetado</th><th>Atingimento</th></tr></thead><tbody>${sellerIndicatorRows(seller)}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th></tr></thead><tbody>${sellerIndicatorRows(seller)}</tbody></table></div>
     </article>`;
   }).join("") || `<p class="muted-note">Nenhum vendedor vinculado a esta filial.</p>`;
 }
 function branchDashboardMarkup(branch, sellers) {
   const rows = branchMetricRows(sellers);
-  const attainmentRows = rows.filter((row) => row.percent !== null);
+  const attainmentRows = rows.filter((row) => row.projectedPercent !== null);
   const totalGoal = attainmentRows.reduce((sum, row) => sum + row.goal, 0);
+  const currentForAttainment = attainmentRows.reduce((sum, row) => sum + row.realized, 0);
   const projectedForAttainment = attainmentRows.reduce((sum, row) => sum + row.projected, 0);
   const totalProjected = rows.reduce((sum, row) => sum + row.projected, 0);
-  const totalPercent = totalGoal ? projectedForAttainment / totalGoal : 0;
-  const tableRows = rows.map((row) => `<tr><td>${row.name}</td><td>${row.hasGoal ? num.format(row.goal) : "-"}</td><td>${num.format(row.realized)}</td><td>${num.format(row.projected)}</td><td>${row.percent === null ? "-" : pct.format(row.percent)}</td></tr>`).join("");
+  const totalCurrentPercent = totalGoal ? currentForAttainment / totalGoal : 0;
+  const totalProjectedPercent = totalGoal ? projectedForAttainment / totalGoal : 0;
+  const tableRows = rows.map((row) => `<tr><td>${row.name}</td><td>${row.hasGoal ? num.format(row.goal) : "-"}</td><td>${num.format(row.realized)}</td><td>${achievementPill(row.currentPercent)}</td><td>${num.format(row.projected)}</td><td>${achievementPill(row.projectedPercent)}</td></tr>`).join("");
   return `
     <div class="kpi-grid manager-kpis">
       <article class="kpi"><span>Filial</span><strong>${branch}</strong></article>
       <article class="kpi"><span>Vendedores</span><strong>${sellers.length}</strong></article>
-      <article class="kpi"><span>Atingimento total</span><strong>${pct.format(totalPercent)}</strong></article>
+      <article class="kpi"><span>Atingimento atual</span><strong>${pct.format(totalCurrentPercent)}</strong><small class="kpi-detail ${achievementClass(totalCurrentPercent)}">Realizado / meta</small></article>
+      <article class="kpi"><span>Atingimento proj.</span><strong>${pct.format(totalProjectedPercent)}</strong><small class="kpi-detail ${achievementClass(totalProjectedPercent)}">Projecao / meta</small></article>
       <article class="kpi"><span>Projetado total</span><strong>${num.format(totalProjected)}</strong></article>
     </div>
-    <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>Projetado</th><th>Atingimento</th></tr></thead><tbody>${tableRows || `<tr><td colspan="5">Nenhuma meta encontrada para esta filial.</td></tr>`}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th></tr></thead><tbody>${tableRows || `<tr><td colspan="6">Nenhuma meta encontrada para esta filial.</td></tr>`}</tbody></table></div>
     <section class="branch-seller-panel">
       <div class="panel-header"><h3>Resultado individual por vendedor</h3></div>
       <div class="seller-indicator-list">${branchSellerRows(sellers)}</div>
@@ -982,9 +1025,9 @@ function dashboardSummaryMarkup(sellers) {
   const rows = sellers.map((seller) => {
     const result = sellerResult(seller);
     const status = statusFor(seller);
-    return `<tr><td>${seller.name}</td><td>${seller.area}</td><td>${money.format(result.current)}</td><td>${money.format(result.projected)}</td><td>${money.format(result.projectedDeflator)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
+    return `<tr><td>${seller.name}</td><td>${seller.area}</td><td>${money.format(result.current)}</td><td>${achievementPill(totalAttainmentForSellers([seller], "current"))}</td><td>${money.format(result.projected)}</td><td>${achievementPill(totalAttainmentForSellers([seller], "projected"))}</td><td>${money.format(result.projectedDeflator)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
   }).join("");
-  return `<div class="kpi-grid manager-kpis">${kpis}</div><div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Area</th><th>Atual</th><th>Projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="kpi-grid manager-kpis">${kpis}</div><div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Area</th><th>Atual</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderManager() {
@@ -1071,12 +1114,16 @@ function renderCollaborator() {
     const value = seller.values[metric.id];
     const projectedValue = projected(value.realized);
     const missing = Math.max((Number(value.goal) || 0) - (Number(value.realized) || 0), 0);
+    const currentPercent = Number(value.goal) ? (Number(value.realized) || 0) / Number(value.goal) : null;
+    const projectedPercent = Number(value.goal) ? projectedValue / Number(value.goal) : null;
     return `<tr>
       <td>${metric.name}</td>
       <td>${num.format(value.goal)}</td>
       <td><input data-collab-realized="${metric.id}" type="number" value="${value.realized}"></td>
+      <td>${achievementPill(currentPercent)}</td>
       <td>${num.format(missing)}</td>
       <td>${num.format(projectedValue)}</td>
+      <td>${achievementPill(projectedPercent)}</td>
       <td>${money.format(metricCommission(seller, metric, "projected"))}</td>
     </tr>`;
   }).join("");
