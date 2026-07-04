@@ -1,6 +1,7 @@
-﻿const STORAGE_KEY = "commission-simulator-v2";
+const STORAGE_KEY = "commission-simulator-v2";
 const ADMIN_PASSWORD_KEY = "commission-admin-password";
 const ADMIN_SESSION_KEY = "commission-admin-session";
+const DASHBOARD_SESSION_KEY = "commission-dashboard-session";
 const COLLAB_SESSION_KEY = "commission-collaborator-session";
 const BRANCH_SESSION_KEY = "commission-branch-session";
 
@@ -21,8 +22,16 @@ function isAdminUnlocked() {
   return sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok";
 }
 
+function isDashboardUnlocked() {
+  return isAdminUnlocked() || sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok";
+}
+
+function dashboardPassword() {
+  return state?.settings?.dashboardPassword || "dashboard123";
+}
+
 function defaultSettings() {
-  return { adminPassword: "admin123", partnerName: "" };
+  return { adminPassword: "admin123", dashboardPassword: "dashboard123", partnerName: "" };
 }
 
 const areaMetrics = {
@@ -92,9 +101,9 @@ function seedState() {
   return {
     period: { month: "JUNHO", daysDone: 15, daysTotal: 26 },
     sellers: [
-      { id: makeId(), name: "HENRIQUE", branch: "CURITIBANOS", area: "Nao Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", values: {} },
-      { id: makeId(), name: "MAKELLY", branch: "CURITIBANOS", area: "Nao Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", values: {} },
-      { id: makeId(), name: "VENDEDOR CABO", branch: "FRAIBURGO", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", values: {} },
+      { id: makeId(), name: "HENRIQUE", branch: "CURITIBANOS", area: "Nao Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} },
+      { id: makeId(), name: "MAKELLY", branch: "CURITIBANOS", area: "Nao Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} },
+      { id: makeId(), name: "VENDEDOR CABO", branch: "FRAIBURGO", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} },
     ],
     rules: structuredClone(defaultRules),
     customMetrics: { Cabo: [], "Nao Cabo": [] },
@@ -200,7 +209,10 @@ function normalizeState(candidate) {
     candidate.rules[area] = candidate.rules[area] || {};
     for (const metric of metricsFor(area, candidate)) candidate.rules[area][metric.id] = candidate.rules[area][metric.id] || [];
   }
-  for (const seller of candidate.sellers) ensureSellerValues(seller, candidate);
+  for (const seller of candidate.sellers) {
+    seller.emExperiencia = seller.emExperiencia === true;
+    ensureSellerValues(seller, candidate);
+  }
   return candidate;
 }
 let cloudSaveTimer = 0;
@@ -307,6 +319,7 @@ function percentFor(seller, metricId, useProjected) {
 }
 
 function deflatorFor(seller, subtotal, useProjected) {
+  if (seller?.emExperiencia === true) return 0;
   const config = state.deflators?.[seller.area] || defaultDeflators[seller.area];
   const rules = Array.isArray(config) ? config : [
     { metricId: "gross", min: Number(config?.grossMin) || 0, penaltyRate: Number(config?.penaltyRate) || 0 },
@@ -558,7 +571,7 @@ function findOrCreateSeller(name, branch, area) {
     }
     return seller;
   }
-  seller = { id: makeId(), name: name.trim(), branch: branch.trim(), area, adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", values: {} };
+  seller = { id: makeId(), name: name.trim(), branch: branch.trim(), area, adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} };
   state.sellers.push(seller);
   ensureSellerValues(seller);
   return seller;
@@ -751,7 +764,7 @@ function renderAdmin() {
   const list = document.getElementById("sellerEditorList");
   list.innerHTML = state.sellers.map((seller) => `
     <div class="seller-card">
-      <label>Nome<input data-seller-field="name" data-seller-id="${seller.id}" value="${seller.name}"></label>
+      <label>Nome<input data-seller-field="name" data-seller-id="${seller.id}" value="${seller.name}">${seller.emExperiencia ? `<span class="experience-badge">Em experiência</span>` : ""}</label>
       <label>Area
         <select data-seller-field="area" data-seller-id="${seller.id}">
           <option ${seller.area === "Cabo" ? "selected" : ""}>Cabo</option>
@@ -763,6 +776,7 @@ function renderAdmin() {
       <label>Seguro<input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.insurance || 0}"></label>
       <label>Carrossel<input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.carousel || 0}"></label>
       <label>Senha colaborador<input data-seller-field="password" data-seller-id="${seller.id}" type="text" value="${seller.password || "1234"}"></label>
+      <label class="checkbox-line"><input data-seller-experience="${seller.id}" type="checkbox" ${seller.emExperiencia ? "checked" : ""}> Vendedor em experiência</label>
       <button class="delete-seller-button" data-delete-seller="${seller.id}" type="button">Excluir vendedor</button>
     </div>
   `).join("");
@@ -1069,9 +1083,11 @@ function renderCollaborator() {
 }
 
 function updateActionVisibility() {
-  const isPrivilegedView = document.getElementById("adminView").classList.contains("active") || document.getElementById("dashboardView").classList.contains("active");
+  const isAdminView = document.getElementById("adminView").classList.contains("active");
+  const isDashboardView = document.getElementById("dashboardView").classList.contains("active");
+  const canUseAdminActions = isAdminUnlocked() && (isAdminView || isDashboardView);
   document.querySelectorAll(".admin-action").forEach((item) => {
-    item.hidden = !isPrivilegedView;
+    item.hidden = !canUseAdminActions;
   });
 }
 
@@ -1132,12 +1148,24 @@ function setMetricValue(seller, metricId, field, value) {
 function showAdminLogin() {
   document.getElementById("adminLock").classList.add("active");
   document.getElementById("adminPassword").value = "";
+  document.getElementById("adminLoginError").textContent = "";
   document.getElementById("adminPassword").focus();
 }
 
+function showDashboardLogin() {
+  document.getElementById("dashboardLock").classList.add("active");
+  document.getElementById("dashboardPassword").value = "";
+  document.getElementById("dashboardLoginError").textContent = "";
+  document.getElementById("dashboardPassword").focus();
+}
+
 function openView(view) {
-  if ((view === "admin" || view === "dashboard") && !isAdminUnlocked()) {
+  if (view === "admin" && !isAdminUnlocked()) {
     showAdminLogin();
+    return;
+  }
+  if (view === "dashboard" && !isDashboardUnlocked()) {
+    showDashboardLogin();
     return;
   }
   document.querySelectorAll(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
@@ -1260,7 +1288,7 @@ document.addEventListener("click", (event) => {
     renderAll();
   }
   if (event.target.id === "addSeller") {
-    state.sellers.push({ id: makeId(), name: "NOVO VENDEDOR", branch: "FILIAL", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", values: {} });
+    state.sellers.push({ id: makeId(), name: "NOVO VENDEDOR", branch: "FILIAL", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} });
     saveState();
     renderAll();
   }
@@ -1337,7 +1365,19 @@ document.addEventListener("click", (event) => {
     }
   }
 
+  if (event.target.id === "dashboardLogin") {
+    const typed = document.getElementById("dashboardPassword").value;
+    if (typed === dashboardPassword()) {
+      sessionStorage.setItem(DASHBOARD_SESSION_KEY, "ok");
+      document.getElementById("dashboardLock").classList.remove("active");
+      openView("dashboard");
+    } else {
+      document.getElementById("dashboardLoginError").textContent = "Senha incorreta";
+    }
+  }
+
   if (event.target.id === "adminCancel") document.getElementById("adminLock").classList.remove("active");
+  if (event.target.id === "dashboardCancel") document.getElementById("dashboardLock").classList.remove("active");
 });
 
 document.addEventListener("input", (event) => {
@@ -1373,6 +1413,14 @@ document.addEventListener("input", (event) => {
       state.settings = { ...defaultSettings(), ...(state.settings || {}) };
       state.settings.adminPassword = target.value.trim();
       saveState("Senha admin salva");
+    }
+  }
+
+  if (target.id === "newDashboardPassword") {
+    if (target.value.trim().length >= 4) {
+      state.settings = { ...defaultSettings(), ...(state.settings || {}) };
+      state.settings.dashboardPassword = target.value.trim();
+      saveState("Senha dashboard salva");
     }
   }
 
@@ -1418,6 +1466,14 @@ document.addEventListener("input", (event) => {
     saveState("Filial atualizada");
     renderDashboard();
     renderManager();
+    return;
+  }
+  if (target.dataset.sellerExperience) {
+    const seller = state.sellers.find((item) => item.id === target.dataset.sellerExperience);
+    if (!seller) return;
+    seller.emExperiencia = target.checked;
+    saveState("Vendedor atualizado");
+    renderAll();
     return;
   }
   if (target.dataset.sellerField) {
@@ -1534,6 +1590,9 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && document.getElementById("adminLock").classList.contains("active")) {
     document.getElementById("adminLogin").click();
   }
+  if (event.key === "Enter" && document.getElementById("dashboardLock").classList.contains("active")) {
+    document.getElementById("dashboardLogin").click();
+  }
 });
 
 window.addEventListener("afterprint", () => {
@@ -1545,7 +1604,7 @@ state.customMetrics = normalizeCustomMetrics(state.customMetrics);
 state.branches = normalizeBranches(state.branches, state.sellers);
 state.deflators = normalizeDeflators(state.deflators);
 state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.managerAccess, state._legacyManagers, state.branches);
-state.settings = { ...defaultSettings(), ...(state.settings || {}), adminPassword: adminPassword() };
+state.settings = { ...defaultSettings(), ...(state.settings || {}), adminPassword: adminPassword(), dashboardPassword: dashboardPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 loadStateFromCloud();

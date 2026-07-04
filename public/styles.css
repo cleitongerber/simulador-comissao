@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --ink: #231f20;
   --muted: #6f5d60;
   --line: #ead7da;
@@ -589,6 +589,14 @@ td select {
   font-size: 12px;
 }
 
+.access-passwords {
+  max-width: 680px;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+}
+
+.access-passwords p {
+  grid-column: 1 / -1;
+}
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -666,6 +674,33 @@ td select {
   display: none;
 }
 
+.checkbox-line {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.checkbox-line input {
+  width: auto;
+  min-height: auto;
+}
+
+.experience-badge {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #fff1d6;
+  color: #805600;
+  font-size: 11px;
+  font-weight: 700;
+}
 .delete-seller-button {
   align-self: end;
   min-height: 36px;
@@ -864,6 +899,7 @@ td select {
 }
 
 @media (max-width: 620px) {
+  .access-passwords,
   .admin-action-buttons,
   .branch-card {
     grid-template-columns: 1fr;

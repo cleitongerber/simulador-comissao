@@ -1,10 +1,10 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Simulador de Comissões</title>
-    <link rel="stylesheet" href="./styles.css?v=20260703-collab-name-first" />
+    <link rel="stylesheet" href="./styles.css?v=20260704-exp-dashboard-auth" />
   </head>
   <body>
     <div class="app-shell">
@@ -249,14 +249,18 @@
 
             <section class="panel full">
               <div class="panel-header">
-                <h3>Senha admin</h3>
+                <h3>Senhas de acesso</h3>
               </div>
-              <div class="password-panel">
+              <div class="password-panel access-passwords">
                 <label>
-                  Nova senha
+                  Senha admin
                   <input id="newAdminPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" />
                 </label>
-                <p>A senha padrao inicial e admin123.</p>
+                <label>
+                  Senha Dashboard
+                  <input id="newDashboardPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" />
+                </label>
+                <p>Padrao inicial: admin <strong>admin123</strong> e dashboard <strong>dashboard123</strong>.</p>
               </div>
             </section>
           </div>
@@ -318,8 +322,8 @@
     <div id="adminLock" class="modal-backdrop">
       <div class="modal">
         <h3>Acesso Admin</h3>
-        <p>Digite a senha para abrir a tela administrativa.</p>
-        <input id="adminPassword" type="password" placeholder="Senha" />
+        <p>Digite a senha administrativa para alterar cadastros e configuracoes.</p>
+        <input id="adminPassword" type="password" placeholder="Senha admin" />
         <span id="adminLoginError" class="form-error"></span>
         <div class="modal-actions">
           <button id="adminCancel" class="ghost-button" type="button">Cancelar</button>
@@ -328,9 +332,22 @@
       </div>
     </div>
 
+    <div id="dashboardLock" class="modal-backdrop">
+      <div class="modal">
+        <h3>Acesso Dashboard</h3>
+        <p>Digite a senha do Dashboard para visualizar os resultados.</p>
+        <input id="dashboardPassword" type="password" placeholder="Senha Dashboard" />
+        <span id="dashboardLoginError" class="form-error"></span>
+        <div class="modal-actions">
+          <button id="dashboardCancel" class="ghost-button" type="button">Cancelar</button>
+          <button id="dashboardLogin" class="nav-button active" type="button">Entrar</button>
+        </div>
+      </div>
+    </div>
+
     <div class="owner-credit">by Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260703-collab-name-first"></script>
+    <script src="./app.js?v=20260704-exp-dashboard-auth"></script>
   </body>
 </html>
 
