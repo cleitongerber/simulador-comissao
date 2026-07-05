@@ -127,6 +127,7 @@ let activeDashboardStatus = "Todos";
 let activeDashboardDeflator = "Todos";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
 let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
+let activeManagerSellerId = "";
 let activeAdminTab = "campanha";
 let pendingAccessView = "dashboard";
 
@@ -1183,9 +1184,9 @@ function branchMetricRows(sellers) {
   const byMetric = new Map();
   for (const seller of sellers) {
     ensureSellerValues(seller);
-    for (const metric of metricsFor(seller.area)) {
+    for (const metric of metricsFor(seller.area).filter((item) => item.type !== "deviceRevenue")) {
       const key = `${seller.area}::${metric.id}`;
-      const current = byMetric.get(key) || { name: `${metric.name} (${seller.area})`, goal: 0, realized: 0, projected: 0, hasGoal: false };
+      const current = byMetric.get(key) || { id: metric.id, area: seller.area, name: `${metric.name} (${seller.area})`, goal: 0, realized: 0, projected: 0, hasGoal: false };
       const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
       current.goal += Number(value.goal) || 0;
       current.hasGoal = current.hasGoal || Number(value.goal) > 0;
@@ -1198,113 +1199,226 @@ function branchMetricRows(sellers) {
     ...row,
     currentPercent: row.goal ? row.realized / row.goal : null,
     projectedPercent: row.goal ? row.projected / row.goal : null,
-  }));
+    status: branchStatusFromPercent(row.goal ? row.realized / row.goal : 0),
+  })).sort((a, b) => (a.currentPercent || 0) - (b.currentPercent || 0));
 }
 
-function sellerGapSummary(seller) {
-  const gaps = metricsFor(seller.area)
-    .filter((metric) => metric.type !== "deviceRevenue")
-    .map((metric) => {
-      const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
-      const goal = Number(value.goal) || 0;
-      const projectedValue = projected(value.realized);
-      const percent = goal ? projectedValue / goal : 0;
+function branchStatusFromPercent(percent) {
+  if (percent >= 1) return { label: "Acima da meta", cls: "ok", action: "Acompanhamento" };
+  if (percent >= 0.7) return { label: "Em atencao", cls: "warn", action: "Plano de acao" };
+  return { label: "Critico", cls: "bad", action: "Acao imediata" };
+}
+
+function sellerBranchSummary(seller) {
+  const result = sellerResult(seller);
+  const gross = result.projectedSubtotal + result.adjustments;
+  const final = result.projected;
+  const currentPercent = totalAttainmentForSellers([seller], "current");
+  const projectedPercent = totalAttainmentForSellers([seller], "projected");
+  const status = seller.emExperiencia ? { label: "Em experiencia", cls: "neutral", action: "Acompanhamento" } : branchStatusFromPercent(currentPercent);
+  return { result, gross, final, currentPercent, projectedPercent, status, deflator: result.projectedDeflator };
+}
+
+function projectedDeflatorPreview(seller) {
+  const subtotal = sellerResult(seller).projectedSubtotal;
+  const config = state.deflators?.[seller.area] || defaultDeflators[seller.area];
+  const rules = Array.isArray(config) ? config : [
+    { metricId: "gross", min: Number(config?.grossMin) || 0, penaltyRate: Number(config?.penaltyRate) || 0, name: "GROSS minimo" },
+    { metricId: "tv", min: Number(config?.tvMin) || 0, penaltyRate: Number(config?.penaltyRate) || 0, name: "TV minimo" },
+  ];
+  const triggered = rules
+    .map((rule) => {
+      const metric = metricsFor(seller.area).find((item) => item.id === rule.metricId);
+      const min = Number(rule.min) || 0;
+      const percent = metric ? percentFor(seller, metric.id, true) : 1;
       return {
-        name: metric.name,
+        ...rule,
+        metric,
         percent,
-        missing: Math.max(goal - projectedValue, 0),
+        triggered: Boolean(metric && min > 0 && percent < min),
+        rate: Number(rule.penaltyRate) || 0,
       };
     })
-    .filter((gap) => gap.missing > 0 && gap.percent < 1)
-    .sort((a, b) => a.percent - b.percent)
-    .slice(0, 3);
-  if (!gaps.length) return `<span class="status ok">Sem gaps projetados</span>`;
-  return `<div class="gap-list">${gaps.map((gap) => `<span>${escapeHtml(gap.name)}: ${pct.format(gap.percent)} | falta ${num.format(gap.missing)}</span>`).join("")}</div>`;
+    .filter((rule) => rule.triggered)
+    .sort((a, b) => b.rate - a.rate);
+  const rate = triggered.reduce((max, rule) => Math.max(max, rule.rate), 0);
+  const previewImpact = rate ? -subtotal * rate : 0;
+  const appliedImpact = seller.emExperiencia ? 0 : previewImpact;
+  return { triggered, rate, previewImpact, appliedImpact, ignored: seller.emExperiencia && rate > 0 };
 }
 
-function sellerIndicatorRows(seller) {
+function metricDeflatorLabel(seller, metric) {
+  const preview = projectedDeflatorPreview(seller);
+  const rule = preview.triggered.find((item) => item.metric?.id === metric.id);
+  if (!rule) return "Sem deflator";
+  const label = `${escapeHtml(metric.name)} abaixo de ${pct.format(Number(rule.min) || 0)} aplica -${pct.format(rule.rate)}`;
+  return seller.emExperiencia ? `${label} (ignorado)` : label;
+}
+
+function branchTotals(sellers) {
+  const rows = branchMetricRows(sellers);
+  const totalGoal = rows.reduce((sum, row) => sum + row.goal, 0);
+  const realized = rows.reduce((sum, row) => sum + row.realized, 0);
+  const projectedTotal = rows.reduce((sum, row) => sum + row.projected, 0);
+  const commissionGross = sellers.reduce((sum, seller) => sum + sellerBranchSummary(seller).gross, 0);
+  const commissionFinal = sellers.reduce((sum, seller) => sum + sellerBranchSummary(seller).final, 0);
+  const deflatorImpact = sellers.reduce((sum, seller) => sum + sellerBranchSummary(seller).deflator, 0);
+  return {
+    rows,
+    totalGoal,
+    realized,
+    projectedTotal,
+    currentPercent: totalGoal ? realized / totalGoal : 0,
+    projectedPercent: totalGoal ? projectedTotal / totalGoal : 0,
+    commissionGross,
+    commissionFinal,
+    deflatorImpact,
+  };
+}
+
+function branchKpiCards(branch, sellers, totals) {
+  const cards = [
+    ["Meta da filial", num.format(totals.totalGoal), "Meta consolidada", "target", null],
+    ["Realizado", num.format(totals.realized), "Resultado atual", "trend", totals.currentPercent],
+    ["% atual", pct.format(totals.currentPercent), "Atingimento atual", "percent", totals.currentPercent],
+    ["Projetado", num.format(totals.projectedTotal), "Projecao da filial", "trend", totals.projectedPercent],
+    ["% projetado", pct.format(totals.projectedPercent), "Projecao / meta", "percent", totals.projectedPercent],
+    ["Comissao estimada", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)}`, "money", null],
+  ];
+  return `<div class="branch-kpi-grid">${cards.map(([label, value, detail, icon, percent]) => `<article class="branch-kpi ${icon}"><span aria-hidden="true"></span><div><small>${label}</small><strong>${value}</strong><em class="${achievementClass(percent)}">${detail}</em></div></article>`).join("")}</div>`;
+}
+
+function branchAlerts(sellers, totals) {
+  const riskSellers = sellers.filter((seller) => sellerBranchSummary(seller).currentPercent < 0.7);
+  const projectedGap = Math.max(totals.totalGoal - totals.projectedTotal, 0);
+  const deflatorSellers = sellers.filter((seller) => projectedDeflatorPreview(seller).rate > 0);
+  const deflatorText = deflatorSellers.length
+    ? `${deflatorSellers.length} vendedor${deflatorSellers.length === 1 ? "" : "es"} possuem deflator aplicado ou previsto. Impacto estimado: ${money.format(totals.deflatorImpact)}.`
+    : "Nenhum deflator aplicado no momento.";
+  return `<div class="branch-alert-grid">
+    <article class="branch-alert ${riskSellers.length ? "bad" : "ok"}"><strong>${riskSellers.length} vendedor${riskSellers.length === 1 ? "" : "es"} em risco</strong><span>${riskSellers.length ? "Estao com performance abaixo de 70% da meta atual." : "Nenhum vendedor abaixo de 70% no momento."}</span></article>
+    <article class="branch-alert ${totals.projectedPercent >= 1 ? "ok" : "warn"}"><strong>Meta projetada</strong><span>A filial deve atingir ${pct.format(totals.projectedPercent)} da meta. ${projectedGap ? `Faltam ${num.format(projectedGap)} para atingir 100%.` : "Meta projetada atingida."}</span></article>
+    <article class="branch-alert ${deflatorSellers.length ? "bad" : "ok"}"><strong>Deflatores ativos</strong><span>${deflatorText}</span></article>
+  </div>`;
+}
+
+function branchTeamTable(sellers) {
+  const rows = [...sellers].sort((a, b) => sellerBranchSummary(b).currentPercent - sellerBranchSummary(a).currentPercent).map((seller) => {
+    const summary = sellerBranchSummary(seller);
+    const experience = seller.emExperiencia ? `<span class="status neutral">Em experiencia</span><small>Deflator ignorado</small>` : "";
+    return `<tr>
+      <td><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.area)}</small>${experience}</td>
+      <td>${money.format(summary.result.current)}</td>
+      <td>${achievementPill(summary.currentPercent)}</td>
+      <td>${money.format(summary.gross)}</td>
+      <td>${achievementPill(summary.projectedPercent)}</td>
+      <td>${money.format(summary.gross)}</td>
+      <td>${money.format(summary.deflator)}</td>
+      <td>${money.format(summary.final)}</td>
+      <td><span class="status ${summary.status.cls}">${summary.status.label}</span></td>
+      <td><button class="ghost-button compact-action" data-manager-seller-detail="${seller.id}" type="button">Ver detalhes</button></td>
+    </tr>`;
+  }).join("");
+  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissao bruta, deflator e comissao final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Colaborador</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissao bruta</th><th>Deflator</th><th>Comissao final</th><th>Status</th><th>Acoes</th></tr></thead><tbody>${rows || `<tr><td colspan="10">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
+}
+
+function branchSellerFilter(sellers) {
+  const options = [`<option value="">Todos</option>`, ...sellers.map((seller) => `<option value="${seller.id}" ${seller.id === activeManagerSellerId ? "selected" : ""}>${escapeHtml(seller.name)}</option>`)];
+  return `<section class="branch-card-panel branch-filter-panel"><label>Vendedor<select id="managerSellerFilter">${options.join("")}</select></label></section>`;
+}
+
+function sellerIndicatorDetailRows(seller) {
   ensureSellerValues(seller);
-  return metricsFor(seller.area).map((metric) => {
+  let totalGoal = 0;
+  let totalRealized = 0;
+  let totalProjected = 0;
+  const rows = metricsFor(seller.area).filter((metric) => metric.type !== "deviceRevenue").map((metric) => {
     const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
     const goal = Number(value.goal) || 0;
     const realized = Number(value.realized) || 0;
     const projectedValue = projected(realized);
+    totalGoal += goal;
+    totalRealized += realized;
+    totalProjected += projectedValue;
     const currentPercent = goal ? realized / goal : null;
     const projectedPercent = goal ? projectedValue / goal : null;
+    const status = branchStatusFromPercent(currentPercent || 0);
     return `<tr>
-      <td>${escapeHtml(metric.name)}</td>
-      <td>${goal ? num.format(goal) : "-"}</td>
-      <td>${num.format(realized)}</td>
-      <td>${achievementPill(currentPercent)}</td>
-      <td>${num.format(projectedValue)}</td>
-      <td>${achievementPill(projectedPercent)}</td>
+      <td>${escapeHtml(metric.name)}</td><td>${goal ? num.format(goal) : "-"}</td><td>${num.format(realized)}</td><td>${achievementPill(currentPercent)}</td><td>${num.format(Math.max(goal - realized, 0))}</td><td>${num.format(projectedValue)}</td><td>${achievementPill(projectedPercent)}</td><td>${metricDeflatorLabel(seller, metric)}</td><td><span class="status ${status.cls}">${status.label}</span></td>
     </tr>`;
   }).join("");
+  const totalStatus = branchStatusFromPercent(totalGoal ? totalRealized / totalGoal : 0);
+  return `${rows}<tr class="total-row"><td>Total</td><td>${num.format(totalGoal)}</td><td>${num.format(totalRealized)}</td><td>${achievementPill(totalGoal ? totalRealized / totalGoal : null)}</td><td>${num.format(Math.max(totalGoal - totalRealized, 0))}</td><td>${num.format(totalProjected)}</td><td>${achievementPill(totalGoal ? totalProjected / totalGoal : null)}</td><td>-</td><td><span class="status ${totalStatus.cls}">${totalStatus.label}</span></td></tr>`;
 }
 
-function branchSellerRows(sellers) {
-  const rows = [...sellers].sort((a, b) => sellerAttainment(a) - sellerAttainment(b));
-  return rows.map((seller) => {
-    const result = sellerResult(seller);
-    const status = statusFor(seller);
-    return `<article class="seller-indicator-card">
-      <div class="seller-indicator-header">
-        <div><span>Vendedor</span><strong>${escapeHtml(seller.name)}</strong></div>
-        <div><span>Area</span><strong>${escapeHtml(seller.area)}</strong></div>
-        <div><span>Atingimento</span><strong>${pct.format(sellerAttainment(seller))}</strong></div>
-        <div><span>Projetado</span><strong>${money.format(result.projected)}</strong></div>
-        <div><span>Status</span><strong><span class="status ${status.cls}">${status.label}</span></strong></div>
-      </div>
-      <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th></tr></thead><tbody>${sellerIndicatorRows(seller)}</tbody></table></div>
-    </article>`;
-  }).join("") || `<p class="muted-note">Nenhum vendedor vinculado a esta filial.</p>`;
+function sellerDeflatorImpactCard(seller) {
+  const summary = sellerBranchSummary(seller);
+  const preview = projectedDeflatorPreview(seller);
+  const reason = preview.triggered[0]?.metric?.name ? `${preview.triggered[0].metric.name} abaixo da meta minima` : "Sem motivo de deflator";
+  const list = preview.triggered.length ? preview.triggered.map((rule) => `<li>Deflator ${escapeHtml(rule.metric.name)}: -${pct.format(rule.rate)} (${pct.format(rule.percent)} atual proj.)</li>`).join("") : `<li>Nenhum deflator aplicado para este vendedor.</li>`;
+  const ignored = preview.ignored ? `<p class="admin-inline-note warning">Aplicacao: ignorado por vendedor em experiencia.</p>` : "";
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Impacto dos deflatores</h3><p>Impacto financeiro previsto no resultado do vendedor.</p></div></div><div class="deflator-impact-grid"><span>Comissao sem deflator<strong>${money.format(summary.gross)}</strong></span><span>Deflator aplicado<strong>${preview.rate ? `-${pct.format(preview.rate)}` : "0,0%"}</strong></span><span>Impacto financeiro<strong>${money.format(preview.ignored ? preview.previewImpact : summary.deflator)}</strong></span><span>Comissao final projetada<strong>${money.format(summary.final)}</strong></span></div><strong class="deflator-reason">Motivo principal: ${escapeHtml(reason)}</strong><ul class="deflator-list">${list}</ul>${ignored}</section>`;
 }
-function branchDashboardMarkup(branch, sellers) {
+
+function sellerRecommendedAction(seller) {
+  const summary = sellerBranchSummary(seller);
+  const preview = projectedDeflatorPreview(seller);
+  const gaps = metricsFor(seller.area).filter((metric) => metric.type !== "deviceRevenue").map((metric) => {
+    const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+    const missing = Math.max((Number(value.goal) || 0) - projected(value.realized), 0);
+    return { metric, missing, percent: percentFor(seller, metric.id, true) };
+  }).filter((item) => item.missing > 0).sort((a, b) => a.percent - b.percent).slice(0, 2);
+  let text = "Ainda nao ha dados suficientes para gerar recomendacao.";
+  if (summary.currentPercent >= 1 && !preview.triggered.length) text = "O vendedor esta acima da meta e sem deflatores aplicados. Mantenha o acompanhamento para proteger o resultado ate o fechamento.";
+  else if (summary.currentPercent < 0.7) text = `O vendedor esta em situacao critica, com atingimento atual de ${pct.format(summary.currentPercent)}. Priorizar plano de acao nos indicadores ${gaps.map((item) => item.metric.name).join(" e ") || "com maior falta"}.`;
+  else if (preview.triggered.length) text = `O vendedor esta projetado para ${pct.format(summary.projectedPercent)}, porem possui deflator de -${pct.format(preview.rate)} causado por ${preview.triggered[0].metric.name}. A recuperacao deste indicador pode elevar a comissao projetada para ${money.format(summary.gross)}.`;
+  if (seller.emExperiencia && preview.triggered.length) text = `O vendedor esta em experiencia. Existe deflator previsto de -${pct.format(preview.rate)}, mas a aplicacao esta ignorada; acompanhe os indicadores ${preview.triggered.map((item) => item.metric.name).join(", ")} para evolucao.`;
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Acao recomendada</h3><p>Orientacao automatica para atuacao do gerente.</p></div></div><p class="recommended-action">${escapeHtml(text)}</p></section>`;
+}
+
+function sellerDetailPanel(seller) {
+  if (!seller) return "";
+  const summary = sellerBranchSummary(seller);
+  return `<section class="branch-detail-grid"><section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhamento por vendedor</h3><p>${escapeHtml(seller.name)} - ${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</p></div></div><div class="seller-detail-kpis"><article><span>Realizado</span><strong>${money.format(summary.result.current)}</strong></article><article><span>% atual</span><strong>${pct.format(summary.currentPercent)}</strong></article><article><span>Projetado</span><strong>${money.format(summary.gross)}</strong></article><article><span>% projetado</span><strong>${pct.format(summary.projectedPercent)}</strong></article><article><span>Comissao bruta</span><strong>${money.format(summary.gross)}</strong></article><article><span>Comissao final</span><strong>${money.format(summary.final)}</strong></article><article><span>Status</span><strong><span class="status ${summary.status.cls}">${summary.status.label}</span></strong></article></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${sellerIndicatorDetailRows(seller)}</tbody></table></div></section><div>${sellerDeflatorImpactCard(seller)}${sellerRecommendedAction(seller)}</div></section>`;
+}
+
+function branchAttentionPoints(sellers) {
+  const points = [];
+  for (const seller of sellers) {
+    const summary = sellerBranchSummary(seller);
+    const preview = projectedDeflatorPreview(seller);
+    if (summary.currentPercent < 0.7) points.push({ cls: "bad", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Critico` });
+    else if (summary.currentPercent < 1) points.push({ cls: "warn", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Em atencao` });
+    if (preview.triggered.length) points.push({ cls: preview.ignored ? "neutral" : "bad", text: `${seller.name} - Deflator -${pct.format(preview.rate)} - ${preview.triggered[0].metric.name} abaixo do minimo${preview.ignored ? " (ignorado)" : ""}` });
+    if (seller.emExperiencia) points.push({ cls: "neutral", text: `${seller.name} - Em experiencia - Deflator ignorado` });
+  }
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Pontos de atencao</h3><p>Vendedores e indicadores que exigem acao.</p></div></div><div class="branch-attention-list">${points.slice(0, 8).map((point) => `<div class="attention-row ${point.cls}"><strong>${escapeHtml(point.text)}</strong></div>`).join("") || `<p class="muted-note">Nenhum ponto critico identificado no momento.</p>`}</div></section>`;
+}
+
+function branchRankingCard(sellers) {
+  const ranked = [...sellers].sort((a, b) => sellerBranchSummary(b).currentPercent - sellerBranchSummary(a).currentPercent).slice(0, 8);
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Ranking interno</h3><p>Ranking dos vendedores da filial.</p></div></div><div class="executive-list">${ranked.map((seller, index) => { const summary = sellerBranchSummary(seller); return `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(seller.name)}<small>${pct.format(summary.currentPercent)} atual - ${pct.format(summary.projectedPercent)} proj.</small></span><em>${money.format(summary.final)}</em></div>`; }).join("") || `<p class="muted-note">Nenhum vendedor para ranking.</p>`}</div></section>`;
+}
+
+function branchIndicatorAchievementCard(sellers) {
   const rows = branchMetricRows(sellers);
-  const attainmentRows = rows.filter((row) => row.projectedPercent !== null);
-  const totalGoal = attainmentRows.reduce((sum, row) => sum + row.goal, 0);
-  const currentForAttainment = attainmentRows.reduce((sum, row) => sum + row.realized, 0);
-  const projectedForAttainment = attainmentRows.reduce((sum, row) => sum + row.projected, 0);
-  const totalProjected = rows.reduce((sum, row) => sum + row.projected, 0);
-  const totalCurrentPercent = totalGoal ? currentForAttainment / totalGoal : 0;
-  const totalProjectedPercent = totalGoal ? projectedForAttainment / totalGoal : 0;
-  const tableRows = rows.map((row) => `<tr><td>${row.name}</td><td>${row.hasGoal ? num.format(row.goal) : "-"}</td><td>${num.format(row.realized)}</td><td>${achievementPill(row.currentPercent)}</td><td>${num.format(row.projected)}</td><td>${achievementPill(row.projectedPercent)}</td></tr>`).join("");
-  return `
-    <div class="kpi-grid manager-kpis">
-      <article class="kpi"><span>Filial</span><strong>${branch}</strong></article>
-      <article class="kpi"><span>Vendedores</span><strong>${sellers.length}</strong></article>
-      <article class="kpi"><span>Atingimento atual</span><strong>${pct.format(totalCurrentPercent)}</strong><small class="kpi-detail ${achievementClass(totalCurrentPercent)}">Realizado / meta</small></article>
-      <article class="kpi"><span>Atingimento proj.</span><strong>${pct.format(totalProjectedPercent)}</strong><small class="kpi-detail ${achievementClass(totalProjectedPercent)}">Projecao / meta</small></article>
-      <article class="kpi"><span>Projetado total</span><strong>${num.format(totalProjected)}</strong></article>
-    </div>
-    <div class="table-wrap"><table><thead><tr><th>Meta</th><th>Meta total</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th></tr></thead><tbody>${tableRows || `<tr><td colspan="6">Nenhuma meta encontrada para esta filial.</td></tr>`}</tbody></table></div>
-    <section class="branch-seller-panel">
-      <div class="panel-header"><h3>Resultado individual por vendedor</h3></div>
-      <div class="seller-indicator-list">${branchSellerRows(sellers)}</div>
-    </section>
-  `;
+  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Atingimento por indicador da filial</h3><p>Indicadores consolidados da filial.</p></div></div><div class="branch-indicator-list">${rows.map((row) => `<div class="branch-chart-row ${achievementClass(row.currentPercent)}"><div class="branch-chart-label"><strong>${escapeHtml(row.name)}</strong><span>${achievementPill(row.currentPercent)} ${achievementPill(row.projectedPercent)}</span></div><div class="branch-chart-track"><i style="width:${Math.min(140, Math.max(2, (row.currentPercent || 0) * 100))}%"></i></div><small>Meta ${num.format(row.goal)} | Realizado ${num.format(row.realized)} | Projetado ${num.format(row.projected)} | <span class="status ${row.status.cls}">${row.status.label}</span></small></div>`).join("") || `<p class="muted-note">Nenhum indicador encontrado.</p>`}</div></section>`;
 }
-function dashboardSummaryMarkup(sellers) {
-  const totals = sellers.reduce((acc, seller) => {
-    const result = sellerResult(seller);
-    acc.current += result.current;
-    acc.projected += result.projected;
-    acc.gain += result.gain;
-    acc.deflator += result.projectedDeflator;
-    return acc;
-  }, { current: 0, projected: 0, gain: 0, deflator: 0 });
-  const kpis = [
-    ["Total atual", money.format(totals.current)],
-    ["Total projetado", money.format(totals.projected)],
-    ["Ganho potencial", money.format(totals.gain)],
-    ["Deflator projetado", money.format(totals.deflator)],
-  ].map(([label, value]) => `<article class="kpi"><span>${label}</span><strong>${value}</strong></article>`).join("");
-  const rows = sellers.map((seller) => {
-    const result = sellerResult(seller);
-    const status = statusFor(seller);
-    return `<tr><td>${seller.name}</td><td>${seller.area}</td><td>${money.format(result.current)}</td><td>${achievementPill(totalAttainmentForSellers([seller], "current"))}</td><td>${money.format(result.projected)}</td><td>${achievementPill(totalAttainmentForSellers([seller], "projected"))}</td><td>${money.format(result.projectedDeflator)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
-  }).join("");
-  return `<div class="kpi-grid manager-kpis">${kpis}</div><div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Area</th><th>Atual</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+function branchDeflatorSummary(sellers) {
+  const rows = sellers.map((seller) => ({ seller, summary: sellerBranchSummary(seller), preview: projectedDeflatorPreview(seller) })).filter((row) => row.preview.rate > 0 || row.summary.deflator < 0);
+  const totalImpact = rows.reduce((sum, row) => sum + (row.preview.ignored ? 0 : row.summary.deflator), 0);
+  const reasonCounts = new Map();
+  for (const row of rows) for (const trigger of row.preview.triggered) reasonCounts.set(trigger.metric.name, (reasonCounts.get(trigger.metric.name) || 0) + 1);
+  const mainReason = [...reasonCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "Sem deflator";
+  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resumo dos deflatores</h3><p>${rows.length} vendedor${rows.length === 1 ? "" : "es"} com deflator aplicado ou previsto. Impacto financeiro total: ${money.format(totalImpact)}. Principal motivo: ${escapeHtml(mainReason)}.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Deflator</th><th>Motivo</th><th>Impacto</th><th>Status</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${escapeHtml(row.seller.name)}</td><td>-${pct.format(row.preview.rate)}</td><td>${escapeHtml(row.preview.triggered[0]?.metric?.name || "-")} abaixo do minimo</td><td>${money.format(row.preview.ignored ? 0 : row.summary.deflator)}</td><td><span class="status ${row.preview.ignored ? "neutral" : "bad"}">${row.preview.ignored ? "Ignorado por experiencia" : "Aplicado"}</span></td></tr>`).join("") || `<tr><td colspan="5">Nenhum deflator aplicado no momento.</td></tr>`}</tbody></table></div></section>`;
+}
+
+function branchDashboardMarkup(branch, sellers) {
+  const totals = branchTotals(sellers);
+  const selectedSeller = sellers.find((seller) => seller.id === activeManagerSellerId) || null;
+  if (!sellers.length) return `<div class="branch-modern"><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
+  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div></div>${branchKpiCards(branch, sellers, totals)}${branchAlerts(sellers, totals)}${branchSellerFilter(sellers)}<div class="branch-main-grid"><div>${branchTeamTable(sellers)}${sellerDetailPanel(selectedSeller)}${branchIndicatorAchievementCard(sellers)}${branchDeflatorSummary(sellers)}</div><aside>${branchAttentionPoints(sellers)}${branchRankingCard(sellers)}</aside></div></div>`;
 }
 
 function renderManager() {
@@ -1314,7 +1428,8 @@ function renderManager() {
   state.branches = normalizeBranches(state.branches, state.sellers);
   state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.managerAccess, state._legacyManagers, state.branches);
   if (!activeBranchSession || !state.branches.includes(activeBranchSession)) {
-    const options = state.branches.map((branch) => `<option value="${branch}">${branch}</option>`).join("");
+    activeManagerSellerId = "";
+    const options = state.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("");
     loginPanel.innerHTML = options ? `
       <label>Filial<select id="managerBranchSelect">${options}</select></label>
       <label>Senha<input id="managerPassword" type="password" placeholder="Senha da filial"></label>
@@ -1325,13 +1440,13 @@ function renderManager() {
     return;
   }
   const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === activeBranchSession);
+  if (activeManagerSellerId && !sellers.some((seller) => seller.id === activeManagerSellerId)) activeManagerSellerId = "";
   loginPanel.innerHTML = `
-    <div class="hero-number"><span>Filial</span><strong>${activeBranchSession}</strong></div>
+    <div class="hero-number"><span>Filial</span><strong>${escapeHtml(activeBranchSession)}</strong></div>
     <button id="managerLogout" class="ghost-button" type="button">Trocar filial</button>
   `;
   dashboard.innerHTML = branchDashboardMarkup(activeBranchSession, sellers);
-}
-function selectedCollabSeller() {
+}function selectedCollabSeller() {
   const id = activeCollaboratorId || document.getElementById("collabSellerSelect").value || state.sellers[0]?.id;
   return state.sellers.find((seller) => seller.id === id) || state.sellers[0];
 }
@@ -1697,8 +1812,14 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.id === "managerLogout") {
     activeBranchSession = "";
+    activeManagerSellerId = "";
     sessionStorage.removeItem(BRANCH_SESSION_KEY);
     renderAll();
+  }
+  const managerSellerDetail = event.target.closest("[data-manager-seller-detail]");
+  if (managerSellerDetail) {
+    activeManagerSellerId = managerSellerDetail.dataset.managerSellerDetail || "";
+    renderManager();
   }
   if (event.target.id === "addSeller") {
     state.sellers.push({ id: makeId(), name: "NOVO VENDEDOR", branch: "FILIAL", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} });
@@ -1999,6 +2120,10 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "dashboardDeflatorFilter") {
     activeDashboardDeflator = event.target.value;
     renderDashboard();
+  }
+  if (event.target.id === "managerSellerFilter") {
+    activeManagerSellerId = event.target.value;
+    renderManager();
   }
 });
 
