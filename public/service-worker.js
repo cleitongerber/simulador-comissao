@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260705-dashboard-redesign";
+const CACHE_NAME = "comissao-pwa-v20260705-dashboard-deflator";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260705-dashboard-redesign",
-  "/app.js?v=20260705-dashboard-redesign",
+  "/styles.css?v=20260705-dashboard-deflator",
+  "/app.js?v=20260705-dashboard-deflator",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

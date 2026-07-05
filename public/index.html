@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260705-dashboard-redesign" />
+    <link rel="stylesheet" href="./styles.css?v=20260705-dashboard-deflator" />
   </head>
   <body>
     <div class="app-shell">
@@ -114,6 +114,14 @@
                     <option value="Critico">Critico</option>
                   </select>
                 </label>
+                <label>
+                  Deflator
+                  <select id="dashboardDeflatorFilter">
+                    <option value="Todos">Todos</option>
+                    <option value="Com deflator">Com deflator</option>
+                    <option value="Sem deflator">Sem deflator</option>
+                  </select>
+                </label>
                 <button id="clearDashboardFilters" class="ghost-button" type="button">Limpar filtros</button>
               </div>
             </section>
@@ -156,10 +164,10 @@
                         <th>Area</th>
                         <th>Atual</th>
                         <th>% atual</th>
-                        <th>Projetado</th>
+                        <th>Projetado s/ defl.</th>
                         <th>% proj.</th>
                         <th>Deflator</th>
-                        <th>Ganho</th>
+                        <th>Ganho final</th>
                         <th>Status</th>
                       </tr>
                     </thead>
@@ -520,7 +528,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260705-dashboard-redesign"></script>
+    <script src="./app.js?v=20260705-dashboard-deflator"></script>
   </body>
 </html>
 

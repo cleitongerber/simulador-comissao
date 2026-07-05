@@ -124,6 +124,7 @@ let activeAreaFilter = "Todas";
 let activeBranchFilter = "Todas";
 let activeDashboardIndicator = "Todos";
 let activeDashboardStatus = "Todos";
+let activeDashboardDeflator = "Todos";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
 let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 let activeAdminTab = "campanha";
@@ -513,11 +514,16 @@ function downloadFile(filename, mime, content) {
 function exportDashboardExcel() {
   const sellers = typeof dashboardSellers === "function" ? dashboardSellers() : visibleSellers();
   const rows = sellers.map((seller) => {
-    const result = sellerResult(seller);
-    const status = statusFor(seller);
-    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${money.format(result.current)}</td><td>${pct.format(totalAttainmentForSellers([seller], "current"))}</td><td>${money.format(result.projected)}</td><td>${pct.format(totalAttainmentForSellers([seller], "projected"))}</td><td>${money.format(result.projectedDeflator)}</td><td>${money.format(result.gain)}</td><td>${escapeHtml(status.label)}</td></tr>`;
+    const result = typeof dashboardSellerSummaryResult === "function" ? dashboardSellerSummaryResult(seller) : sellerResult(seller);
+    const currentPercent = result.currentPercent ?? totalAttainmentForSellers([seller], "current");
+    const projectedPercent = result.projectedPercent ?? totalAttainmentForSellers([seller], "projected");
+    const projectedNoDeflator = result.projectedNoDeflator ?? result.projected;
+    const deflator = result.deflator ?? result.projectedDeflator;
+    const finalProjected = result.finalProjected ?? result.projected;
+    const status = typeof dashboardStatusFromPercent === "function" ? dashboardStatusFromPercent(currentPercent) : statusFor(seller);
+    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${money.format(result.current)}</td><td>${pct.format(currentPercent)}</td><td>${money.format(projectedNoDeflator)}</td><td>${pct.format(projectedPercent)}</td><td>${money.format(deflator)}</td><td>${money.format(finalProjected)}</td><td>${escapeHtml(status.label)}</td></tr>`;
   }).join("");
-  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>% atual</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Ganho</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>% atual</th><th>Projetado sem deflator</th><th>% projetado</th><th>Deflator</th><th>Ganho final</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
   downloadFile(`resultado-vendedores-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
 }
 
@@ -672,8 +678,10 @@ function renderDashboardFilterControls(baseSellers) {
   const areaSelect = document.getElementById("dashboardAreaFilter");
   const indicatorSelect = document.getElementById("dashboardIndicatorFilter");
   const statusSelect = document.getElementById("dashboardStatusFilter");
+  const deflatorSelect = document.getElementById("dashboardDeflatorFilter");
   if (areaSelect) areaSelect.value = activeAreaFilter;
   if (statusSelect) statusSelect.value = activeDashboardStatus;
+  if (deflatorSelect) deflatorSelect.value = activeDashboardDeflator;
   if (indicatorSelect) {
     const names = [...new Set(baseSellers.flatMap((seller) => metricsFor(seller.area).filter((metric) => metric.type !== "deviceRevenue").map((metric) => metric.name)))].sort();
     const options = ["Todos", ...names];
@@ -698,14 +706,52 @@ function dashboardStatusFromPercent(percent) {
 }
 
 function sellerDashboardStatus(seller) {
-  return dashboardStatusFromPercent(totalAttainmentForSellers([seller], "current"));
+  return dashboardStatusFromPercent(dashboardSellerSummaryResult(seller).currentPercent);
+}
+
+function sellerHasProjectedDeflator(seller) {
+  return sellerResult(seller).projectedDeflator < 0;
+}
+
+function selectedDashboardMetric(seller) {
+  if (activeDashboardIndicator === "Todos") return null;
+  return metricsFor(seller.area).find((metric) => metric.name === activeDashboardIndicator) || null;
+}
+
+function dashboardSellerSummaryResult(seller) {
+  const result = sellerResult(seller);
+  const metric = selectedDashboardMetric(seller);
+  if (metric) {
+    return {
+      current: metricCommission(seller, metric, "current"),
+      projectedNoDeflator: metricCommission(seller, metric, "projected"),
+      deflator: result.projectedDeflator,
+      finalProjected: metricCommission(seller, metric, "projected") + result.projectedDeflator,
+      currentPercent: percentFor(seller, metric.id, false),
+      projectedPercent: percentFor(seller, metric.id, true),
+    };
+  }
+  const projectedNoDeflator = result.projectedSubtotal + result.adjustments;
+  return {
+    current: result.current,
+    projectedNoDeflator,
+    deflator: result.projectedDeflator,
+    finalProjected: projectedNoDeflator + result.projectedDeflator,
+    currentPercent: totalAttainmentForSellers([seller], "current"),
+    projectedPercent: totalAttainmentForSellers([seller], "projected"),
+  };
 }
 
 function dashboardSellers() {
   return dashboardBaseSellers().filter((seller) => {
     const indicatorOk = activeDashboardIndicator === "Todos" || metricsFor(seller.area).some((metric) => metric.name === activeDashboardIndicator);
     const statusOk = activeDashboardStatus === "Todos" || sellerDashboardStatus(seller).label === activeDashboardStatus;
-    return indicatorOk && statusOk;
+    const hasDeflator = sellerHasProjectedDeflator(seller);
+    const deflatorOk =
+      activeDashboardDeflator === "Todos" ||
+      (activeDashboardDeflator === "Com deflator" && hasDeflator) ||
+      (activeDashboardDeflator === "Sem deflator" && !hasDeflator);
+    return indicatorOk && statusOk && deflatorOk;
   });
 }
 
@@ -716,7 +762,7 @@ function branchDashboardRows(sellers) {
     const branch = seller.branch || "Sem filial";
     const current = byBranch.get(branch) || { branch, sellers: new Set(), goal: 0, realized: 0, projectedValue: 0, commissionProjected: 0 };
     current.sellers.add(seller.id);
-    current.commissionProjected += sellerResult(seller).projected;
+    current.commissionProjected += dashboardSellerSummaryResult(seller).finalProjected;
     for (const metric of metricsFor(seller.area).filter((item) => item.type !== "deviceRevenue")) {
       if (activeDashboardIndicator !== "Todos" && metric.name !== activeDashboardIndicator) continue;
       const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
@@ -736,13 +782,27 @@ function branchDashboardRows(sellers) {
 
 function dashboardTotals(sellers) {
   return sellers.reduce((acc, seller) => {
-    const result = sellerResult(seller);
+    const result = dashboardSellerSummaryResult(seller);
     acc.current += result.current;
-    acc.projected += result.projected;
-    acc.gain += result.gain;
-    acc.deflator += result.projectedDeflator;
+    acc.projected += result.finalProjected;
+    acc.gain += result.finalProjected - result.current;
+    acc.deflator += result.deflator;
     return acc;
   }, { current: 0, projected: 0, gain: 0, deflator: 0 });
+}
+
+function dashboardAttainmentForSellers(sellers, mode) {
+  if (activeDashboardIndicator === "Todos") return totalAttainmentForSellers(sellers, mode);
+  const totals = sellers.reduce((acc, seller) => {
+    const metric = selectedDashboardMetric(seller);
+    if (!metric) return acc;
+    const value = seller.values?.[metric.id] || { goal: metric.goal, realized: 0 };
+    const goal = Number(value.goal) || 0;
+    acc.goal += goal;
+    acc.value += mode === "projected" ? projected(value.realized) : Number(value.realized) || 0;
+    return acc;
+  }, { goal: 0, value: 0 });
+  return totals.goal ? totals.value / totals.goal : 0;
 }
 
 function renderDashboard() {
@@ -758,13 +818,18 @@ function renderDashboard() {
   }
 
   const totals = dashboardTotals(sellers);
-  const totalCurrentPercent = totalAttainmentForSellers(sellers, "current");
-  const totalProjectedPercent = totalAttainmentForSellers(sellers, "projected");
+  const totalCurrentPercent = dashboardAttainmentForSellers(sellers, "current");
+  const totalProjectedPercent = dashboardAttainmentForSellers(sellers, "projected");
   const branchRows = branchDashboardRows(sellers);
   const riskBranches = branchRows.filter((row) => row.currentPercent < 0.7).length;
-  const highlightSellers = sellers.filter((seller) => totalAttainmentForSellers([seller], "current") >= 1.2).length;
+  const highlightSellers = sellers.filter((seller) => dashboardSellerSummaryResult(seller).currentPercent >= 1.2).length;
+  const deflatorCounts = sellers.reduce((acc, seller) => {
+    if (sellerHasProjectedDeflator(seller)) acc.withDeflator += 1;
+    else acc.withoutDeflator += 1;
+    return acc;
+  }, { withDeflator: 0, withoutDeflator: 0 });
 
-  renderDashboardExecutiveCards(totals, totalCurrentPercent, totalProjectedPercent, riskBranches, highlightSellers);
+  renderDashboardExecutiveCards(totals, totalCurrentPercent, totalProjectedPercent, riskBranches, highlightSellers, deflatorCounts);
   renderExecutiveSummary(sellers, branchRows, totalCurrentPercent, totalProjectedPercent, riskBranches);
   renderSellerSummary(sellers);
   renderBranchAttainmentBars(branchRows);
@@ -775,7 +840,7 @@ function renderDashboard() {
   renderAttentionPoints(sellers, branchRows, totalCurrentPercent, totalProjectedPercent);
 }
 
-function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent, riskBranches, highlightSellers) {
+function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent, riskBranches, highlightSellers, deflatorCounts) {
   const container = document.getElementById("dashboardExecutiveCards");
   if (!container) return;
   const cards = [
@@ -785,6 +850,7 @@ function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent,
     ["Comissao total projetada", money.format(totals.projected), "Todas as filiais", "money", null],
     ["Filiais em risco", riskBranches, "Abaixo de 70%", "alert", riskBranches ? 0 : 1],
     ["Vendedores em destaque", highlightSellers, "Acima de 120%", "star", highlightSellers ? 1 : null],
+    ["Deflator", `${deflatorCounts.withDeflator}/${deflatorCounts.withoutDeflator}`, "Com / sem deflator", "scale", deflatorCounts.withDeflator ? 0 : 1],
   ];
   container.innerHTML = cards.map(([label, value, detail, icon, percent]) => `<article class="dashboard-kpi ${icon}">
     <span aria-hidden="true"></span>
@@ -800,7 +866,7 @@ function renderExecutiveSummary(sellers, branchRows, currentPercent, projectedPe
     return;
   }
   const bestBranch = [...branchRows].sort((a, b) => b.currentPercent - a.currentPercent)[0];
-  const lowSellers = sellers.filter((seller) => totalAttainmentForSellers([seller], "current") < 0.7).length;
+  const lowSellers = sellers.filter((seller) => dashboardSellerSummaryResult(seller).currentPercent < 0.7).length;
   const health = projectedPercent >= 1 ? "acima da meta projetada" : "abaixo da meta projetada";
   const branchText = bestBranch ? `${bestBranch.branch} lidera com ${pct.format(bestBranch.currentPercent)} de atingimento atual.` : "";
   container.innerHTML = `A operacao esta com <strong>${pct.format(currentPercent)}</strong> de atingimento atual e projecao de <strong>${pct.format(projectedPercent)}</strong>, ficando ${health}. ${branchText} ${riskBranches} filial${riskBranches === 1 ? "" : "is"} em risco e ${lowSellers} vendedor${lowSellers === 1 ? "" : "es"} abaixo de 70% exigem atencao.`;
@@ -810,9 +876,9 @@ function renderSellerSummary(sellers) {
   const body = document.getElementById("sellerSummaryBody");
   if (!body) return;
   body.innerHTML = sellers.map((seller) => {
-    const result = sellerResult(seller);
-    const currentPercent = totalAttainmentForSellers([seller], "current");
-    const projectedPercent = totalAttainmentForSellers([seller], "projected");
+    const result = dashboardSellerSummaryResult(seller);
+    const currentPercent = result.currentPercent;
+    const projectedPercent = result.projectedPercent;
     const status = dashboardStatusFromPercent(currentPercent);
     return `<tr>
       <td>${escapeHtml(seller.name)}</td>
@@ -820,10 +886,10 @@ function renderSellerSummary(sellers) {
       <td>${escapeHtml(seller.area)}</td>
       <td>${money.format(result.current)}</td>
       <td>${achievementPill(currentPercent)}</td>
-      <td>${money.format(result.projected)}</td>
+      <td>${money.format(result.projectedNoDeflator)}</td>
       <td>${achievementPill(projectedPercent)}</td>
-      <td>${money.format(result.projectedDeflator)}</td>
-      <td>${money.format(result.gain)}</td>
+      <td>${money.format(result.deflator)}</td>
+      <td>${money.format(result.finalProjected)}</td>
       <td><span class="status ${status.cls}">${status.label}</span></td>
     </tr>`;
   }).join("") || `<tr><td colspan="10">Nenhum vendedor no filtro atual.</td></tr>`;
@@ -857,21 +923,21 @@ function renderBranchCommissionBars(rows) {
 }
 
 function renderRanking(sellers) {
-  const ranked = [...sellers].sort((a, b) => sellerResult(b).gain - sellerResult(a).gain).slice(0, 5);
+  const ranked = [...sellers].sort((a, b) => (dashboardSellerSummaryResult(b).finalProjected - dashboardSellerSummaryResult(b).current) - (dashboardSellerSummaryResult(a).finalProjected - dashboardSellerSummaryResult(a).current)).slice(0, 5);
   const container = document.getElementById("rankingList");
   if (!container) return;
   container.innerHTML = ranked.map((seller, index) => {
-    const result = sellerResult(seller);
-    return `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(seller.name)}<small>${escapeHtml(seller.branch)}</small></span><em>${money.format(result.gain)}</em></div>`;
+    const result = dashboardSellerSummaryResult(seller);
+    return `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(seller.name)}<small>${escapeHtml(seller.branch)}</small></span><em>${money.format(result.finalProjected - result.current)}</em></div>`;
   }).join("") || `<p class="muted-note">Sem dados suficientes para ranking.</p>`;
 }
 
 function renderTopSellers(sellers) {
   const container = document.getElementById("topSellersList");
   if (!container) return;
-  const ranked = [...sellers].sort((a, b) => totalAttainmentForSellers([b], "current") - totalAttainmentForSellers([a], "current")).slice(0, 5);
+  const ranked = [...sellers].sort((a, b) => dashboardSellerSummaryResult(b).currentPercent - dashboardSellerSummaryResult(a).currentPercent).slice(0, 5);
   container.innerHTML = ranked.map((seller, index) => {
-    const currentPercent = totalAttainmentForSellers([seller], "current");
+    const currentPercent = dashboardSellerSummaryResult(seller).currentPercent;
     return `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(seller.name)}<small>${escapeHtml(seller.branch)}</small></span><em class="${achievementClass(currentPercent)}">${pct.format(currentPercent)}</em></div>`;
   }).join("") || `<p class="muted-note">Sem dados suficientes para top vendedores.</p>`;
 }
@@ -897,7 +963,7 @@ function renderAttentionPoints(sellers, branchRows, currentPercent, projectedPer
   const container = document.getElementById("attentionPointsList");
   if (!container) return;
   const riskBranches = branchRows.filter((row) => row.currentPercent < 0.7).length;
-  const lowSellers = sellers.filter((seller) => totalAttainmentForSellers([seller], "current") < 0.7).length;
+  const lowSellers = sellers.filter((seller) => dashboardSellerSummaryResult(seller).currentPercent < 0.7).length;
   const criticalGoals = criticalGoalRows(sellers).slice(0, 1)[0];
   const points = [];
   if (riskBranches) points.push({ cls: "bad", title: `${riskBranches} filial${riskBranches === 1 ? "" : "is"} abaixo de 70%`, detail: "Priorizar plano de acao por loja." });
@@ -1536,6 +1602,7 @@ document.addEventListener("click", async (event) => {
     activeAreaFilter = "Todas";
     activeDashboardIndicator = "Todos";
     activeDashboardStatus = "Todos";
+    activeDashboardDeflator = "Todos";
     document.querySelectorAll(".area-filter").forEach((button) => button.classList.toggle("active", button.dataset.area === "Todas"));
     renderDashboard();
     return;
@@ -1927,6 +1994,10 @@ document.addEventListener("change", (event) => {
   }
   if (event.target.id === "dashboardStatusFilter") {
     activeDashboardStatus = event.target.value;
+    renderDashboard();
+  }
+  if (event.target.id === "dashboardDeflatorFilter") {
+    activeDashboardDeflator = event.target.value;
     renderDashboard();
   }
 });
