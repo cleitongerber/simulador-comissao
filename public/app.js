@@ -1441,11 +1441,18 @@ function branchDashboardMarkup(branch, sellers) {
 function renderManager() {
   const loginPanel = document.getElementById("managerLoginPanel");
   const dashboard = document.getElementById("managerDashboard");
+  const topAccess = document.getElementById("branchTopAccess");
+  const managerView = document.getElementById("gerenteView");
   if (!loginPanel || !dashboard) return;
   state.branches = normalizeBranches(state.branches, state.sellers);
   state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.managerAccess, state._legacyManagers, state.branches);
   if (!activeBranchSession || !state.branches.includes(activeBranchSession)) {
     activeManagerSellerId = "";
+    managerView?.classList.remove("manager-authenticated");
+    if (topAccess) {
+      topAccess.hidden = true;
+      topAccess.innerHTML = "";
+    }
     const options = state.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("");
     loginPanel.innerHTML = options ? `
       <label>Filial<select id="managerBranchSelect">${options}</select></label>
@@ -1458,12 +1465,16 @@ function renderManager() {
   }
   const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === activeBranchSession);
   if (activeManagerSellerId && !sellers.some((seller) => seller.id === activeManagerSellerId)) activeManagerSellerId = "";
-  loginPanel.innerHTML = `
-    <div class="hero-number"><span>Filial</span><strong>${escapeHtml(activeBranchSession)}</strong></div>
-    <button id="managerLogout" class="ghost-button" type="button">Trocar filial</button>
-  `;
+  managerView?.classList.add("manager-authenticated");
+  loginPanel.innerHTML = "";
+  if (topAccess) {
+    topAccess.hidden = document.body.dataset.view !== "gerente";
+    topAccess.innerHTML = `<span>Filial</span><strong>${escapeHtml(activeBranchSession)}</strong><button id="managerLogout" class="ghost-button" type="button">Trocar filial</button>`;
+  }
   dashboard.innerHTML = branchDashboardMarkup(activeBranchSession, sellers);
-}function selectedCollabSeller() {
+}
+
+function selectedCollabSeller() {
   const id = activeCollaboratorId || document.getElementById("collabSellerSelect").value || state.sellers[0]?.id;
   return state.sellers.find((seller) => seller.id === id) || state.sellers[0];
 }
@@ -1718,6 +1729,11 @@ function updateActionVisibility() {
   document.querySelectorAll(".admin-action").forEach((item) => {
     item.hidden = !canUseAdminActions;
   });
+  const topAccess = document.getElementById("branchTopAccess");
+  if (topAccess) topAccess.hidden = !(document.body.dataset.view === "gerente" && activeBranchSession);
+  const hasSession = isOwnerUnlocked() || sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok" || sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok" || activeBranchSession || activeCollaboratorId;
+  const logout = document.getElementById("globalLogout");
+  if (logout) logout.hidden = !hasSession || document.body.dataset.view === "home";
 }
 
 function renderBrand() {
@@ -2085,6 +2101,19 @@ document.addEventListener("click", async (event) => {
     activeCollaboratorId = "";
     sessionStorage.removeItem(COLLAB_SESSION_KEY);
     renderAll();
+  }
+
+  if (event.target.id === "globalLogout") {
+    activeCollaboratorId = "";
+    activeBranchSession = "";
+    activeManagerSellerId = "";
+    sessionStorage.removeItem(COLLAB_SESSION_KEY);
+    sessionStorage.removeItem(BRANCH_SESSION_KEY);
+    sessionStorage.removeItem(DASHBOARD_SESSION_KEY);
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    sessionStorage.removeItem(OWNER_SESSION_KEY);
+    renderAll();
+    openView("home");
   }
 
   if (event.target.id === "accessLogin") await handleAccessLogin();

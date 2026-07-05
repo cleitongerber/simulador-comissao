@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260705-collab-redesign";
+const CACHE_NAME = "comissao-pwa-v20260705-top-logout";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260705-collab-redesign",
-  "/app.js?v=20260705-collab-redesign",
+  "/styles.css?v=20260705-top-logout",
+  "/app.js?v=20260705-top-logout",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
