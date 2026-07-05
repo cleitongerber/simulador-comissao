@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260705-admin-redesign" />
+    <link rel="stylesheet" href="./styles.css?v=20260705-dashboard-redesign" />
   </head>
   <body>
     <div class="app-shell">
@@ -72,84 +72,145 @@
         </section>
 
         <section id="dashboardView" class="view">
-          <div class="filter-row">
-            <label class="branch-filter">
-              Filial
-              <select id="branchFilter"></select>
-            </label>
-            <div class="segmented" role="tablist" aria-label="Filtro de area">
-              <button class="area-filter active" data-area="Todas" type="button">Todas</button>
-              <button class="area-filter" data-area="Cabo" type="button">Cabo</button>
-              <button class="area-filter" data-area="Nao Cabo" type="button">Nao Cabo</button>
+          <div class="dashboard-modern">
+            <div id="dashboardEmptyState" class="dashboard-empty-state"></div>
+
+            <div id="dashboardExecutiveCards" class="dashboard-executive-grid"></div>
+
+            <section class="dashboard-card executive-summary-card">
+              <div class="dashboard-card-head">
+                <div>
+                  <h3>Resumo executivo</h3>
+                  <p>Leitura automatica da performance geral da operacao.</p>
+                </div>
+              </div>
+              <div id="executiveSummary" class="executive-summary-text"></div>
+            </section>
+
+            <section class="dashboard-card dashboard-filters-card">
+              <div class="dashboard-filter-grid">
+                <label>
+                  Filial
+                  <select id="branchFilter"></select>
+                </label>
+                <label>
+                  Area
+                  <select id="dashboardAreaFilter">
+                    <option value="Todas">Todas</option>
+                    <option value="Cabo">Cabo</option>
+                    <option value="Nao Cabo">Nao Cabo</option>
+                  </select>
+                </label>
+                <label>
+                  Indicador
+                  <select id="dashboardIndicatorFilter"><option value="Todos">Todos</option></select>
+                </label>
+                <label>
+                  Status
+                  <select id="dashboardStatusFilter">
+                    <option value="Todos">Todos</option>
+                    <option value="Acima da meta">Acima da meta</option>
+                    <option value="Em atencao">Em atencao</option>
+                    <option value="Critico">Critico</option>
+                  </select>
+                </label>
+                <button id="clearDashboardFilters" class="ghost-button" type="button">Limpar filtros</button>
+              </div>
+            </section>
+
+            <div class="dashboard-exec-layout">
+              <section class="dashboard-card wide">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h3>Atingimento por filial</h3>
+                    <p>Percentual atual consolidado por loja.</p>
+                  </div>
+                </div>
+                <div id="branchAttainmentBars" class="branch-chart-list"></div>
+              </section>
+
+              <section class="dashboard-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h3>Comissao projetada por filial</h3>
+                    <p>Ordenado por maior valor projetado.</p>
+                  </div>
+                </div>
+                <div id="branchCommissionBars" class="branch-chart-list"></div>
+              </section>
+
+              <section class="dashboard-card wide">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h3>Resultado por vendedor</h3>
+                    <p>Visao consolidada para acompanhamento operacional.</p>
+                  </div>
+                  <button id="exportDashboardXls" class="ghost-button" type="button">Exportar Excel</button>
+                </div>
+                <div class="table-wrap dashboard-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Vendedor</th>
+                        <th>Filial</th>
+                        <th>Area</th>
+                        <th>Atual</th>
+                        <th>% atual</th>
+                        <th>Projetado</th>
+                        <th>% proj.</th>
+                        <th>Deflator</th>
+                        <th>Ganho</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="sellerSummaryBody"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="dashboard-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h3>Pontos de atencao</h3>
+                    <p>Alertas automaticos para acao do gestor.</p>
+                  </div>
+                </div>
+                <div id="attentionPointsList" class="attention-list"></div>
+              </section>
+
+              <section class="dashboard-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h3>Ranking de ganho potencial</h3>
+                    <p>Maiores oportunidades de ganho projetado.</p>
+                  </div>
+                  <button id="exportCriticalGoalsXls" class="ghost-button compact-action" type="button">Exportar metas</button>
+                </div>
+                <div id="rankingList" class="executive-list"></div>
+              </section>
+
+              <section class="dashboard-card">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h3>Top vendedores</h3>
+                    <p>Ranking por atingimento atual.</p>
+                  </div>
+                </div>
+                <div id="topSellersList" class="executive-list"></div>
+              </section>
+
+              <section class="dashboard-card wide">
+                <div class="dashboard-card-head">
+                  <div>
+                    <h3>Metas criticas</h3>
+                    <p>Indicadores com maior indice de nao atingimento.</p>
+                  </div>
+                </div>
+                <div id="goalOffenderList" class="critical-table-list"></div>
+              </section>
             </div>
           </div>
-          <div id="kpiGrid" class="kpi-grid"></div>
-          <div class="dashboard-grid">
-            <section class="panel wide">
-              <div class="panel-header">
-                <h3>Resultado por vendedor</h3>
-                <button id="exportDashboardXls" class="ghost-button" type="button">Exportar Excel</button>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Vendedor</th>
-                      <th>Filial</th>
-                      <th>Area</th>
-                      <th>Atual</th>
-                      <th>% atual</th>
-                      <th>Projetado</th>
-                      <th>% proj.</th>
-                      <th>Deflator</th>
-                      <th>Ganho</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody id="sellerSummaryBody"></tbody>
-                </table>
-              </div>
-            </section>
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Comissão por filial</h3>
-              </div>
-              <div id="areaBars" class="bar-stack"></div>
-            </section>
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Atingimento por filial</h3>
-              </div>
-              <div id="branchAttainmentBars" class="bar-stack"></div>
-            </section>
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Ranking de ganho potencial</h3>
-              </div>
-              <div id="rankingList" class="ranking-list"></div>
-            </section>
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Destaques</h3>
-              </div>
-              <div id="achievementBars" class="bar-stack"></div>
-            </section>
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Ofensores</h3>
-              </div>
-              <div id="insightList" class="ranking-list"></div>
-            </section>
-            <section class="panel full">
-              <div class="panel-header">
-                <h3>Metas criticas</h3>
-                <button id="exportCriticalGoalsXls" class="ghost-button" type="button">Exportar Excel</button>
-              </div>
-              <div id="goalOffenderList" class="ranking-list"></div>
-            </section>
-          </div>
         </section>
-
         <section id="adminView" class="view">
           <div class="admin-modern">
             <div class="admin-page-head">
@@ -459,7 +520,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260705-admin-redesign"></script>
+    <script src="./app.js?v=20260705-dashboard-redesign"></script>
   </body>
 </html>
 
