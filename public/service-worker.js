@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260705-collab-revenue";
+const CACHE_NAME = "comissao-pwa-v20260705-branch-revenue";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/styles.css?v=20260705-top-logout",
-  "/app.js?v=20260705-collab-revenue",
+  "/app.js?v=20260705-branch-revenue",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

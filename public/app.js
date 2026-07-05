@@ -1349,7 +1349,7 @@ function sellerIndicatorDetailRows(seller) {
   let totalGoal = 0;
   let totalRealized = 0;
   let totalProjected = 0;
-  const rows = metricsFor(seller.area).filter((metric) => metric.type !== "deviceRevenue").map((metric) => {
+  const rows = metricsFor(seller.area).map((metric) => {
     const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
     const goal = Number(value.goal) || 0;
     const realized = Number(value.realized) || 0;
