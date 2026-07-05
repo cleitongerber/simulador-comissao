@@ -1468,7 +1468,7 @@ function renderManager() {
   return state.sellers.find((seller) => seller.id === id) || state.sellers[0];
 }
 
-function collaboratorLoginMarkup(seller) {
+function legacyCollaboratorLoginMarkup(seller) {
   return `<div class="collab-login">
     <div class="hero-number"><span>Colaborador</span><strong>${seller?.name || "Selecione"}</strong></div>
     <label>Senha
@@ -1479,7 +1479,7 @@ function collaboratorLoginMarkup(seller) {
   </div>`;
 }
 
-function prepareCollaboratorPdfExport() {
+function legacyPrepareCollaboratorPdfExport() {
   const seller = selectedCollabSeller();
   if (!seller || activeCollaboratorId !== seller.id) {
     alert("Entre com a senha do colaborador antes de exportar.");
@@ -1498,7 +1498,7 @@ function prepareCollaboratorPdfExport() {
   window.setTimeout(() => window.print(), 150);
 }
 
-function renderCollaborator() {
+function legacyRenderCollaborator() {
   renderSelectors();
   const seller = selectedCollabSeller();
   if (!seller) return;
@@ -1537,6 +1537,178 @@ function renderCollaborator() {
       <td>${money.format(metricCommission(seller, metric, "projected"))}</td>
     </tr>`;
   }).join("");
+}
+
+function collaboratorMetricRows(seller) {
+  ensureSellerValues(seller);
+  const rows = metricsFor(seller.area).filter((metric) => metric.type !== "deviceRevenue").map((metric) => {
+    const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+    const goal = Number(value.goal) || 0;
+    const realized = Number(value.realized) || 0;
+    const projectedValue = projected(realized);
+    const currentPercent = goal ? realized / goal : null;
+    const projectedPercent = goal ? projectedValue / goal : null;
+    const missing = Math.max(goal - realized, 0);
+    const status = branchStatusFromPercent(currentPercent || 0);
+    return {
+      metric,
+      goal,
+      realized,
+      projectedValue,
+      currentPercent,
+      projectedPercent,
+      missing,
+      status,
+      commission: metricCommission(seller, metric, "projected"),
+      deflator: metricDeflatorLabel(seller, metric),
+    };
+  });
+  const totals = rows.reduce((acc, row) => {
+    acc.goal += row.goal;
+    acc.realized += row.realized;
+    acc.projected += row.projectedValue;
+    acc.missing += row.missing;
+    acc.commission += row.commission;
+    return acc;
+  }, { goal: 0, realized: 0, projected: 0, missing: 0, commission: 0 });
+  totals.currentPercent = totals.goal ? totals.realized / totals.goal : null;
+  totals.projectedPercent = totals.goal ? totals.projected / totals.goal : null;
+  totals.status = branchStatusFromPercent(totals.currentPercent || 0);
+  return { rows, totals };
+}
+
+function collaboratorSummary(seller) {
+  const result = sellerResult(seller);
+  const metrics = collaboratorMetricRows(seller);
+  const gross = result.projectedSubtotal + result.adjustments;
+  const final = result.projected;
+  const preview = projectedDeflatorPreview(seller);
+  const status = seller.emExperiencia ? { label: "Em experiência", cls: "neutral", action: "Acompanhamento" } : branchStatusFromPercent(metrics.totals.currentPercent || 0);
+  return { result, metrics, gross, final, preview, status, currentPercent: metrics.totals.currentPercent || 0, projectedPercent: metrics.totals.projectedPercent || 0 };
+}
+
+function collaboratorLoginMarkup(seller) {
+  return `<div class="collab-login">
+    <div class="collab-login-identity"><span>Colaborador</span><strong>${escapeHtml(seller?.name || "Selecione")}</strong><small>${escapeHtml(seller ? `${seller.branch} - ${seller.area}` : "Selecione um colaborador")}</small></div>
+    <label>Senha<input id="collabPassword" type="password" placeholder="Senha do colaborador"></label>
+    <span id="collabLoginError" class="form-error"></span>
+    <button id="collabLogin" class="nav-button active" type="button">Entrar</button>
+    <p class="muted-note">Selecione um colaborador e informe a senha para visualizar seu desempenho.</p>
+  </div>`;
+}
+
+function collaboratorGuidance(seller) {
+  const summary = collaboratorSummary(seller);
+  const weak = [...summary.metrics.rows].filter((row) => row.goal > 0).sort((a, b) => (a.currentPercent || 0) - (b.currentPercent || 0)).slice(0, 2);
+  const missingTotal = Math.ceil(summary.metrics.totals.missing || 0);
+  if (!summary.metrics.rows.length) return "Ainda não há dados suficientes para gerar uma orientação.";
+  if (summary.preview.triggered.length && !summary.preview.ignored) return `Você possui deflator aplicado no momento. Atue no indicador ${summary.preview.triggered[0].metric.name} para recuperar parte da comissão.`;
+  if (summary.projectedPercent >= 1 && summary.currentPercent >= 1) return "Você está acima da meta. Continue protegendo seus indicadores para evitar deflatores.";
+  if (summary.projectedPercent < 1) return `Atenção: sua projeção está abaixo da meta. Priorize ${weak.map((item) => item.metric.name).join(" e ") || "os indicadores críticos"} para recuperar sua comissão.`;
+  return `Faltam ${num.format(missingTotal)} pontos de meta para atingir 100%. Mantenha o ritmo atual para alcançar sua projeção.`;
+}
+
+function collaboratorOpportunity(seller) {
+  const summary = collaboratorSummary(seller);
+  const weak = [...summary.metrics.rows].filter((row) => row.goal > 0).sort((a, b) => (a.projectedPercent || 0) - (b.projectedPercent || 0))[0];
+  if (!summary.metrics.rows.length) return "Ainda não há dados suficientes para calcular oportunidades de ganho.";
+  if (summary.preview.triggered.length) {
+    const trigger = summary.preview.triggered[0];
+    const value = seller.values[trigger.metric.id] || { goal: trigger.metric.goal, realized: 0 };
+    const neededProjected = Math.ceil((Number(value.goal) || 0) * (Number(trigger.min) || 0));
+    const needed = Math.max(neededProjected - projected(value.realized), 0);
+    return `Venda mais ${num.format(needed)} em ${trigger.metric.name} para remover o deflator de -${pct.format(summary.preview.rate)}. Isso pode aumentar sua comissão projetada em ${money.format(Math.abs(summary.preview.previewImpact))}.`;
+  }
+  if (summary.currentPercent >= 1) return "Você está acima da meta e sem deflatores. Continue mantendo o ritmo até o fechamento.";
+  return `Seu melhor caminho é acelerar ${weak?.metric?.name || "os indicadores abaixo da meta"}, que está abaixo do ritmo necessário para atingir a meta.`;
+}
+
+function collaboratorKpiMarkup(seller) {
+  const summary = collaboratorSummary(seller);
+  const progress = Math.max(0, Math.min(100, summary.currentPercent * 100));
+  return `<section class="collab-card collab-main-kpi"><div class="collab-card-head"><h3>Minha comissão estimada</h3><span class="status ${summary.status.cls}">${summary.status.label}</span></div><strong class="collab-money">${money.format(summary.final)}</strong><div class="collab-kpi-line"><span>Atingimento atual: <b>${pct.format(summary.currentPercent)}</b></span><span>Atingimento projetado: <b>${pct.format(summary.projectedPercent)}</b></span></div><div class="collab-progress"><span style="width:${progress}%"></span></div><div class="collab-progress-meta"><small>${pct.format(summary.currentPercent)} atual</small><small>Meta 100%</small></div></section>`;
+}
+
+function collaboratorMonthMarkup() {
+  const done = Number(state.period.daysDone) || 0;
+  const total = Number(state.period.daysTotal) || 0;
+  const percent = total ? done / total : 0;
+  return `<section class="collab-card collab-month-card"><div class="collab-card-head"><h3>Resumo do mês</h3><span>${total ? pct.format(percent) : "-"}</span></div><div class="collab-month-grid"><span>Mês<strong>${escapeHtml(state.period.month)}</strong></span><span>Dias realizados<strong>${num.format(done)}</strong></span><span>Dias úteis<strong>${num.format(total)}</strong></span><span>Período concluído<strong>${total ? pct.format(percent) : "-"}</strong></span></div></section>`;
+}
+
+function collaboratorDeflatorMarkup(seller) {
+  const summary = collaboratorSummary(seller);
+  const items = summary.preview.triggered.map((item) => `<li>Deflator ${escapeHtml(item.metric.name)}: -${pct.format(item.rate)} | Motivo: abaixo de ${pct.format(item.min)}</li>`).join("");
+  if (seller.emExperiencia && summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status neutral">Ignorado</span></div><p><strong>Vendedor em experiência.</strong> Deflator previsto: -${pct.format(summary.preview.rate)}.</p><p>Aplicação: ignorado por período de experiência.</p><p>Comissão final sem desconto: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
+  if (summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status bad">Aplicado</span></div><p>Deflator aplicado: <strong>-${pct.format(summary.preview.rate)}</strong></p><p>Impacto financeiro: <strong>${money.format(summary.result.projectedDeflator)}</strong></p><p>Comissão sem deflator: <strong>${money.format(summary.gross)}</strong></p><p>Comissão final: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
+  return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status ok">Sem desconto</span></div><p>Nenhum deflator aplicado no momento.</p><p>Sua comissão projetada não possui desconto.</p></section>`;
+}
+
+function collaboratorIndicatorTable(seller) {
+  const { rows, totals } = collaboratorMetricRows(seller);
+  const body = rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}"></td><td>${achievementPill(row.currentPercent)}</td><td>${num.format(row.missing)}</td><td>${num.format(row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.deflator)}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td></tr>`).join("");
+  const cards = rows.map((row) => `<article class="collab-indicator-card"><div><strong>${escapeHtml(row.metric.name)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div><dl><dt>Meta</dt><dd>${num.format(row.goal)}</dd><dt>Realizado</dt><dd><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}"></dd><dt>% atual</dt><dd>${pct.format(row.currentPercent || 0)}</dd><dt>Falta</dt><dd>${num.format(row.missing)}</dd><dt>Projetado</dt><dd>${num.format(row.projectedValue)}</dd><dt>% projetado</dt><dd>${pct.format(row.projectedPercent || 0)}</dd><dt>Comissão</dt><dd>${money.format(row.commission)}</dd><dt>Deflator</dt><dd>${escapeHtml(row.deflator)}</dd></dl></article>`).join("");
+  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Resultado por indicador</h3><p>Atualize os realizados para simular novos cenários.</p></div><div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${num.format(totals.goal)}</td><td>${num.format(totals.realized)}</td><td>${achievementPill(totals.currentPercent)}</td><td>${num.format(totals.missing)}</td><td>${num.format(totals.projected)}</td><td>${achievementPill(totals.projectedPercent)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.status.cls}">${totals.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
+}
+
+function collaboratorGuidanceMarkup(seller) {
+  return `<section class="collab-card collab-guidance-card"><span class="collab-guidance-icon">◎</span><div><h3>Orientação</h3><p>${escapeHtml(collaboratorGuidance(seller))}</p></div></section>`;
+}
+
+function collaboratorOpportunityMarkup(seller) {
+  const summary = collaboratorSummary(seller);
+  const diff = summary.final - summary.result.current;
+  return `<section class="collab-card collab-opportunity-card"><div class="collab-card-head"><h3>Como aumentar minha comissão</h3><span>${diff >= 0 ? "+" : ""}${money.format(diff)}</span></div><p>${escapeHtml(collaboratorOpportunity(seller))}</p></section>`;
+}
+
+function collaboratorScenarioMarkup(seller) {
+  const summary = collaboratorSummary(seller);
+  const current = summary.result.current;
+  const simulated = summary.final;
+  const diff = simulated - current;
+  return `<section class="collab-card collab-scenario-card"><div class="collab-card-head"><h3>Simular novo cenário</h3><span>${diff >= 0 ? "+" : ""}${money.format(diff)}</span></div><div class="collab-scenario-grid"><span>Cenário atual<strong>${money.format(current)}</strong></span><span>Cenário simulado<strong>${money.format(simulated)}</strong></span><span>Novo % projetado<strong>${pct.format(summary.projectedPercent)}</strong></span><span>Deflator previsto<strong>${summary.preview.rate ? `-${pct.format(summary.preview.rate)}` : "Sem deflator"}</strong></span></div><p>Altere os valores em Resultado por indicador para atualizar automaticamente o cenário.</p></section>`;
+}
+
+function collaboratorReportHtml(seller) {
+  const summary = collaboratorSummary(seller);
+  const rows = collaboratorMetricRows(seller);
+  const exportedAt = dateTime.format(new Date());
+  const deflatorText = summary.preview.triggered.length ? `Deflator aplicado: -${pct.format(summary.preview.rate)} | Impacto financeiro: ${money.format(summary.result.projectedDeflator)} | Comissão sem deflator: ${money.format(summary.gross)} | Comissão final: ${money.format(summary.final)}` : "Nenhum deflator aplicado no momento.";
+  const experienceText = seller.emExperiencia && summary.preview.triggered.length ? "Vendedor em experiência — deflator previsto ignorado." : "";
+  const tableRows = rows.rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td>${num.format(row.realized)}</td><td>${pct.format(row.currentPercent || 0)}</td><td>${num.format(row.missing)}</td><td>${num.format(row.projectedValue)}</td><td>${pct.format(row.projectedPercent || 0)}</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.deflator)}</td><td>${row.status.label}</td></tr>`).join("");
+  return `<div class="report-page"><header><div><h1>Comissão 360</h1><p>Simulador e painel de gestão de comissões, metas e performance comercial.</p></div><strong>Relatório do colaborador</strong></header><section class="report-meta"><span>Colaborador<strong>${escapeHtml(seller.name)}</strong></span><span>Filial<strong>${escapeHtml(seller.branch)}</strong></span><span>Área<strong>${escapeHtml(seller.area)}</strong></span><span>Mês<strong>${escapeHtml(state.period.month)}</strong></span><span>Dias realizados<strong>${num.format(state.period.daysDone)}</strong></span><span>Dias úteis<strong>${num.format(state.period.daysTotal)}</strong></span><span>Exportado em<strong>${exportedAt}</strong></span></section><section class="report-summary"><span>Comissão final<strong>${money.format(summary.final)}</strong></span><span>% atual<strong>${pct.format(summary.currentPercent)}</strong></span><span>% projetado<strong>${pct.format(summary.projectedPercent)}</strong></span><span>Status<strong>${summary.status.label}</strong></span><span>Comissão bruta<strong>${money.format(summary.gross)}</strong></span><span>Deflator<strong>${summary.preview.rate ? `-${pct.format(summary.preview.rate)}` : "Nenhum"}</strong></span><span>Impacto<strong>${money.format(summary.result.projectedDeflator)}</strong></span></section><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${tableRows}<tr class="total-row"><td>Total</td><td>${num.format(rows.totals.goal)}</td><td>${num.format(rows.totals.realized)}</td><td>${pct.format(rows.totals.currentPercent || 0)}</td><td>${num.format(rows.totals.missing)}</td><td>${num.format(rows.totals.projected)}</td><td>${pct.format(rows.totals.projectedPercent || 0)}</td><td>${money.format(summary.final)}</td><td>-</td><td>${rows.totals.status.label}</td></tr></tbody></table><section class="report-block"><h2>Deflatores</h2><p>${escapeHtml(experienceText || deflatorText)}</p></section><section class="report-block"><h2>Orientação</h2><p>${escapeHtml(collaboratorGuidance(seller))}</p></section><footer>Desenvolvido por Cleiton Gerber</footer></div>`;
+}
+
+function prepareCollaboratorPdfExport() {
+  const seller = selectedCollabSeller();
+  if (!seller || activeCollaboratorId !== seller.id) {
+    alert("Entre com a senha do colaborador antes de exportar.");
+    return;
+  }
+  const report = document.getElementById("collabPrintReport");
+  if (report) report.innerHTML = collaboratorReportHtml(seller);
+  document.body.classList.add("print-collaborator");
+  window.setTimeout(() => window.print(), 150);
+}
+
+function renderCollaborator() {
+  renderSelectors();
+  const seller = selectedCollabSeller();
+  const dashboard = document.getElementById("collabDashboard");
+  if (!seller || !dashboard) return;
+  if (activeCollaboratorId !== seller.id) {
+    document.getElementById("collabHero").innerHTML = collaboratorLoginMarkup(seller);
+    dashboard.innerHTML = `<section class="collab-empty-state">Selecione um colaborador e informe a senha para visualizar seu desempenho.</section>`;
+    return;
+  }
+  ensureSellerValues(seller);
+  document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Colaborador</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button" type="button">Trocar colaborador</button>`;
+  dashboard.innerHTML = `
+    <div class="collab-top-grid">${collaboratorKpiMarkup(seller)}${collaboratorGuidanceMarkup(seller)}</div>
+    <div class="collab-mid-grid">${collaboratorMonthMarkup()}${collaboratorDeflatorMarkup(seller)}</div>
+    ${collaboratorIndicatorTable(seller)}
+    <div class="collab-bottom-grid">${collaboratorOpportunityMarkup(seller)}${collaboratorScenarioMarkup(seller)}</div>
+  `;
 }
 
 function updateActionVisibility() {
@@ -1905,7 +2077,7 @@ document.addEventListener("click", async (event) => {
       sessionStorage.setItem(COLLAB_SESSION_KEY, seller.id);
       renderAll();
     } else {
-      document.getElementById("collabLoginError").textContent = "Senha incorreta";
+      document.getElementById("collabLoginError").textContent = "Senha inválida ou acesso não autorizado.";
     }
   }
 

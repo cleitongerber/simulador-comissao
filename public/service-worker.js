@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260705-accents";
+const CACHE_NAME = "comissao-pwa-v20260705-collab-redesign";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260705-accents",
-  "/app.js?v=20260705-accents",
+  "/styles.css?v=20260705-collab-redesign",
+  "/app.js?v=20260705-collab-redesign",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

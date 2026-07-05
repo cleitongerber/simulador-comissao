@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260705-accents" />
+    <link rel="stylesheet" href="./styles.css?v=20260705-collab-redesign" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -498,42 +498,32 @@
         </section>
 
         <section id="colaboradorView" class="view">
-          <div class="collab-layout">
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Meu painel</h3>
+          <div class="collab-modern">
+            <section class="collab-page-head">
+              <div>
+                <p class="eyebrow">Comissão 360</p>
+                <h2>Meu desempenho</h2>
+                <span>Simulador e painel de gestão de comissões, metas e performance comercial.</span>
+                <p>Acompanhe sua meta, projeção, comissão e oportunidades de ganho.</p>
+              </div>
+              <button id="exportCollaboratorPdf" class="ghost-button" type="button">Exportar PDF</button>
+            </section>
+
+            <section id="collabAccessCard" class="collab-card collab-access-card">
+              <div class="collab-card-head">
+                <h3>Acesso do colaborador</h3>
                 <select id="collabSellerSelect"></select>
               </div>
-              <div id="collabHero" class="collab-hero"></div>
+              <div id="collabHero"></div>
             </section>
-            <section class="panel wide">
-              <div class="panel-header">
-                <h3>Simular resultado</h3>
-                <button id="exportCollaboratorPdf" class="ghost-button" type="button">Exportar PDF</button>
-              </div>
-              <div id="collabExportStamp" class="export-stamp"></div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Metricas</th>
-                      <th>Meta</th>
-                      <th>Realizado</th>
-                      <th>% atual</th>
-                      <th>Falta</th>
-                      <th>Projetado</th>
-                      <th>% proj.</th>
-                      <th>Comissão proj.</th>
-                    </tr>
-                  </thead>
-                  <tbody id="collabMetricsBody"></tbody>
-                </table>
-              </div>
-            </section>
+
+            <div id="collabDashboard" class="collab-dashboard"></div>
           </div>
         </section>
       </main>
     </div>
+
+    <section id="collabPrintReport" class="collab-print-report" aria-hidden="true"></section>
 
     <div id="accessLock" class="modal-backdrop">
       <div class="modal">
@@ -550,7 +540,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260705-accents"></script>
+    <script src="./app.js?v=20260705-collab-redesign"></script>
   </body>
 </html>
 
