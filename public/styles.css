@@ -1646,7 +1646,390 @@ tbody tr:hover td {
   }
 }
 
-@media print {
+
+/* Modern Admin configuration module */
+.admin-modern {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-page-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.admin-page-head h2 {
+  margin: 2px 0 0;
+  font-size: 28px;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0 0;
+  border-bottom: 1px solid #eee2e4;
+}
+
+.admin-tab {
+  position: relative;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px 12px 0 0;
+  background: transparent;
+  color: #5f5f66;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.admin-tab::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: transparent;
+}
+
+.admin-tab.active {
+  background: #fff1f3;
+  color: var(--teal-2);
+}
+
+.admin-tab.active::after {
+  background: var(--teal);
+}
+
+.admin-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-summary-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 100px;
+  padding: 18px;
+  border: 1px solid #eee2e4;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-summary-card > span {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border-radius: 16px;
+  background: #fff1f3;
+  color: var(--teal);
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.admin-summary-card.user > span::before { content: "U"; }
+.admin-summary-card.store > span::before { content: "F"; }
+.admin-summary-card.target > span::before { content: "M"; }
+.admin-summary-card.percent > span::before { content: "%"; }
+
+.admin-summary-card small,
+.admin-summary-card em {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.admin-summary-card strong {
+  display: block;
+  margin: 5px 0;
+  color: var(--ink);
+  font-size: 26px;
+  line-height: 1;
+}
+
+.admin-tab-panel {
+  display: none;
+}
+
+.admin-tab-panel.active {
+  display: block;
+}
+
+.admin-section-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.55fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.admin-section-grid.single {
+  grid-template-columns: 1fr;
+}
+
+.admin-section-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #eee2e4;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.admin-section-card.wide {
+  grid-row: span 2;
+}
+
+.section-title {
+  margin-bottom: 16px;
+}
+
+.section-title h3 {
+  margin: 0 0 5px;
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.section-title p,
+.admin-inline-note,
+.security-grid small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.inline-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.inline-title select {
+  width: min(320px, 100%);
+}
+
+.primary-button {
+  min-height: 42px;
+  padding: 0 18px;
+  border: 1px solid var(--teal);
+  border-radius: 10px;
+  background: linear-gradient(135deg, #e30613 0%, #c70015 100%);
+  color: #fff;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+#savePeriodAdmin {
+  width: 100%;
+  margin-top: 14px;
+}
+
+#adminView .period-admin-grid,
+.security-grid,
+.identity-grid,
+.admin-toolbar {
+  display: grid;
+  gap: 12px;
+}
+
+#adminView .period-admin-grid {
+  grid-template-columns: 1fr;
+}
+
+.admin-toolbar {
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.5fr) minmax(150px, 0.4fr);
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #f0e6e8;
+  border-radius: 14px;
+  background: #fffafa;
+}
+
+.access-list,
+.permission-list {
+  display: grid;
+  gap: 10px;
+}
+
+.access-row,
+.permission-list div,
+.identity-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 12px;
+  border: 1px solid #f0e6e8;
+  border-radius: 12px;
+  background: #fffafa;
+}
+
+.access-row span,
+.permission-list span,
+.identity-note span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.access-row strong,
+.permission-list strong,
+.identity-note strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.access-list + .ghost-button {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.csv-import-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.csv-dropzone {
+  display: grid;
+  place-items: center;
+  min-height: 118px;
+  padding: 18px;
+  border: 1px dashed #efb8bf;
+  border-radius: 16px;
+  background: #fffafa;
+  color: var(--teal-2);
+  text-align: center;
+  cursor: pointer;
+}
+
+.csv-dropzone span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.csv-actions {
+  display: grid;
+  gap: 10px;
+  align-content: center;
+}
+
+.security-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.identity-grid {
+  grid-template-columns: minmax(260px, 1fr) minmax(220px, 0.7fr);
+  align-items: end;
+}
+
+.admin-inline-note {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0e6e8;
+  border-radius: 12px;
+  background: #fbfbfc;
+}
+
+.admin-inline-note.warning {
+  border-color: #ffb3bc;
+  background: #fff1f3;
+  color: #a30013;
+}
+
+#adminView .editor-list {
+  gap: 14px;
+}
+
+#adminView .seller-card {
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+}
+
+#adminView .seller-card .delete-seller-button {
+  grid-column: span 2;
+}
+
+#adminView .branch-card {
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.3fr) minmax(150px, auto);
+  align-items: end;
+}
+
+#adminView .metric-row {
+  grid-template-columns: repeat(4, minmax(140px, 1fr)) auto;
+}
+
+@media (max-width: 1180px) {
+  .admin-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-section-grid,
+  .csv-import-layout,
+  .security-grid,
+  .identity-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-section-card.wide {
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-page-head h2 {
+    font-size: 24px;
+  }
+
+  .admin-summary-grid,
+  .admin-toolbar,
+  #adminView .seller-card,
+  #adminView .branch-card,
+  #adminView .metric-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-section-card {
+    padding: 14px;
+  }
+
+  .inline-title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-tabs {
+    margin-right: -14px;
+    padding-bottom: 2px;
+  }
+
+  .admin-tab {
+    min-height: 42px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  #adminView .seller-card .delete-seller-button {
+    grid-column: auto;
+  }
+}@media print {
   @page {
     size: A4 landscape;
     margin: 8mm;

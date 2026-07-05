@@ -124,6 +124,7 @@ let activeAreaFilter = "Todas";
 let activeBranchFilter = "Todas";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
 let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
+let activeAdminTab = "campanha";
 let pendingAccessView = "dashboard";
 
 function loadState() {
@@ -794,16 +795,80 @@ function renderSelectors() {
   if (state.sellers.some((seller) => seller.id === collabSelected)) collabSelect.value = collabSelected;
 }
 
+function updateAdminTabs() {
+  document.querySelectorAll(".admin-tab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.adminTab === activeAdminTab);
+  });
+  document.querySelectorAll(".admin-tab-panel").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.adminPanel === activeAdminTab);
+  });
+}
+
+function renderAdminSummary() {
+  const container = document.getElementById("adminSummaryCards");
+  if (!container) return;
+  const metricCount = ["Cabo", "Nao Cabo"].reduce((total, area) => total + metricsFor(area).length, 0);
+  const deflatorCount = ["Cabo", "Nao Cabo"].reduce((total, area) => total + (state.deflators?.[area] || []).length, 0);
+  const cards = [
+    { icon: "user", title: "Vendedores cadastrados", value: state.sellers.length, note: "Total atual" },
+    { icon: "store", title: "Filiais ativas", value: branches().length, note: "Lojas cadastradas" },
+    { icon: "target", title: "Itens de meta", value: metricCount, note: "Indicadores ativos" },
+    { icon: "percent", title: "Deflatores ativos", value: deflatorCount, note: "Vigentes no periodo" },
+  ];
+  container.innerHTML = cards.map((card) => `
+    <article class="admin-summary-card ${card.icon}">
+      <span aria-hidden="true"></span>
+      <div><small>${card.title}</small><strong>${card.value}</strong><em>${card.note}</em></div>
+    </article>
+  `).join("");
+}
+
+function renderAdminFilters() {
+  const branchFilter = document.getElementById("adminBranchFilter");
+  if (branchFilter) {
+    const selected = branchFilter.value || "";
+    branchFilter.innerHTML = `<option value="">Todas</option>${branches().map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("")}`;
+    if ([...branchFilter.options].some((option) => option.value === selected)) branchFilter.value = selected;
+  }
+}
+
+function filteredAdminSellers() {
+  const search = (document.getElementById("adminSellerSearch")?.value || "").trim().toLowerCase();
+  const branch = document.getElementById("adminBranchFilter")?.value || "";
+  const area = document.getElementById("adminAreaFilter")?.value || "";
+  return state.sellers.filter((seller) => {
+    const matchesSearch = !search || seller.name.toLowerCase().includes(search);
+    const matchesBranch = !branch || seller.branch === branch;
+    const matchesArea = !area || seller.area === area;
+    return matchesSearch && matchesBranch && matchesArea;
+  });
+}
+
+function renderAdminPeriodMessage() {
+  const message = document.getElementById("adminPeriodMessage");
+  if (!message) return;
+  const invalid = Number(state.period.daysDone) > Number(state.period.daysTotal);
+  message.textContent = invalid ? "Dias realizados nao podem passar dos dias uteis." : "Periodo pronto para calculo da projecao.";
+  message.classList.toggle("warning", invalid);
+}
+
 function renderAdmin() {
   renderSelectors();
+  updateAdminTabs();
+  renderAdminSummary();
+  renderAdminFilters();
   const adminPeriodMonth = document.getElementById("adminPeriodMonth");
   const adminDaysTotal = document.getElementById("adminDaysTotal");
+  const adminDaysDone = document.getElementById("adminDaysDone");
   if (adminPeriodMonth) adminPeriodMonth.value = state.period.month;
   if (adminDaysTotal) adminDaysTotal.value = state.period.daysTotal;
+  if (adminDaysDone) adminDaysDone.value = state.period.daysDone;
+  renderAdminPeriodMessage();
   const list = document.getElementById("sellerEditorList");
-  list.innerHTML = state.sellers.map((seller) => `
+  const sellers = filteredAdminSellers();
+  list.innerHTML = sellers.length ? sellers.map((seller) => `
     <div class="seller-card">
-      <label>Nome<input data-seller-field="name" data-seller-id="${seller.id}" value="${seller.name}">${seller.emExperiencia ? `<span class="experience-badge">Em experiência</span>` : ""}</label>
+      <label>Nome<input data-seller-field="name" data-seller-id="${seller.id}" value="${escapeHtml(seller.name)}">${seller.emExperiencia ? `<span class="experience-badge">Em experiencia</span>` : ""}</label>
       <label>Area
         <select data-seller-field="area" data-seller-id="${seller.id}">
           <option ${seller.area === "Cabo" ? "selected" : ""}>Cabo</option>
@@ -814,11 +879,11 @@ function renderAdmin() {
       <label>Qualidade<input data-adjustment="quality" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.quality || 0}"></label>
       <label>Seguro<input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.insurance || 0}"></label>
       <label>Carrossel<input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.carousel || 0}"></label>
-      <label>Senha colaborador<input data-seller-field="password" data-seller-id="${seller.id}" type="text" value="${seller.password || "1234"}"></label>
-      <label class="checkbox-line"><input data-seller-experience="${seller.id}" type="checkbox" ${seller.emExperiencia ? "checked" : ""}> Vendedor em experiência</label>
+      <label>Senha colaborador<input data-seller-field="password" data-seller-id="${seller.id}" type="text" value="${escapeHtml(seller.password || "1234")}"></label>
+      <label class="checkbox-line"><input data-seller-experience="${seller.id}" type="checkbox" ${seller.emExperiencia ? "checked" : ""}> Vendedor em experiencia</label>
       <button class="delete-seller-button" data-delete-seller="${seller.id}" type="button">Excluir vendedor</button>
     </div>
-  `).join("");
+  `).join("") : `<p class="muted-note">Nenhum vendedor encontrado com os filtros atuais.</p>`;
   renderAdminMetrics();
   renderRules();
   renderBranchEditor();
@@ -826,7 +891,6 @@ function renderAdmin() {
   renderDeflators();
   renderManagerAccessEditor();
 }
-
 function selectedAdminSeller() {
   const id = document.getElementById("adminSellerSelect").value || state.sellers[0]?.id;
   return state.sellers.find((seller) => seller.id === id) || state.sellers[0];
@@ -1277,6 +1341,39 @@ document.addEventListener("click", async (event) => {
   const nav = event.target.closest(".nav-button");
   if (nav && nav.dataset.view) openView(nav.dataset.view);
 
+  const adminTab = event.target.closest("[data-admin-tab]");
+  if (adminTab) {
+    activeAdminTab = adminTab.dataset.adminTab;
+    updateAdminTabs();
+    return;
+  }
+
+  const adminTabJump = event.target.closest("[data-admin-tab-jump]");
+  if (adminTabJump) {
+    activeAdminTab = adminTabJump.dataset.adminTabJump;
+    updateAdminTabs();
+    return;
+  }
+
+  const goalSheetDropzone = event.target.closest("#goalSheetDropzone");
+  if (goalSheetDropzone) {
+    document.getElementById("goalSheetFile")?.click();
+  }
+
+  if (event.target.id === "savePeriodAdmin") {
+    if (Number(state.period.daysTotal) <= 0) {
+      alert("Dias uteis deve ser maior que zero.");
+      return;
+    }
+    if (Number(state.period.daysDone) > Number(state.period.daysTotal)) {
+      alert("Dias realizados nao pode ser maior que dias uteis.");
+      return;
+    }
+    flushSaveState("Periodo salvo");
+    renderAdminPeriodMessage();
+    return;
+  }
+
   const area = event.target.closest(".area-filter");
   if (area) {
     activeAreaFilter = area.dataset.area;
@@ -1458,13 +1555,16 @@ document.addEventListener("click", async (event) => {
 
 document.addEventListener("input", (event) => {
   const target = event.target;
-  if (target.id === "daysDone") state.period.daysDone = Number(target.value) || 1;
+  if (target.id === "daysDone" || target.id === "adminDaysDone") state.period.daysDone = Number(target.value) || 0;
   if (target.id === "adminPeriodMonth") state.period.month = target.value;
   if (target.id === "adminDaysTotal") state.period.daysTotal = Number(target.value) || 1;
-  if (target.id === "daysDone" || target.id === "adminPeriodMonth" || target.id === "adminDaysTotal") {
+  if (target.id === "daysDone" || target.id === "adminDaysDone" || target.id === "adminPeriodMonth" || target.id === "adminDaysTotal") {
     saveState();
     document.getElementById("periodMonthDisplay").textContent = state.period.month;
     document.getElementById("daysTotalDisplay").textContent = state.period.daysTotal;
+    const adminDaysDone = document.getElementById("adminDaysDone");
+    if (adminDaysDone && target.id !== "adminDaysDone") adminDaysDone.value = state.period.daysDone;
+    renderAdminPeriodMessage();
     renderDashboard();
     renderAdminMetrics();
     renderManager();
@@ -1474,6 +1574,11 @@ document.addEventListener("input", (event) => {
   if (target.id === "branchFilter") {
     activeBranchFilter = target.value;
     renderDashboard();
+  }
+
+  if (target.id === "adminSellerSearch" || target.id === "adminBranchFilter" || target.id === "adminAreaFilter") {
+    renderAdmin();
+    return;
   }
 
   if (target.id === "partnerName") {

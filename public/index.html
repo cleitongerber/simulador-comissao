@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260704-redesign" />
+    <link rel="stylesheet" href="./styles.css?v=20260705-admin-redesign" />
   </head>
   <body>
     <div class="app-shell">
@@ -151,138 +151,244 @@
         </section>
 
         <section id="adminView" class="view">
-          <div class="admin-grid">
-            
-            <section class="panel full admin-actions-panel">
-              <div class="panel-header">
-                <h3>Ações administrativas</h3>
+          <div class="admin-modern">
+            <div class="admin-page-head">
+              <div>
+                <p class="eyebrow">Admin / Configuracao</p>
+                <h2>Configuracao</h2>
               </div>
-              <div id="adminQuickActions" class="admin-action-buttons">
-                <button id="addSeller" class="ghost-button" type="button">Adicionar vendedor</button>
-                <button id="addBranch" class="ghost-button" type="button">Adicionar filial</button>
-              </div>
-            </section>
-<section class="panel">
-              <div class="panel-header">
-                <h3>Vendedores</h3>
-              </div>
-              <div id="sellerEditorList" class="editor-list"></div>
-            </section>
+            </div>
 
-            <section class="panel">
-              <div class="panel-header">
-                <h3>Periodo da campanha</h3>
-              </div>
-              <div class="period-admin-grid">
-                <label>
-                  Mes
-                  <input id="adminPeriodMonth" type="text" />
-                </label>
-                <label>
-                  Dias uteis
-                  <input id="adminDaysTotal" min="1" type="number" />
-                </label>
-              </div>
-            </section>
+            <nav class="admin-tabs" aria-label="Secoes do admin">
+              <button class="admin-tab active" data-admin-tab="campanha" type="button">Campanha</button>
+              <button class="admin-tab" data-admin-tab="vendedores" type="button">Vendedores</button>
+              <button class="admin-tab" data-admin-tab="filiais" type="button">Filiais</button>
+              <button class="admin-tab" data-admin-tab="metas" type="button">Metas</button>
+              <button class="admin-tab" data-admin-tab="regras" type="button">Regras e Deflatores</button>
+              <button class="admin-tab" data-admin-tab="importacao" type="button">Importacao</button>
+              <button class="admin-tab" data-admin-tab="identidade" type="button">Identidade</button>
+              <button class="admin-tab" data-admin-tab="seguranca" type="button">Seguranca</button>
+            </nav>
 
-            <section class="panel wide">
-              <div class="panel-header">
-                <h3>Metas e realizados</h3>
-                <select id="adminSellerSelect"></select>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Metricas</th>
-                      <th>Meta</th>
-                      <th>Realizado</th>
-                      <th>% atual</th>
-                      <th>Projetado</th>
-                      <th>% proj.</th>
-                    </tr>
-                  </thead>
-                  <tbody id="adminMetricsBody"></tbody>
-                </table>
-              </div>
-              <div id="adminDeflatorSummary" class="summary-strip"></div>
-            </section>
+            <div id="adminSummaryCards" class="admin-summary-grid"></div>
 
-            <section class="panel full">
-              <div class="panel-header">
-                <h3>Regras por area</h3>
-                <select id="ruleAreaSelect">
-                  <option>Cabo</option>
-                  <option>Nao Cabo</option>
-                </select>
-              </div>
-              <div id="rulesEditor" class="rules-grid"></div>
-            </section>
+            <div class="admin-tab-panels">
+              <section class="admin-tab-panel active" data-admin-panel="campanha">
+                <div class="admin-section-grid">
+                  <section class="admin-section-card compact">
+                    <div class="section-title">
+                      <h3>Periodo da campanha</h3>
+                      <p>Os dias realizados serao usados para calcular a projecao do mes.</p>
+                    </div>
+                    <div class="period-admin-grid">
+                      <label>
+                        Mes atual
+                        <input id="adminPeriodMonth" type="text" />
+                      </label>
+                      <label>
+                        Dias uteis planejados
+                        <input id="adminDaysTotal" min="1" type="number" />
+                      </label>
+                      <label>
+                        Dias realizados ate hoje
+                        <input id="adminDaysDone" min="0" type="number" />
+                      </label>
+                    </div>
+                    <p id="adminPeriodMessage" class="admin-inline-note">Dias realizados nao podem passar dos dias uteis.</p>
+                    <button id="savePeriodAdmin" class="primary-button" type="button">Salvar periodo</button>
+                  </section>
 
-            <section class="panel full">
-              <div class="panel-header">
-                <h3>Cadastro de filiais</h3>
-              </div>
-              <div id="branchEditorList" class="rules-grid"></div>
-            </section>
-            <section class="panel full">
-              <div class="panel-header">
-                <h3>Itens de metas</h3>
-              </div>
-              <div id="metricCatalogEditor" class="rules-grid"></div>
-            </section>
+                  <section class="admin-section-card wide">
+                    <div class="section-title inline-title">
+                      <div>
+                        <h3>Metas e regras</h3>
+                        <p>Configure as metas, pesos, regras de calculo e deflatores do periodo.</p>
+                      </div>
+                      <select id="adminSellerSelect"></select>
+                    </div>
+                    <div class="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Indicador</th>
+                            <th>Meta</th>
+                            <th>Realizado</th>
+                            <th>% atual</th>
+                            <th>Projetado</th>
+                            <th>% proj.</th>
+                          </tr>
+                        </thead>
+                        <tbody id="adminMetricsBody"></tbody>
+                      </table>
+                    </div>
+                    <div id="adminDeflatorSummary" class="summary-strip"></div>
+                  </section>
 
-            <section class="panel full">
-              <div class="panel-header">
-                <h3>Deflatores</h3>
-              </div>
-              <div id="deflatorEditor" class="rules-grid"></div>
-            </section>
+                  <section class="admin-section-card compact">
+                    <div class="section-title">
+                      <h3>Senhas de acesso</h3>
+                      <p>Gerencie as senhas de acesso aos modulos do sistema.</p>
+                    </div>
+                    <div class="access-list">
+                      <div class="access-row"><span>Dashboard</span><strong>&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</strong></div>
+                      <div class="access-row"><span>Admin</span><strong>&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</strong></div>
+                      <div class="access-row"><span>Colaborador / Filial</span><strong>Por cadastro</strong></div>
+                      <div class="access-row"><span>Desenvolvedor / Proprietario</span><strong>Protegido</strong></div>
+                    </div>
+                    <button class="ghost-button" data-admin-tab-jump="seguranca" type="button">Alterar senhas</button>
+                  </section>
 
-            <section class="panel full">
-              <div class="panel-header">
-                <h3>Importar metas por planilha</h3>
-              </div>
-              <div class="password-panel import-panel">
-                <button id="downloadGoalTemplate" class="ghost-button" type="button">Baixar modelo CSV</button>
-                <button id="importGoalSheet" class="ghost-button" type="button">Importar metas CSV</button>
-                <input id="goalSheetFile" type="file" accept=".csv,text/csv" hidden />
-                <p>Use o modelo para atualizar meta e realizado em massa. O arquivo CSV abre normalmente no Excel.</p>
-              </div>
-            </section>
-            <section class="panel full">
-              <div class="panel-header">
-                <h3>Identidade da parceira</h3>
-              </div>
-              <div class="password-panel">
-                <label>
-                  Nome da parceira / franquia
-                  <input id="partnerName" type="text" placeholder="Ex.: Franquia Centro" />
-                </label>
-                <p>Este nome aparece no topo do menu lateral para todos os acessos.</p>
-              </div>
-            </section>
+                  <section class="admin-section-card">
+                    <div class="section-title">
+                      <h3>Importacao CSV</h3>
+                      <p>Importe ou atualize bases de vendedores, metas e deflatores via arquivo CSV.</p>
+                    </div>
+                    <div class="csv-dropzone" data-admin-tab-jump="importacao">
+                      <strong>Arraste e solte o arquivo aqui ou clique para selecionar</strong>
+                      <span>Formatos aceitos: .csv</span>
+                    </div>
+                    <button class="ghost-button" data-admin-tab-jump="importacao" type="button">Abrir importacao</button>
+                  </section>
+                </div>
+              </section>
 
+              <section class="admin-tab-panel" data-admin-panel="vendedores">
+                <section class="admin-section-card">
+                  <div class="section-title inline-title">
+                    <div>
+                      <h3>Vendedores</h3>
+                      <p>Cadastre, filtre e mantenha os acessos dos colaboradores.</p>
+                    </div>
+                    <button id="addSeller" class="primary-button" type="button">Novo vendedor</button>
+                  </div>
+                  <div class="admin-toolbar">
+                    <label>Buscar por nome<input id="adminSellerSearch" type="search" placeholder="Nome do vendedor" /></label>
+                    <label>Filial<select id="adminBranchFilter"><option value="">Todas</option></select></label>
+                    <label>Area<select id="adminAreaFilter"><option value="">Todas</option><option>Cabo</option><option>Nao Cabo</option></select></label>
+                  </div>
+                  <div id="sellerEditorList" class="editor-list"></div>
+                </section>
+              </section>
 
-            <section class="panel full">
-              <div class="panel-header">
-                <h3>Senhas de acesso</h3>
-              </div>
-              <div class="password-panel access-passwords">
-                <label>
-                  Senha admin
-                  <input id="newAdminPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" />
-                </label>
-                <label>
-                  Senha Dashboard
-                  <input id="newDashboardPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" />
-                </label>
-                <p>Padrao inicial: admin <strong>admin123</strong> e dashboard <strong>dashboard123</strong>.</p>
-              </div>
-            </section>
+              <section class="admin-tab-panel" data-admin-panel="filiais">
+                <section class="admin-section-card">
+                  <div class="section-title inline-title">
+                    <div>
+                      <h3>Filiais</h3>
+                      <p>Gerencie lojas, senhas de acesso e vinculos com vendedores.</p>
+                    </div>
+                    <button id="addBranch" class="primary-button" type="button">Nova filial</button>
+                  </div>
+                  <div id="branchEditorList" class="rules-grid"></div>
+                </section>
+              </section>
+
+              <section class="admin-tab-panel" data-admin-panel="metas">
+                <section class="admin-section-card">
+                  <div class="section-title">
+                    <h3>Itens de metas</h3>
+                    <p>Organize indicadores ativos, metas padrao e tipos de calculo.</p>
+                  </div>
+                  <div id="metricCatalogEditor" class="rules-grid"></div>
+                </section>
+              </section>
+
+              <section class="admin-tab-panel" data-admin-panel="regras">
+                <div class="admin-section-grid single">
+                  <section class="admin-section-card">
+                    <div class="section-title inline-title">
+                      <div>
+                        <h3>Regras por area</h3>
+                        <p>Configure faixas de comissao por indicador.</p>
+                      </div>
+                      <select id="ruleAreaSelect">
+                        <option>Cabo</option>
+                        <option>Nao Cabo</option>
+                      </select>
+                    </div>
+                    <div id="rulesEditor" class="rules-grid"></div>
+                  </section>
+
+                  <section class="admin-section-card">
+                    <div class="section-title">
+                      <h3>Deflatores</h3>
+                      <p>Defina penalidades por nao atingimento. Vendedores em experiencia ignoram deflatores.</p>
+                    </div>
+                    <div id="deflatorEditor" class="rules-grid"></div>
+                  </section>
+                </div>
+              </section>
+
+              <section class="admin-tab-panel" data-admin-panel="importacao">
+                <section class="admin-section-card">
+                  <div class="section-title">
+                    <h3>Importacao CSV</h3>
+                    <p>Importe ou atualize metas e realizados em massa usando o modelo padrao.</p>
+                  </div>
+                  <div class="csv-import-layout">
+                    <div class="csv-dropzone" id="goalSheetDropzone">
+                      <strong>Arraste e solte o arquivo aqui ou clique para selecionar</strong>
+                      <span>Formatos aceitos: .csv</span>
+                    </div>
+                    <div class="csv-actions">
+                      <button id="downloadGoalTemplate" class="ghost-button" type="button">Baixar modelo</button>
+                      <button id="importGoalSheet" class="primary-button" type="button">Importar arquivo</button>
+                      <input id="goalSheetFile" type="file" accept=".csv,text/csv" hidden />
+                    </div>
+                  </div>
+                  <p class="admin-inline-note">A importacao pode substituir dados existentes. Confirme o arquivo antes de importar.</p>
+                </section>
+              </section>
+
+              <section class="admin-tab-panel" data-admin-panel="identidade">
+                <section class="admin-section-card">
+                  <div class="section-title">
+                    <h3>Identidade da parceira</h3>
+                    <p>Personalize a identificacao visual exibida no app.</p>
+                  </div>
+                  <div class="identity-grid">
+                    <label>
+                      Nome da parceira / franquia
+                      <input id="partnerName" type="text" placeholder="Ex.: Franquia Centro" />
+                    </label>
+                    <div class="identity-note">
+                      <span>Assinatura discreta</span>
+                      <strong>Desenvolvido por Cleiton Gerber</strong>
+                    </div>
+                  </div>
+                </section>
+              </section>
+
+              <section class="admin-tab-panel" data-admin-panel="seguranca">
+                <section class="admin-section-card">
+                  <div class="section-title">
+                    <h3>Seguranca</h3>
+                    <p>Defina senhas independentes e permissao de cada acesso.</p>
+                  </div>
+                  <div class="security-grid">
+                    <label>
+                      Senha admin
+                      <input id="newAdminPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" />
+                      <small>Admin: configuracoes administrativas.</small>
+                    </label>
+                    <label>
+                      Senha Dashboard
+                      <input id="newDashboardPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" />
+                      <small>Dashboard: somente visualizacao.</small>
+                    </label>
+                  </div>
+                  <div class="permission-list">
+                    <div><strong>Dashboard</strong><span>Somente visualizacao</span></div>
+                    <div><strong>Admin</strong><span>Configuracoes administrativas</span></div>
+                    <div><strong>Colaborador / Filial</strong><span>Acesso operacional por senha cadastrada</span></div>
+                    <div><strong>Desenvolvedor / Proprietario</strong><span>Acesso total protegido por configuracao segura</span></div>
+                  </div>
+                  <p class="admin-inline-note">Padrao inicial: admin admin123 e dashboard dashboard123.</p>
+                </section>
+              </section>
+            </div>
           </div>
         </section>
-
         <section id="gerenteView" class="view">
           <div class="manager-layout">
             <section class="panel">
@@ -353,7 +459,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260704-redesign"></script>
+    <script src="./app.js?v=20260705-admin-redesign"></script>
   </body>
 </html>
 
