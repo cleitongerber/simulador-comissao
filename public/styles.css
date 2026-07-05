@@ -1689,7 +1689,7 @@ tbody tr:hover td {
   #colaboradorView .panel.wide .table-wrap td:nth-child(5)::before { content: "Falta"; }
   #colaboradorView .panel.wide .table-wrap td:nth-child(6)::before { content: "Projetado"; }
   #colaboradorView .panel.wide .table-wrap td:nth-child(7)::before { content: "% proj."; }
-  #colaboradorView .panel.wide .table-wrap td:nth-child(8)::before { content: "Comissao"; }
+  #colaboradorView .panel.wide .table-wrap td:nth-child(8)::before { content: "Comissão"; }
 
   #colaboradorView .panel.wide .table-wrap td input {
     min-width: 0;
@@ -1751,7 +1751,7 @@ tbody tr:hover td {
 
 
 /* Modern executive Dashboard */
-/* Home institucional do Comissao 360. Mantem os modulos protegidos fora desta tela. */
+/* Home institucional do Comissão 360. Mantém os módulos protegidos fora desta tela. */
 body[data-view="home"] {
   overflow: hidden;
 }

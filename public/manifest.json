@@ -1,7 +1,7 @@
 {
-  "name": "Comissao 360",
-  "short_name": "Comissao 360",
-  "description": "Simulador e painel de gestao de comissoes, metas e performance comercial.",
+  "name": "Comissão 360",
+  "short_name": "Comissão 360",
+  "description": "Simulador e painel de gestão de comissões, metas e performance comercial.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",

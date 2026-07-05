@@ -862,10 +862,10 @@ function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent,
   const container = document.getElementById("dashboardExecutiveCards");
   if (!container) return;
   const cards = [
-    ["Resultado geral", money.format(totals.current), "Comissao atual", "target", null],
+    ["Resultado geral", money.format(totals.current), "Comissão atual", "target", null],
     ["% atual geral", pct.format(currentPercent), "Atingimento atual", "percent", currentPercent],
-    ["% projetado geral", pct.format(projectedPercent), "Projecao da meta", "trend", projectedPercent],
-    ["Comissao total projetada", money.format(totals.projected), "Todas as filiais", "money", null],
+    ["% projetado geral", pct.format(projectedPercent), "Projeção da meta", "trend", projectedPercent],
+    ["Comissão total projetada", money.format(totals.projected), "Todas as filiais", "money", null],
     ["Filiais em risco", riskBranches, "Abaixo de 70%", "alert", riskBranches ? 0 : 1],
     ["Vendedores em destaque", highlightSellers, "Acima de 120%", "star", highlightSellers ? 1 : null],
     ["Deflator", `${deflatorCounts.withDeflator}/${deflatorCounts.withoutDeflator}`, "Com / sem deflator", "scale", deflatorCounts.withDeflator ? 0 : 1],
@@ -937,7 +937,7 @@ function renderBranchCommissionBars(rows) {
   container.innerHTML = sorted.map((row) => `<div class="branch-chart-row money">
     <div class="branch-chart-label"><strong>${escapeHtml(row.branch)}</strong><span>${money.format(row.commissionProjected)}</span></div>
     <div class="branch-chart-track"><i style="width:${Math.max(2, Math.abs(row.commissionProjected) / max * 100)}%"></i></div>
-  </div>`).join("") || `<p class="muted-note">Sem comissao no filtro atual.</p>`;
+  </div>`).join("") || `<p class="muted-note">Sem comissão no filtro atual.</p>`;
 }
 
 function renderRanking(sellers) {
@@ -1073,7 +1073,7 @@ function renderAdminPeriodMessage() {
   const message = document.getElementById("adminPeriodMessage");
   if (!message) return;
   const invalid = Number(state.period.daysDone) > Number(state.period.daysTotal);
-  message.textContent = invalid ? "Dias realizados nao podem passar dos dias uteis." : "Periodo pronto para calculo da projecao.";
+  message.textContent = invalid ? "Dias realizados não podem passar dos dias úteis." : "Período pronto para cálculo da projeção.";
   message.classList.toggle("warning", invalid);
 }
 
@@ -1105,7 +1105,7 @@ function renderAdmin() {
       <label>Seguro<input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.insurance || 0}"></label>
       <label>Carrossel<input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.carousel || 0}"></label>
       <label>Senha colaborador<input data-seller-field="password" data-seller-id="${seller.id}" type="text" value="${escapeHtml(seller.password || "1234")}"></label>
-      <label class="checkbox-line"><input data-seller-experience="${seller.id}" type="checkbox" ${seller.emExperiencia ? "checked" : ""}> Vendedor em experiencia</label>
+      <label class="checkbox-line"><input data-seller-experience="${seller.id}" type="checkbox" ${seller.emExperiencia ? "checked" : ""}> Vendedor em experiência</label>
       <button class="delete-seller-button" data-delete-seller="${seller.id}" type="button">Excluir vendedor</button>
     </div>
   `).join("") : `<p class="muted-note">Nenhum vendedor encontrado com os filtros atuais.</p>`;
@@ -1298,9 +1298,9 @@ function branchKpiCards(branch, sellers, totals) {
     ["Meta da filial", num.format(totals.totalGoal), "Meta consolidada", "target", null],
     ["Realizado", num.format(totals.realized), "Resultado atual", "trend", totals.currentPercent],
     ["% atual", pct.format(totals.currentPercent), "Atingimento atual", "percent", totals.currentPercent],
-    ["Projetado", num.format(totals.projectedTotal), "Projecao da filial", "trend", totals.projectedPercent],
-    ["% projetado", pct.format(totals.projectedPercent), "Projecao / meta", "percent", totals.projectedPercent],
-    ["Comissao estimada", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)}`, "money", null],
+    ["Projetado", num.format(totals.projectedTotal), "Projeção da filial", "trend", totals.projectedPercent],
+    ["% projetado", pct.format(totals.projectedPercent), "Projeção / meta", "percent", totals.projectedPercent],
+    ["Comissão estimada", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)}`, "money", null],
   ];
   return `<div class="branch-kpi-grid">${cards.map(([label, value, detail, icon, percent]) => `<article class="branch-kpi ${icon}"><span aria-hidden="true"></span><div><small>${label}</small><strong>${value}</strong><em class="${achievementClass(percent)}">${detail}</em></div></article>`).join("")}</div>`;
 }
@@ -1313,7 +1313,7 @@ function branchAlerts(sellers, totals) {
     ? `${deflatorSellers.length} vendedor${deflatorSellers.length === 1 ? "" : "es"} possuem deflator aplicado ou previsto. Impacto estimado: ${money.format(totals.deflatorImpact)}.`
     : "Nenhum deflator aplicado no momento.";
   return `<div class="branch-alert-grid">
-    <article class="branch-alert ${riskSellers.length ? "bad" : "ok"}"><strong>${riskSellers.length} vendedor${riskSellers.length === 1 ? "" : "es"} em risco</strong><span>${riskSellers.length ? "Estao com performance abaixo de 70% da meta atual." : "Nenhum vendedor abaixo de 70% no momento."}</span></article>
+    <article class="branch-alert ${riskSellers.length ? "bad" : "ok"}"><strong>${riskSellers.length} vendedor${riskSellers.length === 1 ? "" : "es"} em risco</strong><span>${riskSellers.length ? "Estão com performance abaixo de 70% da meta atual." : "Nenhum vendedor abaixo de 70% no momento."}</span></article>
     <article class="branch-alert ${totals.projectedPercent >= 1 ? "ok" : "warn"}"><strong>Meta projetada</strong><span>A filial deve atingir ${pct.format(totals.projectedPercent)} da meta. ${projectedGap ? `Faltam ${num.format(projectedGap)} para atingir 100%.` : "Meta projetada atingida."}</span></article>
     <article class="branch-alert ${deflatorSellers.length ? "bad" : "ok"}"><strong>Deflatores ativos</strong><span>${deflatorText}</span></article>
   </div>`;
@@ -1322,7 +1322,7 @@ function branchAlerts(sellers, totals) {
 function branchTeamTable(sellers) {
   const rows = [...sellers].sort((a, b) => sellerBranchSummary(b).currentPercent - sellerBranchSummary(a).currentPercent).map((seller) => {
     const summary = sellerBranchSummary(seller);
-    const experience = seller.emExperiencia ? `<span class="status neutral">Em experiencia</span><small>Deflator ignorado</small>` : "";
+    const experience = seller.emExperiencia ? `<span class="status neutral">Em experiência</span><small>Deflator ignorado</small>` : "";
     return `<tr>
       <td><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.area)}</small>${experience}</td>
       <td>${money.format(summary.result.current)}</td>
@@ -1336,7 +1336,7 @@ function branchTeamTable(sellers) {
       <td><button class="ghost-button compact-action" data-manager-seller-detail="${seller.id}" type="button">Ver detalhes</button></td>
     </tr>`;
   }).join("");
-  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissao bruta, deflator e comissao final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Colaborador</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissao bruta</th><th>Deflator</th><th>Comissao final</th><th>Status</th><th>Acoes</th></tr></thead><tbody>${rows || `<tr><td colspan="10">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
+  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissão bruta, deflator e comissão final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Colaborador</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissão bruta</th><th>Deflator</th><th>Comissão final</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows || `<tr><td colspan="10">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function branchSellerFilter(sellers) {
@@ -1371,10 +1371,10 @@ function sellerIndicatorDetailRows(seller) {
 function sellerDeflatorImpactCard(seller) {
   const summary = sellerBranchSummary(seller);
   const preview = projectedDeflatorPreview(seller);
-  const reason = preview.triggered[0]?.metric?.name ? `${preview.triggered[0].metric.name} abaixo da meta minima` : "Sem motivo de deflator";
+  const reason = preview.triggered[0]?.metric?.name ? `${preview.triggered[0].metric.name} abaixo da meta mínima` : "Sem motivo de deflator";
   const list = preview.triggered.length ? preview.triggered.map((rule) => `<li>Deflator ${escapeHtml(rule.metric.name)}: -${pct.format(rule.rate)} (${pct.format(rule.percent)} atual proj.)</li>`).join("") : `<li>Nenhum deflator aplicado para este vendedor.</li>`;
-  const ignored = preview.ignored ? `<p class="admin-inline-note warning">Aplicacao: ignorado por vendedor em experiencia.</p>` : "";
-  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Impacto dos deflatores</h3><p>Impacto financeiro previsto no resultado do vendedor.</p></div></div><div class="deflator-impact-grid"><span>Comissao sem deflator<strong>${money.format(summary.gross)}</strong></span><span>Deflator aplicado<strong>${preview.rate ? `-${pct.format(preview.rate)}` : "0,0%"}</strong></span><span>Impacto financeiro<strong>${money.format(preview.ignored ? preview.previewImpact : summary.deflator)}</strong></span><span>Comissao final projetada<strong>${money.format(summary.final)}</strong></span></div><strong class="deflator-reason">Motivo principal: ${escapeHtml(reason)}</strong><ul class="deflator-list">${list}</ul>${ignored}</section>`;
+  const ignored = preview.ignored ? `<p class="admin-inline-note warning">Aplicação: ignorado por vendedor em experiência.</p>` : "";
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Impacto dos deflatores</h3><p>Impacto financeiro previsto no resultado do vendedor.</p></div></div><div class="deflator-impact-grid"><span>Comissão sem deflator<strong>${money.format(summary.gross)}</strong></span><span>Deflator aplicado<strong>${preview.rate ? `-${pct.format(preview.rate)}` : "0,0%"}</strong></span><span>Impacto financeiro<strong>${money.format(preview.ignored ? preview.previewImpact : summary.deflator)}</strong></span><span>Comissão final projetada<strong>${money.format(summary.final)}</strong></span></div><strong class="deflator-reason">Motivo principal: ${escapeHtml(reason)}</strong><ul class="deflator-list">${list}</ul>${ignored}</section>`;
 }
 
 function sellerRecommendedAction(seller) {
@@ -1385,18 +1385,18 @@ function sellerRecommendedAction(seller) {
     const missing = Math.max((Number(value.goal) || 0) - projected(value.realized), 0);
     return { metric, missing, percent: percentFor(seller, metric.id, true) };
   }).filter((item) => item.missing > 0).sort((a, b) => a.percent - b.percent).slice(0, 2);
-  let text = "Ainda nao ha dados suficientes para gerar recomendacao.";
-  if (summary.currentPercent >= 1 && !preview.triggered.length) text = "O vendedor esta acima da meta e sem deflatores aplicados. Mantenha o acompanhamento para proteger o resultado ate o fechamento.";
-  else if (summary.currentPercent < 0.7) text = `O vendedor esta em situacao critica, com atingimento atual de ${pct.format(summary.currentPercent)}. Priorizar plano de acao nos indicadores ${gaps.map((item) => item.metric.name).join(" e ") || "com maior falta"}.`;
-  else if (preview.triggered.length) text = `O vendedor esta projetado para ${pct.format(summary.projectedPercent)}, porem possui deflator de -${pct.format(preview.rate)} causado por ${preview.triggered[0].metric.name}. A recuperacao deste indicador pode elevar a comissao projetada para ${money.format(summary.gross)}.`;
-  if (seller.emExperiencia && preview.triggered.length) text = `O vendedor esta em experiencia. Existe deflator previsto de -${pct.format(preview.rate)}, mas a aplicacao esta ignorada; acompanhe os indicadores ${preview.triggered.map((item) => item.metric.name).join(", ")} para evolucao.`;
-  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Acao recomendada</h3><p>Orientacao automatica para atuacao do gerente.</p></div></div><p class="recommended-action">${escapeHtml(text)}</p></section>`;
+  let text = "Ainda não há dados suficientes para gerar recomendação.";
+  if (summary.currentPercent >= 1 && !preview.triggered.length) text = "O vendedor está acima da meta e sem deflatores aplicados. Mantenha o acompanhamento para proteger o resultado até o fechamento.";
+  else if (summary.currentPercent < 0.7) text = `O vendedor está em situação crítica, com atingimento atual de ${pct.format(summary.currentPercent)}. Priorizar plano de ação nos indicadores ${gaps.map((item) => item.metric.name).join(" e ") || "com maior falta"}.`;
+  else if (preview.triggered.length) text = `O vendedor está projetado para ${pct.format(summary.projectedPercent)}, porém possui deflator de -${pct.format(preview.rate)} causado por ${preview.triggered[0].metric.name}. A recuperação deste indicador pode elevar a comissão projetada para ${money.format(summary.gross)}.`;
+  if (seller.emExperiencia && preview.triggered.length) text = `O vendedor está em experiência. Existe deflator previsto de -${pct.format(preview.rate)}, mas a aplicação está ignorada; acompanhe os indicadores ${preview.triggered.map((item) => item.metric.name).join(", ")} para evolução.`;
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Ação recomendada</h3><p>Orientação automática para atuação do gerente.</p></div></div><p class="recommended-action">${escapeHtml(text)}</p></section>`;
 }
 
 function sellerDetailPanel(seller) {
   if (!seller) return "";
   const summary = sellerBranchSummary(seller);
-  return `<section class="branch-detail-grid"><section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhamento por vendedor</h3><p>${escapeHtml(seller.name)} - ${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</p></div></div><div class="seller-detail-kpis"><article><span>Realizado</span><strong>${money.format(summary.result.current)}</strong></article><article><span>% atual</span><strong>${pct.format(summary.currentPercent)}</strong></article><article><span>Projetado</span><strong>${money.format(summary.gross)}</strong></article><article><span>% projetado</span><strong>${pct.format(summary.projectedPercent)}</strong></article><article><span>Comissao bruta</span><strong>${money.format(summary.gross)}</strong></article><article><span>Comissao final</span><strong>${money.format(summary.final)}</strong></article><article><span>Status</span><strong><span class="status ${summary.status.cls}">${summary.status.label}</span></strong></article></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${sellerIndicatorDetailRows(seller)}</tbody></table></div></section><div>${sellerDeflatorImpactCard(seller)}${sellerRecommendedAction(seller)}</div></section>`;
+  return `<section class="branch-detail-grid"><section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhamento por vendedor</h3><p>${escapeHtml(seller.name)} - ${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</p></div></div><div class="seller-detail-kpis"><article><span>Realizado</span><strong>${money.format(summary.result.current)}</strong></article><article><span>% atual</span><strong>${pct.format(summary.currentPercent)}</strong></article><article><span>Projetado</span><strong>${money.format(summary.gross)}</strong></article><article><span>% projetado</span><strong>${pct.format(summary.projectedPercent)}</strong></article><article><span>Comissão bruta</span><strong>${money.format(summary.gross)}</strong></article><article><span>Comissão final</span><strong>${money.format(summary.final)}</strong></article><article><span>Status</span><strong><span class="status ${summary.status.cls}">${summary.status.label}</span></strong></article></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${sellerIndicatorDetailRows(seller)}</tbody></table></div></section><div>${sellerDeflatorImpactCard(seller)}${sellerRecommendedAction(seller)}</div></section>`;
 }
 
 function branchAttentionPoints(sellers) {
@@ -1404,10 +1404,10 @@ function branchAttentionPoints(sellers) {
   for (const seller of sellers) {
     const summary = sellerBranchSummary(seller);
     const preview = projectedDeflatorPreview(seller);
-    if (summary.currentPercent < 0.7) points.push({ cls: "bad", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Critico` });
-    else if (summary.currentPercent < 1) points.push({ cls: "warn", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Em atencao` });
-    if (preview.triggered.length) points.push({ cls: preview.ignored ? "neutral" : "bad", text: `${seller.name} - Deflator -${pct.format(preview.rate)} - ${preview.triggered[0].metric.name} abaixo do minimo${preview.ignored ? " (ignorado)" : ""}` });
-    if (seller.emExperiencia) points.push({ cls: "neutral", text: `${seller.name} - Em experiencia - Deflator ignorado` });
+    if (summary.currentPercent < 0.7) points.push({ cls: "bad", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Crítico` });
+    else if (summary.currentPercent < 1) points.push({ cls: "warn", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Em atenção` });
+    if (preview.triggered.length) points.push({ cls: preview.ignored ? "neutral" : "bad", text: `${seller.name} - Deflator -${pct.format(preview.rate)} - ${preview.triggered[0].metric.name} abaixo do mínimo${preview.ignored ? " (ignorado)" : ""}` });
+    if (seller.emExperiencia) points.push({ cls: "neutral", text: `${seller.name} - Em experiência - Deflator ignorado` });
   }
   return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Pontos de atencao</h3><p>Vendedores e indicadores que exigem acao.</p></div></div><div class="branch-attention-list">${points.slice(0, 8).map((point) => `<div class="attention-row ${point.cls}"><strong>${escapeHtml(point.text)}</strong></div>`).join("") || `<p class="muted-note">Nenhum ponto critico identificado no momento.</p>`}</div></section>`;
 }
@@ -1452,7 +1452,7 @@ function renderManager() {
       <label>Senha<input id="managerPassword" type="password" placeholder="Senha da filial"></label>
       <span id="managerLoginError" class="form-error"></span>
       <button id="managerLogin" class="nav-button active" type="button">Entrar</button>
-    ` : `<div class="empty-state">Cadastre uma filial no Admin para liberar esta visao.</div>`;
+    ` : `<div class="empty-state">Cadastre uma filial no Admin para liberar esta visão.</div>`;
     dashboard.innerHTML = `<div class="empty-state">A filial acessa somente o atingimento dos vendedores vinculados a ela.</div>`;
     return;
   }
@@ -1488,9 +1488,9 @@ function prepareCollaboratorPdfExport() {
   const stamp = document.getElementById("collabExportStamp");
   if (stamp) {
     stamp.innerHTML = `
-      <strong>Relatorio do colaborador</strong>
+      <strong>Relatório do colaborador</strong>
       <span>${seller.name} - ${seller.branch} - ${seller.area}</span>
-      <span>Mes: ${state.period.month} | Dias realizados: ${state.period.daysDone} | Dias uteis: ${state.period.daysTotal}</span>
+      <span>Mês: ${state.period.month} | Dias realizados: ${state.period.daysDone} | Dias úteis: ${state.period.daysTotal}</span>
       <span>Exportado em ${dateTime.format(new Date())}</span>
     `;
   }
@@ -1513,9 +1513,9 @@ function renderCollaborator() {
   const projectedTotalBeforeDeflator = result.projectedSubtotal + result.adjustments;
   document.getElementById("collabHero").innerHTML = `
     <div class="hero-number"><span>${seller.branch} - ${seller.area}</span><strong>${seller.name}</strong></div>
-    <div class="hero-number"><span>Comissao total proj.</span><strong>${money.format(projectedTotalBeforeDeflator)}</strong></div>
+    <div class="hero-number"><span>Comissão total proj.</span><strong>${money.format(projectedTotalBeforeDeflator)}</strong></div>
     <div class="hero-number"><span>Deflator</span><strong>${money.format(result.projectedDeflator)}</strong></div>
-    <div class="hero-number"><span>Comissao final proj.</span><strong>${money.format(result.projected)}</strong></div>
+    <div class="hero-number"><span>Comissão final proj.</span><strong>${money.format(result.projected)}</strong></div>
     <div class="hero-number"><span>Status</span><strong><span class="status ${status.cls}">${status.label}</span></strong></div>
     <button id="collabLogout" class="ghost-button" type="button">Trocar colaborador</button>
   `;
@@ -1711,11 +1711,11 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.id === "savePeriodAdmin") {
     if (Number(state.period.daysTotal) <= 0) {
-      alert("Dias uteis deve ser maior que zero.");
+      alert("Dias úteis deve ser maior que zero.");
       return;
     }
     if (Number(state.period.daysDone) > Number(state.period.daysTotal)) {
-      alert("Dias realizados nao pode ser maior que dias uteis.");
+      alert("Dias realizados não pode ser maior que dias úteis.");
       return;
     }
     flushSaveState("Periodo salvo");

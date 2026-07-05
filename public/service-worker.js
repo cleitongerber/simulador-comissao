@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260705-home-mobile-fix";
+const CACHE_NAME = "comissao-pwa-v20260705-accents";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260705-home-mobile-fix",
-  "/app.js?v=20260705-home-mobile-fix",
+  "/styles.css?v=20260705-accents",
+  "/app.js?v=20260705-accents",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
