@@ -131,6 +131,22 @@ let activeManagerSellerId = "";
 let activeAdminTab = "campanha";
 let pendingAccessView = "dashboard";
 
+const routeByView = {
+  home: "/",
+  dashboard: "/dashboard",
+  admin: "/admin",
+  gerente: "/filial",
+  colaborador: "/colaborador",
+};
+
+const viewByRoute = {
+  "/": "home",
+  "/dashboard": "dashboard",
+  "/admin": "admin",
+  "/filial": "gerente",
+  "/colaborador": "colaborador",
+};
+
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("commission-simulator-v1");
   const fallback = seedState();
@@ -236,6 +252,7 @@ async function loadStateFromCloud() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     updateSaveStatus("Dados carregados do banco");
     renderAll();
+    openRouteView({ skipHistory: true });
   } catch (error) {
     console.error(error);
     updateSaveStatus("Modo offline: salvando local");
@@ -1643,7 +1660,13 @@ async function handleAccessLogin() {
   error.textContent = "Senha incorreta";
 }
 
-function openView(view) {
+function openRouteView(options = {}) {
+  const view = viewByRoute[window.location.pathname] || "home";
+  openView(view, options);
+}
+
+function openView(view, options = {}) {
+  if (!document.getElementById(`${view}View`)) view = "home";
   if (view === "admin" && !isAdminUnlocked()) {
     showAccessLogin("admin");
     return;
@@ -1656,6 +1679,10 @@ function openView(view) {
   document.querySelectorAll(".view").forEach((panel) => panel.classList.remove("active"));
   document.getElementById(`${view}View`).classList.add("active");
   document.getElementById("viewTitle").textContent = document.querySelector(`[data-view="${view}"]`).textContent;
+  document.body.dataset.view = view;
+  if (!options.skipHistory && routeByView[view] && window.location.pathname !== routeByView[view]) {
+    history.pushState({ view }, "", routeByView[view]);
+  }
   updateActionVisibility();
 }
 
@@ -2160,6 +2187,10 @@ window.addEventListener("afterprint", () => {
   document.body.classList.remove("print-collaborator");
 });
 
+window.addEventListener("popstate", () => {
+  openRouteView({ skipHistory: true });
+});
+
 for (const seller of state.sellers) ensureSellerValues(seller);
 state.customMetrics = normalizeCustomMetrics(state.customMetrics);
 state.branches = normalizeBranches(state.branches, state.sellers);
@@ -2168,6 +2199,7 @@ state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.ma
 state.settings = { ...defaultSettings(), ...(state.settings || {}), adminPassword: adminPassword(), dashboardPassword: dashboardPassword() };
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
+openRouteView({ skipHistory: true });
 loadStateFromCloud();
 
 if ("serviceWorker" in navigator) {

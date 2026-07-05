@@ -1,7 +1,7 @@
 {
-  "name": "Simulador de Comissoes",
-  "short_name": "Comissoes",
-  "description": "Simulador operacional de comissoes por vendedor, filial e dashboard.",
+  "name": "Comissao 360",
+  "short_name": "Comissao 360",
+  "description": "Simulador e painel de gestao de comissoes, metas e performance comercial.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",

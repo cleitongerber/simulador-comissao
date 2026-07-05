@@ -3,34 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Simulador de Comissões</title>
+    <title>Comissao 360</title>
     <meta name="theme-color" content="#b00012" />
     <meta name="background-color" content="#f7f2f3" />
-    <meta name="application-name" content="Simulador de Comissoes" />
+    <meta name="application-name" content="Comissao 360" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Comissoes" />
+    <meta name="apple-mobile-web-app-title" content="Comissao 360" />
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260705-branch-redesign" />
+    <link rel="stylesheet" href="./styles.css?v=20260705-home" />
   </head>
-  <body>
+  <body data-view="home">
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
           <div class="brand-mark">%</div>
           <div>
             <p id="partnerNameDisplay" class="partner-name" hidden></p>
-            <h1 id="brandTitle">Simulador de Comissões</h1>
+            <h1 id="brandTitle">Comissao 360</h1>
             <p>Area Cabo e Nao Cabo</p>
           </div>
         </div>
         <nav class="nav">
+          <button class="nav-button active" data-view="home" type="button">Home</button>
           <button class="nav-button" data-view="dashboard" type="button">Dashboard</button>
-          <button class="nav-button" data-view="admin" type="button">Admin</button>
           <button class="nav-button" data-view="gerente" type="button">Filial</button>
-          <button class="nav-button active" data-view="colaborador" type="button">Colaborador</button>
+          <button class="nav-button" data-view="colaborador" type="button">Colaborador</button>
+          <button class="nav-button" data-view="admin" type="button">Admin</button>
         </nav>
       </aside>
 
@@ -39,10 +40,10 @@
           <div>
             <div class="mobile-title">
               <span class="mobile-logo">%</span>
-              <span><strong>Playcell</strong><small>Simulador de Comissões</small></span>
+              <span><strong>Comissao 360</strong><small>Simulador de Comissoes</small></span>
             </div>
             <p class="eyebrow">Simulador operacional</p>
-            <h2 id="viewTitle">Colaborador</h2>
+            <h2 id="viewTitle">Home</h2>
           </div>
           <div class="period-card">
             <div class="period-readonly">
@@ -68,6 +69,33 @@
             <input id="importDataFile" type="file" accept="application/json" hidden />
             <button id="exportData" class="ghost-button admin-action" type="button" hidden>Exportar backup</button>
             <button id="resetData" class="danger-button admin-action" type="button" hidden>Restaurar padrao</button>
+          </div>
+        </section>
+
+        <section id="homeView" class="view active">
+          <div class="home-page">
+            <div class="home-orb home-orb-left"></div>
+            <div class="home-orb home-orb-right"></div>
+            <div class="home-chart" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <section class="home-hero" aria-label="Comissao 360">
+              <div class="home-logo-mark" aria-hidden="true">
+                <span></span><i></i><i></i><i></i>
+              </div>
+              <h2>Comissao <strong>360</strong></h2>
+              <div class="home-red-line"></div>
+              <p class="home-subtitle">Simulador e painel de gestao de comissoes, metas e performance comercial.</p>
+              <p class="home-support">Acompanhe metas, projecoes, comissoes, deflatores e performance da equipe em uma <strong>visao simples e inteligente.</strong></p>
+              <div class="home-benefits" aria-label="Beneficios">
+                <article><span>▦</span><strong>Simule comissoes</strong></article>
+                <article><span>◎</span><strong>Acompanhe metas</strong></article>
+                <article><span>↗</span><strong>Projete resultados</strong></article>
+                <article><span>!</span><strong>Identifique deflatores</strong></article>
+                <article><span>●</span><strong>Gerencie performance</strong></article>
+              </div>
+            </section>
+            <footer class="home-footer">Desenvolvido por <strong>Cleiton Gerber</strong> <span>|</span> Comissao 360 &bull; Versao 2.0.0</footer>
           </div>
         </section>
 
@@ -469,7 +497,7 @@
           </div>
         </section>
 
-        <section id="colaboradorView" class="view active">
+        <section id="colaboradorView" class="view">
           <div class="collab-layout">
             <section class="panel">
               <div class="panel-header">
@@ -522,7 +550,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260705-branch-redesign"></script>
+    <script src="./app.js?v=20260705-home"></script>
   </body>
 </html>
 
