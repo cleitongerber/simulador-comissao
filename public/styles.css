@@ -4054,3 +4054,98 @@ body[data-view="home"] .sidebar .nav-button.active::after {
   }
 }
 
+
+/* Estornos: Qualidade, Seguro e Carrossel sao descontos da comissao final. */
+.seller-estornos-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr)) minmax(180px, .7fr);
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #f0d5d9;
+  border-radius: 14px;
+  background: #fff8f9;
+}
+
+.seller-estornos-head {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink);
+}
+
+.seller-estornos-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.seller-estornos-total {
+  display: grid;
+  align-content: end;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.seller-estornos-total strong {
+  color: var(--danger);
+  font-size: 18px;
+}
+
+.collab-commission-breakdown {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 14px 0 4px;
+}
+
+.collab-commission-breakdown span,
+.estorno-breakdown {
+  border: 1px solid #f0e3e5;
+  border-radius: 12px;
+  background: #fff8f9;
+  padding: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.collab-commission-breakdown strong,
+.estorno-breakdown dd strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.estorno-breakdown {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.estorno-breakdown dt,
+.estorno-breakdown dd {
+  margin: 0;
+}
+
+.estorno-breakdown dd {
+  color: var(--danger);
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .seller-estornos-panel,
+  .collab-commission-breakdown {
+    grid-template-columns: 1fr;
+  }
+
+  .seller-estornos-head {
+    display: grid;
+  }
+}

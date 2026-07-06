@@ -303,6 +303,32 @@ function ensureSellerValues(seller, sourceState = state) {
   }
 }
 
+const estornoFields = [
+  { id: "quality", label: "Qualidade" },
+  { id: "insurance", label: "Seguro" },
+  { id: "carousel", label: "Carrossel" },
+];
+
+function moneyInputValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, number) : 0;
+}
+
+function sellerEstornos(seller) {
+  const adjustments = seller?.adjustments || {};
+  const items = estornoFields.map((field) => ({
+    ...field,
+    value: moneyInputValue(adjustments[field.id]),
+  }));
+  const total = items.reduce((sum, item) => sum + item.value, 0);
+  return { items, total };
+}
+
+function discountMoney(value) {
+  const amount = Math.abs(Number(value) || 0);
+  return amount ? money.format(-amount) : money.format(0);
+}
+
 function sortedBands(area, metricId) {
   return [...(state.rules[area]?.[metricId] || [])].sort((a, b) => Number(b.at) - Number(a.at));
 }
@@ -395,10 +421,10 @@ function sellerResult(seller) {
   const projectedSubtotal = metrics.reduce((sum, metric) => sum + metricCommission(seller, metric, "projected"), 0);
   const currentDeflator = deflatorFor(seller, currentSubtotal, false);
   const projectedDeflator = deflatorFor(seller, projectedSubtotal, true);
-  const adjustments = Object.values(seller.adjustments || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
-  const current = currentSubtotal + currentDeflator + adjustments;
-  const proj = projectedSubtotal + projectedDeflator + adjustments;
-  return { current, projected: proj, gain: proj - current, currentSubtotal, projectedSubtotal, currentDeflator, projectedDeflator, adjustments };
+  const estornos = sellerEstornos(seller).total;
+  const current = currentSubtotal + currentDeflator - estornos;
+  const proj = projectedSubtotal + projectedDeflator - estornos;
+  return { current, projected: proj, gain: proj - current, currentSubtotal, projectedSubtotal, currentDeflator, projectedDeflator, estornos, adjustments: estornos };
 }
 
 function statusFor(seller) {
@@ -535,13 +561,14 @@ function exportDashboardExcel() {
     const result = typeof dashboardSellerSummaryResult === "function" ? dashboardSellerSummaryResult(seller) : sellerResult(seller);
     const currentPercent = result.currentPercent ?? totalAttainmentForSellers([seller], "current");
     const projectedPercent = result.projectedPercent ?? totalAttainmentForSellers([seller], "projected");
-    const projectedNoDeflator = result.projectedNoDeflator ?? result.projected;
-    const deflator = result.deflator ?? result.projectedDeflator;
+    const projectedNoDeflator = result.projectedNoDeflator ?? result.projectedSubtotal ?? result.projected;
+    const deflator = result.deflator ?? result.projectedDeflator ?? 0;
+    const estornos = result.estornos ?? result.adjustments ?? 0;
     const finalProjected = result.finalProjected ?? result.projected;
     const status = typeof dashboardStatusFromPercent === "function" ? dashboardStatusFromPercent(currentPercent) : statusFor(seller);
-    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${money.format(result.current)}</td><td>${pct.format(currentPercent)}</td><td>${money.format(projectedNoDeflator)}</td><td>${pct.format(projectedPercent)}</td><td>${money.format(deflator)}</td><td>${money.format(finalProjected)}</td><td>${escapeHtml(status.label)}</td></tr>`;
+    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${money.format(result.current)}</td><td>${pct.format(currentPercent)}</td><td>${money.format(projectedNoDeflator)}</td><td>${pct.format(projectedPercent)}</td><td>${money.format(deflator)}</td><td>${discountMoney(estornos)}</td><td>${money.format(finalProjected)}</td><td>${escapeHtml(status.label)}</td></tr>`;
   }).join("");
-  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>% atual</th><th>Projetado sem deflator</th><th>% projetado</th><th>Deflator</th><th>Ganho final</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>% atual</th><th>Comissao bruta</th><th>% projetado</th><th>Deflator</th><th>Estornos</th><th>Comissao final</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
   downloadFile(`resultado-vendedores-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
 }
 
@@ -739,22 +766,27 @@ function selectedDashboardMetric(seller) {
 function dashboardSellerSummaryResult(seller) {
   const result = sellerResult(seller);
   const metric = selectedDashboardMetric(seller);
+  const estornos = result.estornos || 0;
   if (metric) {
+    const projectedNoDeflator = metricCommission(seller, metric, "projected");
+    const currentNoDeflator = metricCommission(seller, metric, "current");
     return {
-      current: metricCommission(seller, metric, "current"),
-      projectedNoDeflator: metricCommission(seller, metric, "projected"),
+      current: currentNoDeflator + result.currentDeflator - estornos,
+      projectedNoDeflator,
       deflator: result.projectedDeflator,
-      finalProjected: metricCommission(seller, metric, "projected") + result.projectedDeflator,
+      estornos,
+      finalProjected: projectedNoDeflator + result.projectedDeflator - estornos,
       currentPercent: percentFor(seller, metric.id, false),
       projectedPercent: percentFor(seller, metric.id, true),
     };
   }
-  const projectedNoDeflator = result.projectedSubtotal + result.adjustments;
+  const projectedNoDeflator = result.projectedSubtotal;
   return {
     current: result.current,
     projectedNoDeflator,
     deflator: result.projectedDeflator,
-    finalProjected: projectedNoDeflator + result.projectedDeflator,
+    estornos,
+    finalProjected: result.projected,
     currentPercent: totalAttainmentForSellers([seller], "current"),
     projectedPercent: totalAttainmentForSellers([seller], "projected"),
   };
@@ -802,11 +834,13 @@ function dashboardTotals(sellers) {
   return sellers.reduce((acc, seller) => {
     const result = dashboardSellerSummaryResult(seller);
     acc.current += result.current;
+    acc.gross += result.projectedNoDeflator;
     acc.projected += result.finalProjected;
     acc.gain += result.finalProjected - result.current;
     acc.deflator += result.deflator;
+    acc.estornos += result.estornos || 0;
     return acc;
-  }, { current: 0, projected: 0, gain: 0, deflator: 0 });
+  }, { current: 0, gross: 0, projected: 0, gain: 0, deflator: 0, estornos: 0 });
 }
 
 function dashboardAttainmentForSellers(sellers, mode) {
@@ -862,13 +896,15 @@ function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent,
   const container = document.getElementById("dashboardExecutiveCards");
   if (!container) return;
   const cards = [
-    ["Resultado geral", money.format(totals.current), "Comissão atual", "target", null],
+    ["Resultado geral", money.format(totals.current), "Comissao atual", "target", null],
     ["% atual geral", pct.format(currentPercent), "Atingimento atual", "percent", currentPercent],
-    ["% projetado geral", pct.format(projectedPercent), "Projeção da meta", "trend", projectedPercent],
-    ["Comissão total projetada", money.format(totals.projected), "Todas as filiais", "money", null],
+    ["% projetado geral", pct.format(projectedPercent), "Projecao da meta", "trend", projectedPercent],
+    ["Comissao bruta total", money.format(totals.gross), "Antes dos descontos", "money", null],
+    ["Deflatores totais", money.format(totals.deflator), `${deflatorCounts.withDeflator}/${deflatorCounts.withoutDeflator} com / sem`, "scale", deflatorCounts.withDeflator ? 0 : 1],
+    ["Estornos totais", discountMoney(totals.estornos), "Qualidade, seguro e carrossel", "alert", totals.estornos ? 0 : 1],
+    ["Comissao final total", money.format(totals.projected), "Apos deflatores e estornos", "money", null],
     ["Filiais em risco", riskBranches, "Abaixo de 70%", "alert", riskBranches ? 0 : 1],
     ["Vendedores em destaque", highlightSellers, "Acima de 120%", "star", highlightSellers ? 1 : null],
-    ["Deflator", `${deflatorCounts.withDeflator}/${deflatorCounts.withoutDeflator}`, "Com / sem deflator", "scale", deflatorCounts.withDeflator ? 0 : 1],
   ];
   container.innerHTML = cards.map(([label, value, detail, icon, percent]) => `<article class="dashboard-kpi ${icon}">
     <span aria-hidden="true"></span>
@@ -907,10 +943,11 @@ function renderSellerSummary(sellers) {
       <td>${money.format(result.projectedNoDeflator)}</td>
       <td>${achievementPill(projectedPercent)}</td>
       <td>${money.format(result.deflator)}</td>
+      <td>${discountMoney(result.estornos)}</td>
       <td>${money.format(result.finalProjected)}</td>
       <td><span class="status ${status.cls}">${status.label}</span></td>
     </tr>`;
-  }).join("") || `<tr><td colspan="10">Nenhum vendedor no filtro atual.</td></tr>`;
+  }).join("") || `<tr><td colspan="11">Nenhum vendedor no filtro atual.</td></tr>`;
 }
 
 function chartTone(percent) {
@@ -1101,9 +1138,13 @@ function renderAdmin() {
         </select>
       </label>
       <label>Filial<select data-seller-field="branch" data-seller-id="${seller.id}">${branchOptions(seller.branch)}</select></label>
-      <label>Qualidade<input data-adjustment="quality" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.quality || 0}"></label>
-      <label>Seguro<input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.insurance || 0}"></label>
-      <label>Carrossel<input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" value="${seller.adjustments?.carousel || 0}"></label>
+      <div class="seller-estornos-panel">
+        <div class="seller-estornos-head"><strong>Estornos</strong><span>Valores descontados da comissao final.</span></div>
+        <label>Qualidade<input data-adjustment="quality" data-seller-id="${seller.id}" type="number" min="0" step="0.01" placeholder="R$ 0,00" value="${sellerEstornos(seller).items.find((item) => item.id === "quality")?.value || 0}"></label>
+        <label>Seguro<input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" min="0" step="0.01" placeholder="R$ 0,00" value="${sellerEstornos(seller).items.find((item) => item.id === "insurance")?.value || 0}"></label>
+        <label>Carrossel<input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" min="0" step="0.01" placeholder="R$ 0,00" value="${sellerEstornos(seller).items.find((item) => item.id === "carousel")?.value || 0}"></label>
+        <span class="seller-estornos-total">Total de estornos <strong>${discountMoney(sellerEstornos(seller).total)}</strong></span>
+      </div>
       <label>Senha colaborador<input data-seller-field="password" data-seller-id="${seller.id}" type="text" value="${escapeHtml(seller.password || "1234")}"></label>
       <label class="checkbox-line"><input data-seller-experience="${seller.id}" type="checkbox" ${seller.emExperiencia ? "checked" : ""}> Vendedor em experiência</label>
       <button class="delete-seller-button" data-delete-seller="${seller.id}" type="button">Excluir vendedor</button>
@@ -1126,7 +1167,7 @@ function renderAdminMetrics() {
   if (!seller) return;
   ensureSellerValues(seller);
   const result = sellerResult(seller);
-  document.getElementById("adminDeflatorSummary").innerHTML = `Subtotal proj.: <strong>${money.format(result.projectedSubtotal)}</strong> | Deflator proj.: <strong>${money.format(result.projectedDeflator)}</strong> | Total proj.: <strong>${money.format(result.projected)}</strong>`;
+  document.getElementById("adminDeflatorSummary").innerHTML = `Comissao bruta proj.: <strong>${money.format(result.projectedSubtotal)}</strong> | Deflator proj.: <strong>${money.format(result.projectedDeflator)}</strong> | Estornos: <strong>${discountMoney(result.estornos)}</strong> | Comissao final proj.: <strong>${money.format(result.projected)}</strong>`;
   document.getElementById("adminMetricsBody").innerHTML = metricsFor(seller.area).map((metric) => {
     const value = seller.values[metric.id];
     return `<tr>
@@ -1228,12 +1269,13 @@ function branchStatusFromPercent(percent) {
 
 function sellerBranchSummary(seller) {
   const result = sellerResult(seller);
-  const gross = result.projectedSubtotal + result.adjustments;
+  const gross = result.projectedSubtotal;
+  const estornos = result.estornos || 0;
   const final = result.projected;
   const currentPercent = totalAttainmentForSellers([seller], "current");
   const projectedPercent = totalAttainmentForSellers([seller], "projected");
   const status = seller.emExperiencia ? { label: "Em experiencia", cls: "neutral", action: "Acompanhamento" } : branchStatusFromPercent(currentPercent);
-  return { result, gross, final, currentPercent, projectedPercent, status, deflator: result.projectedDeflator };
+  return { result, gross, final, estornos, currentPercent, projectedPercent, status, deflator: result.projectedDeflator };
 }
 
 function projectedDeflatorPreview(seller) {
@@ -1280,6 +1322,7 @@ function branchTotals(sellers) {
   const commissionGross = sellers.reduce((sum, seller) => sum + sellerBranchSummary(seller).gross, 0);
   const commissionFinal = sellers.reduce((sum, seller) => sum + sellerBranchSummary(seller).final, 0);
   const deflatorImpact = sellers.reduce((sum, seller) => sum + sellerBranchSummary(seller).deflator, 0);
+  const estornosTotal = sellers.reduce((sum, seller) => sum + sellerBranchSummary(seller).estornos, 0);
   return {
     rows,
     totalGoal,
@@ -1290,6 +1333,7 @@ function branchTotals(sellers) {
     commissionGross,
     commissionFinal,
     deflatorImpact,
+    estornosTotal,
   };
 }
 
@@ -1298,9 +1342,10 @@ function branchKpiCards(branch, sellers, totals) {
     ["Meta da filial", num.format(totals.totalGoal), "Meta consolidada", "target", null],
     ["Realizado", num.format(totals.realized), "Resultado atual", "trend", totals.currentPercent],
     ["% atual", pct.format(totals.currentPercent), "Atingimento atual", "percent", totals.currentPercent],
-    ["Projetado", num.format(totals.projectedTotal), "Projeção da filial", "trend", totals.projectedPercent],
-    ["% projetado", pct.format(totals.projectedPercent), "Projeção / meta", "percent", totals.projectedPercent],
-    ["Comissão estimada", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)}`, "money", null],
+    ["Projetado", num.format(totals.projectedTotal), "Projecao da filial", "trend", totals.projectedPercent],
+    ["% projetado", pct.format(totals.projectedPercent), "Projecao / meta", "percent", totals.projectedPercent],
+    ["Estornos", discountMoney(totals.estornosTotal), "Qualidade, seguro e carrossel", "alert", totals.estornosTotal ? 0 : 1],
+    ["Comissao estimada", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)}`, "money", null],
   ];
   return `<div class="branch-kpi-grid">${cards.map(([label, value, detail, icon, percent]) => `<article class="branch-kpi ${icon}"><span aria-hidden="true"></span><div><small>${label}</small><strong>${value}</strong><em class="${achievementClass(percent)}">${detail}</em></div></article>`).join("")}</div>`;
 }
@@ -1309,20 +1354,25 @@ function branchAlerts(sellers, totals) {
   const riskSellers = sellers.filter((seller) => sellerBranchSummary(seller).currentPercent < 0.7);
   const projectedGap = Math.max(totals.totalGoal - totals.projectedTotal, 0);
   const deflatorSellers = sellers.filter((seller) => projectedDeflatorPreview(seller).rate > 0);
+  const estornoSellers = sellers.filter((seller) => sellerBranchSummary(seller).estornos > 0);
   const deflatorText = deflatorSellers.length
     ? `${deflatorSellers.length} vendedor${deflatorSellers.length === 1 ? "" : "es"} possuem deflator aplicado ou previsto. Impacto estimado: ${money.format(totals.deflatorImpact)}.`
     : "Nenhum deflator aplicado no momento.";
+  const estornoText = estornoSellers.length
+    ? `${estornoSellers.length} vendedor${estornoSellers.length === 1 ? "" : "es"} com estornos. Impacto total: ${discountMoney(totals.estornosTotal)}.`
+    : "Nenhum estorno aplicado no momento.";
   return `<div class="branch-alert-grid">
-    <article class="branch-alert ${riskSellers.length ? "bad" : "ok"}"><strong>${riskSellers.length} vendedor${riskSellers.length === 1 ? "" : "es"} em risco</strong><span>${riskSellers.length ? "Estão com performance abaixo de 70% da meta atual." : "Nenhum vendedor abaixo de 70% no momento."}</span></article>
+    <article class="branch-alert ${riskSellers.length ? "bad" : "ok"}"><strong>${riskSellers.length} vendedor${riskSellers.length === 1 ? "" : "es"} em risco</strong><span>${riskSellers.length ? "Estao com performance abaixo de 70% da meta atual." : "Nenhum vendedor abaixo de 70% no momento."}</span></article>
     <article class="branch-alert ${totals.projectedPercent >= 1 ? "ok" : "warn"}"><strong>Meta projetada</strong><span>A filial deve atingir ${pct.format(totals.projectedPercent)} da meta. ${projectedGap ? `Faltam ${num.format(projectedGap)} para atingir 100%.` : "Meta projetada atingida."}</span></article>
     <article class="branch-alert ${deflatorSellers.length ? "bad" : "ok"}"><strong>Deflatores ativos</strong><span>${deflatorText}</span></article>
+    <article class="branch-alert ${estornoSellers.length ? "warn" : "ok"}"><strong>Estornos</strong><span>${estornoText}</span></article>
   </div>`;
 }
 
 function branchTeamTable(sellers) {
   const rows = [...sellers].sort((a, b) => sellerBranchSummary(b).currentPercent - sellerBranchSummary(a).currentPercent).map((seller) => {
     const summary = sellerBranchSummary(seller);
-    const experience = seller.emExperiencia ? `<span class="status neutral">Em experiência</span><small>Deflator ignorado</small>` : "";
+    const experience = seller.emExperiencia ? `<span class="status neutral">Em experiencia</span><small>Deflator ignorado</small>` : "";
     return `<tr>
       <td><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.area)}</small>${experience}</td>
       <td>${money.format(summary.result.current)}</td>
@@ -1331,12 +1381,13 @@ function branchTeamTable(sellers) {
       <td>${achievementPill(summary.projectedPercent)}</td>
       <td>${money.format(summary.gross)}</td>
       <td>${money.format(summary.deflator)}</td>
+      <td>${discountMoney(summary.estornos)}</td>
       <td>${money.format(summary.final)}</td>
       <td><span class="status ${summary.status.cls}">${summary.status.label}</span></td>
       <td><button class="ghost-button compact-action" data-manager-seller-detail="${seller.id}" type="button">Ver detalhes</button></td>
     </tr>`;
   }).join("");
-  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissão bruta, deflator e comissão final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Colaborador</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissão bruta</th><th>Deflator</th><th>Comissão final</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows || `<tr><td colspan="10">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
+  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissao bruta, deflator, estornos e comissao final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Colaborador</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissao bruta</th><th>Deflator</th><th>Estornos</th><th>Comissao final</th><th>Status</th><th>Acoes</th></tr></thead><tbody>${rows || `<tr><td colspan="11">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function branchSellerFilter(sellers) {
@@ -1371,10 +1422,18 @@ function sellerIndicatorDetailRows(seller) {
 function sellerDeflatorImpactCard(seller) {
   const summary = sellerBranchSummary(seller);
   const preview = projectedDeflatorPreview(seller);
-  const reason = preview.triggered[0]?.metric?.name ? `${preview.triggered[0].metric.name} abaixo da meta mínima` : "Sem motivo de deflator";
+  const reason = preview.triggered[0]?.metric?.name ? `${preview.triggered[0].metric.name} abaixo da meta minima` : "Sem motivo de deflator";
   const list = preview.triggered.length ? preview.triggered.map((rule) => `<li>Deflator ${escapeHtml(rule.metric.name)}: -${pct.format(rule.rate)} (${pct.format(rule.percent)} atual proj.)</li>`).join("") : `<li>Nenhum deflator aplicado para este vendedor.</li>`;
-  const ignored = preview.ignored ? `<p class="admin-inline-note warning">Aplicação: ignorado por vendedor em experiência.</p>` : "";
-  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Impacto dos deflatores</h3><p>Impacto financeiro previsto no resultado do vendedor.</p></div></div><div class="deflator-impact-grid"><span>Comissão sem deflator<strong>${money.format(summary.gross)}</strong></span><span>Deflator aplicado<strong>${preview.rate ? `-${pct.format(preview.rate)}` : "0,0%"}</strong></span><span>Impacto financeiro<strong>${money.format(preview.ignored ? preview.previewImpact : summary.deflator)}</strong></span><span>Comissão final projetada<strong>${money.format(summary.final)}</strong></span></div><strong class="deflator-reason">Motivo principal: ${escapeHtml(reason)}</strong><ul class="deflator-list">${list}</ul>${ignored}</section>`;
+  const ignored = preview.ignored ? `<p class="admin-inline-note warning">Aplicacao: ignorado por vendedor em experiencia.</p>` : "";
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Impacto dos deflatores</h3><p>Impacto financeiro previsto no resultado do vendedor.</p></div></div><div class="deflator-impact-grid"><span>Comissao bruta<strong>${money.format(summary.gross)}</strong></span><span>Deflator aplicado<strong>${preview.rate ? `-${pct.format(preview.rate)}` : "0,0%"}</strong></span><span>Impacto financeiro<strong>${money.format(preview.ignored ? preview.previewImpact : summary.deflator)}</strong></span><span>Comissao final projetada<strong>${money.format(summary.final)}</strong></span></div><strong class="deflator-reason">Motivo principal: ${escapeHtml(reason)}</strong><ul class="deflator-list">${list}</ul>${ignored}</section>`;
+}
+
+function sellerEstornoImpactCard(seller) {
+  const summary = sellerBranchSummary(seller);
+  const estornos = sellerEstornos(seller);
+  const rows = estornos.items.map((item) => `<li>${escapeHtml(item.label)}: <strong>${discountMoney(item.value)}</strong></li>`).join("");
+  if (!estornos.total) return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Estornos</h3><p>Valores descontados da comissao final.</p></div></div><p class="muted-note">Nenhum estorno aplicado.</p></section>`;
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Estornos</h3><p>Valores descontados da comissao final.</p></div></div><ul class="deflator-list">${rows}</ul><div class="deflator-impact-grid"><span>Total de estornos<strong>${discountMoney(estornos.total)}</strong></span><span>Comissao final<strong>${money.format(summary.final)}</strong></span></div></section>`;
 }
 
 function sellerRecommendedAction(seller) {
@@ -1396,7 +1455,7 @@ function sellerRecommendedAction(seller) {
 function sellerDetailPanel(seller) {
   if (!seller) return "";
   const summary = sellerBranchSummary(seller);
-  return `<section class="branch-detail-grid"><section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhamento por vendedor</h3><p>${escapeHtml(seller.name)} - ${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</p></div></div><div class="seller-detail-kpis"><article><span>Realizado</span><strong>${money.format(summary.result.current)}</strong></article><article><span>% atual</span><strong>${pct.format(summary.currentPercent)}</strong></article><article><span>Projetado</span><strong>${money.format(summary.gross)}</strong></article><article><span>% projetado</span><strong>${pct.format(summary.projectedPercent)}</strong></article><article><span>Comissão bruta</span><strong>${money.format(summary.gross)}</strong></article><article><span>Comissão final</span><strong>${money.format(summary.final)}</strong></article><article><span>Status</span><strong><span class="status ${summary.status.cls}">${summary.status.label}</span></strong></article></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${sellerIndicatorDetailRows(seller)}</tbody></table></div></section><div>${sellerDeflatorImpactCard(seller)}${sellerRecommendedAction(seller)}</div></section>`;
+  return `<section class="branch-detail-grid"><section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhamento por vendedor</h3><p>${escapeHtml(seller.name)} - ${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</p></div></div><div class="seller-detail-kpis"><article><span>Realizado</span><strong>${money.format(summary.result.current)}</strong></article><article><span>% atual</span><strong>${pct.format(summary.currentPercent)}</strong></article><article><span>Projetado</span><strong>${money.format(summary.gross)}</strong></article><article><span>% projetado</span><strong>${pct.format(summary.projectedPercent)}</strong></article><article><span>Comissao bruta</span><strong>${money.format(summary.gross)}</strong></article><article><span>Deflator</span><strong>${money.format(summary.deflator)}</strong></article><article><span>Estornos</span><strong>${discountMoney(summary.estornos)}</strong></article><article><span>Comissao final</span><strong>${money.format(summary.final)}</strong></article><article><span>Status</span><strong><span class="status ${summary.status.cls}">${summary.status.label}</span></strong></article></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${sellerIndicatorDetailRows(seller)}</tbody></table></div></section><div>${sellerDeflatorImpactCard(seller)}${sellerEstornoImpactCard(seller)}${sellerRecommendedAction(seller)}</div></section>`;
 }
 
 function branchAttentionPoints(sellers) {
@@ -1404,10 +1463,11 @@ function branchAttentionPoints(sellers) {
   for (const seller of sellers) {
     const summary = sellerBranchSummary(seller);
     const preview = projectedDeflatorPreview(seller);
-    if (summary.currentPercent < 0.7) points.push({ cls: "bad", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Crítico` });
-    else if (summary.currentPercent < 1) points.push({ cls: "warn", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Em atenção` });
-    if (preview.triggered.length) points.push({ cls: preview.ignored ? "neutral" : "bad", text: `${seller.name} - Deflator -${pct.format(preview.rate)} - ${preview.triggered[0].metric.name} abaixo do mínimo${preview.ignored ? " (ignorado)" : ""}` });
-    if (seller.emExperiencia) points.push({ cls: "neutral", text: `${seller.name} - Em experiência - Deflator ignorado` });
+    if (summary.currentPercent < 0.7) points.push({ cls: "bad", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Critico` });
+    else if (summary.currentPercent < 1) points.push({ cls: "warn", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Em atencao` });
+    if (preview.triggered.length) points.push({ cls: preview.ignored ? "neutral" : "bad", text: `${seller.name} - Deflator -${pct.format(preview.rate)} - ${preview.triggered[0].metric.name} abaixo do minimo${preview.ignored ? " (ignorado)" : ""}` });
+    if (summary.estornos > 0) points.push({ cls: "warn", text: `${seller.name} possui ${money.format(summary.estornos)} em estornos aplicados no fechamento.` });
+    if (seller.emExperiencia) points.push({ cls: "neutral", text: `${seller.name} - Em experiencia - Deflator ignorado` });
   }
   return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Pontos de atencao</h3><p>Vendedores e indicadores que exigem acao.</p></div></div><div class="branch-attention-list">${points.slice(0, 8).map((point) => `<div class="attention-row ${point.cls}"><strong>${escapeHtml(point.text)}</strong></div>`).join("") || `<p class="muted-note">Nenhum ponto critico identificado no momento.</p>`}</div></section>`;
 }
@@ -1521,7 +1581,7 @@ function legacyRenderCollaborator() {
   ensureSellerValues(seller);
   const result = sellerResult(seller);
   const status = statusFor(seller);
-  const projectedTotalBeforeDeflator = result.projectedSubtotal + result.adjustments;
+  const projectedTotalBeforeDeflator = result.projectedSubtotal;
   document.getElementById("collabHero").innerHTML = `
     <div class="hero-number"><span>${seller.branch} - ${seller.area}</span><strong>${seller.name}</strong></div>
     <div class="hero-number"><span>Comissão total proj.</span><strong>${money.format(projectedTotalBeforeDeflator)}</strong></div>
@@ -1591,11 +1651,12 @@ function collaboratorMetricRows(seller) {
 function collaboratorSummary(seller) {
   const result = sellerResult(seller);
   const metrics = collaboratorMetricRows(seller);
-  const gross = result.projectedSubtotal + result.adjustments;
+  const gross = result.projectedSubtotal;
+  const estornos = result.estornos || 0;
   const final = result.projected;
   const preview = projectedDeflatorPreview(seller);
-  const status = seller.emExperiencia ? { label: "Em experiência", cls: "neutral", action: "Acompanhamento" } : branchStatusFromPercent(metrics.totals.currentPercent || 0);
-  return { result, metrics, gross, final, preview, status, currentPercent: metrics.totals.currentPercent || 0, projectedPercent: metrics.totals.projectedPercent || 0 };
+  const status = seller.emExperiencia ? { label: "Em experiencia", cls: "neutral", action: "Acompanhamento" } : branchStatusFromPercent(metrics.totals.currentPercent || 0);
+  return { result, metrics, gross, estornos, final, preview, status, currentPercent: metrics.totals.currentPercent || 0, projectedPercent: metrics.totals.projectedPercent || 0 };
 }
 
 function collaboratorLoginMarkup(seller) {
@@ -1637,7 +1698,7 @@ function collaboratorOpportunity(seller) {
 function collaboratorKpiMarkup(seller) {
   const summary = collaboratorSummary(seller);
   const progress = Math.max(0, Math.min(100, summary.currentPercent * 100));
-  return `<section class="collab-card collab-main-kpi"><div class="collab-card-head"><h3>Minha comissão estimada</h3><span class="status ${summary.status.cls}">${summary.status.label}</span></div><strong class="collab-money">${money.format(summary.final)}</strong><div class="collab-kpi-line"><span>Atingimento atual: <b>${pct.format(summary.currentPercent)}</b></span><span>Atingimento projetado: <b>${pct.format(summary.projectedPercent)}</b></span></div><div class="collab-progress"><span style="width:${progress}%"></span></div><div class="collab-progress-meta"><small>${pct.format(summary.currentPercent)} atual</small><small>Meta 100%</small></div></section>`;
+  return `<section class="collab-card collab-main-kpi"><div class="collab-card-head"><h3>Minha comissao estimada</h3><span class="status ${summary.status.cls}">${summary.status.label}</span></div><strong class="collab-money">${money.format(summary.final)}</strong><div class="collab-kpi-line"><span>Atingimento atual: <b>${pct.format(summary.currentPercent)}</b></span><span>Atingimento projetado: <b>${pct.format(summary.projectedPercent)}</b></span></div><div class="collab-commission-breakdown"><span>Comissao bruta <strong>${money.format(summary.gross)}</strong></span><span>Deflatores <strong>${money.format(summary.result.projectedDeflator)}</strong></span><span>Estornos <strong>${discountMoney(summary.estornos)}</strong></span><span>Comissao final <strong>${money.format(summary.final)}</strong></span></div><div class="collab-progress"><span style="width:${progress}%"></span></div><div class="collab-progress-meta"><small>${pct.format(summary.currentPercent)} atual</small><small>Meta 100%</small></div></section>`;
 }
 
 function collaboratorMonthMarkup() {
@@ -1650,9 +1711,16 @@ function collaboratorMonthMarkup() {
 function collaboratorDeflatorMarkup(seller) {
   const summary = collaboratorSummary(seller);
   const items = summary.preview.triggered.map((item) => `<li>Deflator ${escapeHtml(item.metric.name)}: -${pct.format(item.rate)} | Motivo: abaixo de ${pct.format(item.min)}</li>`).join("");
-  if (seller.emExperiencia && summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status neutral">Ignorado</span></div><p><strong>Vendedor em experiência.</strong> Deflator previsto: -${pct.format(summary.preview.rate)}.</p><p>Aplicação: ignorado por período de experiência.</p><p>Comissão final sem desconto: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
-  if (summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status bad">Aplicado</span></div><p>Deflator aplicado: <strong>-${pct.format(summary.preview.rate)}</strong></p><p>Impacto financeiro: <strong>${money.format(summary.result.projectedDeflator)}</strong></p><p>Comissão sem deflator: <strong>${money.format(summary.gross)}</strong></p><p>Comissão final: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
-  return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status ok">Sem desconto</span></div><p>Nenhum deflator aplicado no momento.</p><p>Sua comissão projetada não possui desconto.</p></section>`;
+  if (seller.emExperiencia && summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status neutral">Ignorado</span></div><p><strong>Vendedor em experiencia.</strong> Deflator previsto: -${pct.format(summary.preview.rate)}.</p><p>Aplicacao: ignorado por periodo de experiencia.</p><p>Estornos aplicados: <strong>${discountMoney(summary.estornos)}</strong></p><p>Comissao final: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
+  if (summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status bad">Aplicado</span></div><p>Deflator aplicado: <strong>-${pct.format(summary.preview.rate)}</strong></p><p>Impacto financeiro: <strong>${money.format(summary.result.projectedDeflator)}</strong></p><p>Comissao bruta: <strong>${money.format(summary.gross)}</strong></p><p>Estornos: <strong>${discountMoney(summary.estornos)}</strong></p><p>Comissao final: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
+  return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status ok">Sem desconto</span></div><p>Nenhum deflator aplicado no momento.</p><p>Sua comissao projetada nao possui desconto de deflator.</p></section>`;
+}
+
+function collaboratorEstornosMarkup(seller) {
+  const summary = collaboratorSummary(seller);
+  const estornos = sellerEstornos(seller);
+  if (!estornos.total) return `<section class="collab-card collab-estornos-card"><div class="collab-card-head"><h3>Estornos</h3><span class="status ok">Sem estorno</span></div><p>Nenhum estorno aplicado.</p></section>`;
+  return `<section class="collab-card collab-estornos-card"><div class="collab-card-head"><h3>Estornos</h3><span class="status warn">Desconto</span></div><dl class="estorno-breakdown">${estornos.items.map((item) => `<dt>${escapeHtml(item.label)}</dt><dd>${discountMoney(item.value)}</dd>`).join("")}<dt>Total de estornos</dt><dd><strong>${discountMoney(estornos.total)}</strong></dd><dt>Comissao final</dt><dd><strong>${money.format(summary.final)}</strong></dd></dl></section>`;
 }
 
 function collaboratorIndicatorTable(seller) {
@@ -1683,11 +1751,13 @@ function collaboratorScenarioMarkup(seller) {
 function collaboratorReportHtml(seller) {
   const summary = collaboratorSummary(seller);
   const rows = collaboratorMetricRows(seller);
+  const estornos = sellerEstornos(seller);
   const exportedAt = dateTime.format(new Date());
-  const deflatorText = summary.preview.triggered.length ? `Deflator aplicado: -${pct.format(summary.preview.rate)} | Impacto financeiro: ${money.format(summary.result.projectedDeflator)} | Comissão sem deflator: ${money.format(summary.gross)} | Comissão final: ${money.format(summary.final)}` : "Nenhum deflator aplicado no momento.";
-  const experienceText = seller.emExperiencia && summary.preview.triggered.length ? "Vendedor em experiência — deflator previsto ignorado." : "";
+  const deflatorText = summary.preview.triggered.length ? `Deflator aplicado: -${pct.format(summary.preview.rate)} | Impacto financeiro: ${money.format(summary.result.projectedDeflator)} | Comissao bruta: ${money.format(summary.gross)} | Estornos: ${discountMoney(summary.estornos)} | Comissao final: ${money.format(summary.final)}` : "Nenhum deflator aplicado no momento.";
+  const experienceText = seller.emExperiencia && summary.preview.triggered.length ? "Vendedor em experiencia - deflator previsto ignorado." : "";
+  const estornoText = estornos.total ? estornos.items.map((item) => `${item.label}: ${discountMoney(item.value)}`).join(" | ") + ` | Total de estornos: ${discountMoney(estornos.total)}` : "Nenhum estorno aplicado.";
   const tableRows = rows.rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td>${num.format(row.realized)}</td><td>${pct.format(row.currentPercent || 0)}</td><td>${num.format(row.missing)}</td><td>${num.format(row.projectedValue)}</td><td>${pct.format(row.projectedPercent || 0)}</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.deflator)}</td><td>${row.status.label}</td></tr>`).join("");
-  return `<div class="report-page"><header><div><h1>Comissão 360</h1><p>Simulador e painel de gestão de comissões, metas e performance comercial.</p></div><strong>Relatório do colaborador</strong></header><section class="report-meta"><span>Colaborador<strong>${escapeHtml(seller.name)}</strong></span><span>Filial<strong>${escapeHtml(seller.branch)}</strong></span><span>Área<strong>${escapeHtml(seller.area)}</strong></span><span>Mês<strong>${escapeHtml(state.period.month)}</strong></span><span>Dias realizados<strong>${num.format(state.period.daysDone)}</strong></span><span>Dias úteis<strong>${num.format(state.period.daysTotal)}</strong></span><span>Exportado em<strong>${exportedAt}</strong></span></section><section class="report-summary"><span>Comissão final<strong>${money.format(summary.final)}</strong></span><span>% atual<strong>${pct.format(summary.currentPercent)}</strong></span><span>% projetado<strong>${pct.format(summary.projectedPercent)}</strong></span><span>Status<strong>${summary.status.label}</strong></span><span>Comissão bruta<strong>${money.format(summary.gross)}</strong></span><span>Deflator<strong>${summary.preview.rate ? `-${pct.format(summary.preview.rate)}` : "Nenhum"}</strong></span><span>Impacto<strong>${money.format(summary.result.projectedDeflator)}</strong></span></section><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${tableRows}<tr class="total-row"><td>Total</td><td>${num.format(rows.totals.goal)}</td><td>${num.format(rows.totals.realized)}</td><td>${pct.format(rows.totals.currentPercent || 0)}</td><td>${num.format(rows.totals.missing)}</td><td>${num.format(rows.totals.projected)}</td><td>${pct.format(rows.totals.projectedPercent || 0)}</td><td>${money.format(summary.final)}</td><td>-</td><td>${rows.totals.status.label}</td></tr></tbody></table><section class="report-block"><h2>Deflatores</h2><p>${escapeHtml(experienceText || deflatorText)}</p></section><section class="report-block"><h2>Orientação</h2><p>${escapeHtml(collaboratorGuidance(seller))}</p></section><footer>Desenvolvido por Cleiton Gerber</footer></div>`;
+  return `<div class="report-page"><header><div><h1>Comissao 360</h1><p>Simulador e painel de gestao de comissoes, metas e performance comercial.</p></div><strong>Relatorio do colaborador</strong></header><section class="report-meta"><span>Colaborador<strong>${escapeHtml(seller.name)}</strong></span><span>Filial<strong>${escapeHtml(seller.branch)}</strong></span><span>Area<strong>${escapeHtml(seller.area)}</strong></span><span>Mes<strong>${escapeHtml(state.period.month)}</strong></span><span>Dias realizados<strong>${num.format(state.period.daysDone)}</strong></span><span>Dias uteis<strong>${num.format(state.period.daysTotal)}</strong></span><span>Exportado em<strong>${exportedAt}</strong></span></section><section class="report-summary"><span>Comissao final<strong>${money.format(summary.final)}</strong></span><span>% atual<strong>${pct.format(summary.currentPercent)}</strong></span><span>% projetado<strong>${pct.format(summary.projectedPercent)}</strong></span><span>Status<strong>${summary.status.label}</strong></span><span>Comissao bruta<strong>${money.format(summary.gross)}</strong></span><span>Deflator<strong>${summary.preview.rate ? `-${pct.format(summary.preview.rate)}` : "Nenhum"}</strong></span><span>Impacto deflator<strong>${money.format(summary.result.projectedDeflator)}</strong></span><span>Estornos<strong>${discountMoney(summary.estornos)}</strong></span></section><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissao</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${tableRows}<tr class="total-row"><td>Total</td><td>${num.format(rows.totals.goal)}</td><td>${num.format(rows.totals.realized)}</td><td>${pct.format(rows.totals.currentPercent || 0)}</td><td>${num.format(rows.totals.missing)}</td><td>${num.format(rows.totals.projected)}</td><td>${pct.format(rows.totals.projectedPercent || 0)}</td><td>${money.format(summary.final)}</td><td>-</td><td>${rows.totals.status.label}</td></tr></tbody></table><section class="report-block"><h2>Deflatores</h2><p>${escapeHtml(experienceText || deflatorText)}</p></section><section class="report-block"><h2>Estornos</h2><p>${escapeHtml(estornoText)}</p></section><section class="report-block"><h2>Orientacao</h2><p>${escapeHtml(collaboratorGuidance(seller))}</p></section><footer>Desenvolvido por Cleiton Gerber</footer></div>`;
 }
 
 function prepareCollaboratorPdfExport() {
@@ -1716,7 +1786,7 @@ function renderCollaborator() {
   document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Colaborador</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button" type="button">Trocar colaborador</button>`;
   dashboard.innerHTML = `
     <div class="collab-top-grid">${collaboratorKpiMarkup(seller)}${collaboratorGuidanceMarkup(seller)}</div>
-    <div class="collab-mid-grid">${collaboratorMonthMarkup()}${collaboratorDeflatorMarkup(seller)}</div>
+    <div class="collab-mid-grid">${collaboratorMonthMarkup()}${collaboratorDeflatorMarkup(seller)}${collaboratorEstornosMarkup(seller)}</div>
     ${collaboratorIndicatorTable(seller)}
     <div class="collab-bottom-grid">${collaboratorOpportunityMarkup(seller)}${collaboratorScenarioMarkup(seller)}</div>
   `;
@@ -2230,7 +2300,7 @@ document.addEventListener("input", (event) => {
   }
   if (target.dataset.adjustment) {
     const seller = state.sellers.find((item) => item.id === target.dataset.sellerId);
-    seller.adjustments[target.dataset.adjustment] = Number(target.value) || 0;
+    seller.adjustments[target.dataset.adjustment] = moneyInputValue(target.value);
     saveState();
     renderDashboard();
     renderAdminMetrics();

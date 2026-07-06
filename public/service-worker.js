@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260705-dashboard-compact";
+const CACHE_NAME = "comissao-pwa-v20260706-estornos";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260705-dashboard-compact",
-  "/app.js?v=20260705-branch-revenue",
+  "/styles.css?v=20260706-estornos",
+  "/app.js?v=20260706-estornos",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
