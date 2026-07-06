@@ -1,8 +1,8 @@
-const CACHE_NAME = "comissao-pwa-v20260705-branch-revenue";
+const CACHE_NAME = "comissao-pwa-v20260705-dashboard-compact";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260705-top-logout",
+  "/styles.css?v=20260705-dashboard-compact",
   "/app.js?v=20260705-branch-revenue",
   "/manifest.json",
   "/icons/icon-192.png",

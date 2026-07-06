@@ -2296,7 +2296,7 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 .dashboard-executive-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .dashboard-kpi,
@@ -2310,18 +2310,18 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 .dashboard-kpi {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 106px;
-  padding: 16px;
+  gap: 10px;
+  min-height: 88px;
+  padding: 12px;
 }
 
 .dashboard-kpi > span {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   flex: 0 0 auto;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #fff1f3;
   color: var(--teal);
   font-size: 20px;
@@ -2348,9 +2348,9 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
 .dashboard-kpi strong {
   display: block;
-  margin: 6px 0;
+  margin: 4px 0;
   color: var(--ink);
-  font-size: 23px;
+  font-size: 21px;
   line-height: 1;
 }
 
@@ -2400,9 +2400,19 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
 .dashboard-filter-grid {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.65fr) minmax(150px, 1fr) minmax(140px, 0.75fr) minmax(140px, 0.75fr) auto;
-  gap: 12px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
   align-items: end;
+}
+
+.dashboard-filter-grid label,
+.dashboard-filter-grid select,
+.dashboard-filter-grid button {
+  width: 100%;
+}
+
+.dashboard-filter-grid button {
+  min-height: 44px;
 }
 
 .dashboard-exec-layout {
@@ -2605,12 +2615,25 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
 @media (max-width: 1280px) {
   .dashboard-executive-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .dashboard-exec-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1020px) {
+  .dashboard-executive-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .dashboard-filter-grid,
-  .dashboard-exec-layout {
-    grid-template-columns: 1fr;
+  .dashboard-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
