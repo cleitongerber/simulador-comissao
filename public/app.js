@@ -10,6 +10,12 @@ const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL
 const pct = new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const num = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const CAMPAIGN_STATUS = {
+  OPEN: "Aberta",
+  OPERATIONAL_CLOSED: "Encerrada operacionalmente",
+  ADMIN_CLOSING: "Em fechamento administrativo",
+  OFFICIAL_CLOSED: "Fechada oficial",
+};
 
 function makeId() {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -131,6 +137,49 @@ let activeManagerSellerId = "";
 let activeAdminTab = "campanha";
 let pendingAccessView = "dashboard";
 
+function activeCampaign() {
+  return state?.campaigns?.find((campaign) => campaign.id === state.activeCampaignId) || state?.campaigns?.[0] || null;
+}
+
+function campaignStatusLabel(campaign = activeCampaign()) {
+  return campaign?.status || CAMPAIGN_STATUS.OPEN;
+}
+
+function isCampaignOfficialClosed(campaign = activeCampaign()) {
+  return campaignStatusLabel(campaign) === CAMPAIGN_STATUS.OFFICIAL_CLOSED;
+}
+
+function isCampaignOperationLocked(campaign = activeCampaign()) {
+  return campaignStatusLabel(campaign) !== CAMPAIGN_STATUS.OPEN;
+}
+
+function canEditCampaignData() {
+  return !isCampaignOfficialClosed() || isOwnerUnlocked();
+}
+
+function syncActiveCampaignFromRoot(options = {}) {
+  const campaign = activeCampaign();
+  if (!campaign) return;
+  if (isCampaignOfficialClosed(campaign) && !options.force) return;
+  Object.assign(campaign, campaignPayloadFrom(state));
+  campaign.reference = campaign.reference || state.period?.month || "";
+  campaign.updatedAt = new Date().toISOString();
+}
+
+function setActiveCampaign(campaignId) {
+  if (!state.campaigns?.some((campaign) => campaign.id === campaignId)) return;
+  syncActiveCampaignFromRoot();
+  state.activeCampaignId = campaignId;
+  applyCampaignToState(state, activeCampaign());
+  activeCollaboratorId = "";
+  activeBranchSession = "";
+  activeManagerSellerId = "";
+  sessionStorage.removeItem(COLLAB_SESSION_KEY);
+  sessionStorage.removeItem(BRANCH_SESSION_KEY);
+  saveState("Campanha selecionada");
+  renderAll();
+}
+
 const routeByView = {
   home: "/",
   dashboard: "/dashboard",
@@ -151,12 +200,12 @@ function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("commission-simulator-v1");
   const fallback = seedState();
   fallback.settings = { ...defaultSettings(), ...(fallback.settings || {}) };
-  if (!saved) return fallback;
+  if (!saved) return normalizeState(fallback);
   try {
     const parsed = normalizeState(JSON.parse(saved));
     return parsed;
   } catch {
-    return fallback;
+    return normalizeState(fallback);
   }
 }
 
@@ -221,6 +270,105 @@ function normalizeBranchPasswords(source, legacyAccess, managers, branchesList) 
 function branchesFromSellers(sellers = state?.sellers || []) {
   return [...new Set(sellers.map((seller) => seller.branch || "Sem filial"))].sort();
 }
+
+function cloneData(value) {
+  return structuredClone(value ?? null);
+}
+
+function campaignPayloadFrom(source, options = {}) {
+  const payload = {
+    period: cloneData(source.period || { month: "JUNHO", daysDone: 1, daysTotal: 1 }),
+    sellers: cloneData(source.sellers || []),
+    rules: cloneData(source.rules || defaultRules),
+    customMetrics: normalizeCustomMetrics(source.customMetrics),
+    branches: cloneData(source.branches || []),
+    deflators: normalizeDeflators(source.deflators),
+    branchPasswords: cloneData(source.branchPasswords || {}),
+  };
+  payload.branches = normalizeBranches(payload.branches, payload.sellers);
+  payload.branchPasswords = normalizeBranchPasswords(payload.branchPasswords, source.managerAccess, source._legacyManagers, payload.branches);
+  if (options.resetOperational) {
+    payload.period.daysDone = 0;
+    for (const seller of payload.sellers) {
+      seller.adjustments = { quality: 0, insurance: 0, carousel: 0 };
+      for (const value of Object.values(seller.values || {})) value.realized = 0;
+    }
+  }
+  return payload;
+}
+
+function createCampaignFromSource(source, overrides = {}) {
+  const now = new Date().toISOString();
+  const payload = campaignPayloadFrom(source, { resetOperational: overrides.resetOperational });
+  return {
+    id: overrides.id || makeId(),
+    name: overrides.name || source.name || "Campanha Atual",
+    reference: overrides.reference || payload.period.month || "Mes atual",
+    startDate: overrides.startDate || "",
+    operationalCloseDate: overrides.operationalCloseDate || "",
+    officialCloseDate: overrides.officialCloseDate || "",
+    status: overrides.status || CAMPAIGN_STATUS.OPEN,
+    createdAt: overrides.createdAt || now,
+    updatedAt: overrides.updatedAt || now,
+    closedAt: overrides.closedAt || "",
+    officialFileName: overrides.officialFileName || "",
+    officialFileCsv: overrides.officialFileCsv || "",
+    snapshot: overrides.snapshot || null,
+    ...payload,
+  };
+}
+
+function normalizeCampaign(campaign, fallback) {
+  const base = createCampaignFromSource(fallback, {
+    id: campaign?.id || makeId(),
+    name: campaign?.name || "Campanha Atual",
+    reference: campaign?.reference || campaign?.period?.month || fallback.period?.month || "Mes atual",
+    status: campaign?.status || CAMPAIGN_STATUS.OPEN,
+    createdAt: campaign?.createdAt,
+    updatedAt: campaign?.updatedAt,
+    closedAt: campaign?.closedAt,
+    officialFileName: campaign?.officialFileName,
+    officialFileCsv: campaign?.officialFileCsv,
+    snapshot: campaign?.snapshot || null,
+  });
+  const normalized = { ...base, ...(campaign || {}) };
+  normalized.period = normalized.period || fallback.period || { month: "JUNHO", daysDone: 1, daysTotal: 1 };
+  normalized.sellers = Array.isArray(normalized.sellers) ? normalized.sellers : cloneData(fallback.sellers || []);
+  normalized.rules = normalized.rules || cloneData(fallback.rules || defaultRules);
+  normalized.customMetrics = normalizeCustomMetrics(normalized.customMetrics);
+  normalized.deflators = normalizeDeflators(normalized.deflators);
+  normalized.branches = normalizeBranches(normalized.branches, normalized.sellers);
+  normalized.branchPasswords = normalizeBranchPasswords(normalized.branchPasswords, normalized.managerAccess, normalized._legacyManagers, normalized.branches);
+  for (const area of ["Cabo", "Nao Cabo"]) {
+    normalized.rules[area] = normalized.rules[area] || {};
+    for (const metric of metricsFor(area, normalized)) normalized.rules[area][metric.id] = normalized.rules[area][metric.id] || [];
+  }
+  for (const seller of normalized.sellers) {
+    seller.emExperiencia = seller.emExperiencia === true;
+    ensureSellerValues(seller, normalized);
+  }
+  return normalized;
+}
+
+function normalizeCampaigns(candidate) {
+  const existing = Array.isArray(candidate.campaigns) ? candidate.campaigns : [];
+  const campaigns = existing.length
+    ? existing.map((campaign) => normalizeCampaign(campaign, candidate))
+    : [createCampaignFromSource(candidate, { name: "Campanha Atual", reference: candidate.period?.month || "Mes atual" })];
+  return campaigns;
+}
+
+function applyCampaignToState(target, campaign) {
+  if (!campaign) return;
+  target.period = cloneData(campaign.period);
+  target.sellers = cloneData(campaign.sellers);
+  target.rules = cloneData(campaign.rules);
+  target.customMetrics = normalizeCustomMetrics(campaign.customMetrics);
+  target.branches = normalizeBranches(cloneData(campaign.branches), target.sellers);
+  target.deflators = normalizeDeflators(campaign.deflators);
+  target.branchPasswords = normalizeBranchPasswords(campaign.branchPasswords, campaign.managerAccess, campaign._legacyManagers, target.branches);
+}
+
 function normalizeState(candidate) {
   if (!candidate || typeof candidate !== "object" || !Array.isArray(candidate.sellers)) {
     throw new Error("Arquivo de backup invalido.");
@@ -232,6 +380,11 @@ function normalizeState(candidate) {
   candidate.deflators = normalizeDeflators(candidate.deflators);
   candidate.branches = normalizeBranches(candidate.branches, candidate.sellers);
   candidate.branchPasswords = normalizeBranchPasswords(candidate.branchPasswords, candidate.managerAccess, candidate._legacyManagers, candidate.branches);
+  candidate.campaigns = normalizeCampaigns(candidate);
+  if (!candidate.campaigns.some((campaign) => campaign.id === candidate.activeCampaignId)) {
+    candidate.activeCampaignId = candidate.campaigns.find((campaign) => campaign.status === CAMPAIGN_STATUS.OPEN)?.id || candidate.campaigns[0]?.id;
+  }
+  applyCampaignToState(candidate, candidate.campaigns.find((campaign) => campaign.id === candidate.activeCampaignId));
   for (const area of ["Cabo", "Nao Cabo"]) {
     candidate.rules[area] = candidate.rules[area] || {};
     for (const metric of metricsFor(area, candidate)) candidate.rules[area][metric.id] = candidate.rules[area][metric.id] || [];
@@ -275,6 +428,7 @@ async function saveStateToCloud(message) {
 }
 
 function saveState(message = "Salvo no banco") {
+  syncActiveCampaignFromRoot();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   updateSaveStatus("Salvando...");
   window.clearTimeout(cloudSaveTimer);
@@ -282,6 +436,7 @@ function saveState(message = "Salvo no banco") {
 }
 
 function flushSaveState(message = "Salvo no banco") {
+  syncActiveCampaignFromRoot();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   updateSaveStatus("Salvando...");
   window.clearTimeout(cloudSaveTimer);
@@ -433,6 +588,126 @@ function statusFor(seller) {
   const lowMetrics = metricsFor(seller.area).filter((metric) => metric.type !== "deviceRevenue" && percentFor(seller, metric.id, true) < 0.8);
   if (lowMetrics.length === 0) return { label: "Meta batida", cls: "ok" };
   return lowMetrics.length <= 2 ? { label: "Em risco", cls: "warn" } : { label: "Critico", cls: "bad" };
+}
+
+function sellerClosingRecord(seller) {
+  const result = sellerResult(seller);
+  const metrics = collaboratorMetricRows(seller);
+  const estornos = sellerEstornos(seller);
+  const preview = projectedDeflatorPreview(seller);
+  const currentPercent = metrics.totals.currentPercent || 0;
+  const status = seller.emExperiencia ? { label: "Em experiencia" } : branchStatusFromPercent(currentPercent);
+  return {
+    sellerId: seller.id,
+    name: seller.name,
+    branch: seller.branch,
+    area: seller.area,
+    emExperiencia: seller.emExperiencia === true,
+    goal: metrics.totals.goal,
+    realized: metrics.totals.realized,
+    currentPercent,
+    missing: metrics.totals.missing,
+    projected: metrics.totals.projected,
+    projectedPercent: metrics.totals.projectedPercent || 0,
+    commissionGross: result.projectedSubtotal,
+    deflator: result.projectedDeflator,
+    deflatorReason: preview.triggered.map((item) => item.metric?.name).filter(Boolean).join(", ") || "Sem deflator",
+    deflatorImpact: seller.emExperiencia ? 0 : result.projectedDeflator,
+    estornoQuality: estornos.items.find((item) => item.id === "quality")?.value || 0,
+    estornoInsurance: estornos.items.find((item) => item.id === "insurance")?.value || 0,
+    estornoCarousel: estornos.items.find((item) => item.id === "carousel")?.value || 0,
+    estornosTotal: estornos.total,
+    commissionFinal: result.projected,
+    status: status.label,
+    indicators: metrics.rows.map((row) => ({
+      seller: seller.name,
+      branch: seller.branch,
+      metric: row.metric.name,
+      goal: row.goal,
+      realized: row.realized,
+      currentPercent: row.currentPercent || 0,
+      missing: row.missing,
+      projected: row.projectedValue,
+      projectedPercent: row.projectedPercent || 0,
+      commission: row.commission,
+      deflator: row.deflator,
+      status: row.status.label,
+    })),
+  };
+}
+
+function buildCampaignSnapshot(campaign = activeCampaign()) {
+  const sellerRows = state.sellers.map(sellerClosingRecord);
+  const indicatorRows = sellerRows.flatMap((seller) => seller.indicators);
+  const totalGoal = sellerRows.reduce((sum, row) => sum + row.goal, 0);
+  const totalRealized = sellerRows.reduce((sum, row) => sum + row.realized, 0);
+  const totalProjected = sellerRows.reduce((sum, row) => sum + row.projected, 0);
+  const branchesList = [...new Set(sellerRows.map((row) => row.branch))];
+  const riskBranches = branchesList.filter((branch) => {
+    const rows = sellerRows.filter((row) => row.branch === branch);
+    const goal = rows.reduce((sum, row) => sum + row.goal, 0);
+    const realized = rows.reduce((sum, row) => sum + row.realized, 0);
+    return goal ? realized / goal < 0.7 : false;
+  }).length;
+  return {
+    campaignId: campaign?.id,
+    campaignName: campaign?.name || "Campanha",
+    reference: campaign?.reference || state.period.month,
+    status: CAMPAIGN_STATUS.OFFICIAL_CLOSED,
+    closedAt: new Date().toISOString(),
+    totalSellers: sellerRows.length,
+    totalBranches: branchesList.length,
+    totalGoal,
+    totalRealized,
+    currentPercent: totalGoal ? totalRealized / totalGoal : 0,
+    totalProjected,
+    projectedPercent: totalGoal ? totalProjected / totalGoal : 0,
+    commissionGrossTotal: sellerRows.reduce((sum, row) => sum + row.commissionGross, 0),
+    deflatorTotal: sellerRows.reduce((sum, row) => sum + row.deflator, 0),
+    estornosTotal: sellerRows.reduce((sum, row) => sum + row.estornosTotal, 0),
+    commissionFinalTotal: sellerRows.reduce((sum, row) => sum + row.commissionFinal, 0),
+    riskSellers: sellerRows.filter((row) => row.currentPercent < 0.7).length,
+    highlightSellers: sellerRows.filter((row) => row.currentPercent >= 1).length,
+    riskBranches,
+    sellers: sellerRows,
+    indicators: indicatorRows,
+  };
+}
+
+function campaignFileName(campaign, snapshot) {
+  const safe = String(`${campaign?.name || "Campanha"}_${campaign?.reference || snapshot?.reference || ""}`)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "");
+  return `Comissao_360_Comissionamento_${safe || "campanha"}.csv`;
+}
+
+function generateOfficialCommissionCsv(snapshot) {
+  const lines = [];
+  lines.push(["Resumo da campanha"]);
+  lines.push(["Comissao 360"]);
+  lines.push(["Nome da campanha", snapshot.campaignName]);
+  lines.push(["Mes/ano", snapshot.reference]);
+  lines.push(["Data/hora fechamento", dateTime.format(new Date(snapshot.closedAt))]);
+  lines.push(["Total vendedores", snapshot.totalSellers]);
+  lines.push(["Total filiais", snapshot.totalBranches]);
+  lines.push(["Comissao bruta total", snapshot.commissionGrossTotal]);
+  lines.push(["Deflatores totais", snapshot.deflatorTotal]);
+  lines.push(["Estornos totais", snapshot.estornosTotal]);
+  lines.push(["Comissao final total", snapshot.commissionFinalTotal]);
+  lines.push(["Status", snapshot.status]);
+  lines.push([]);
+  lines.push(["Detalhe por vendedor"]);
+  lines.push(["Campanha", "Mes/ano", "Colaborador", "Filial", "Area", "Vendedor em experiencia", "Comissao bruta", "Deflator aplicado", "Motivo do deflator", "Impacto financeiro do deflator", "Estorno Qualidade", "Estorno Seguro", "Estorno Carrossel", "Total de estornos", "Comissao final", "Status do fechamento"]);
+  for (const row of snapshot.sellers) lines.push([snapshot.campaignName, snapshot.reference, row.name, row.branch, row.area, row.emExperiencia ? "Sim" : "Nao", row.commissionGross, row.deflator, row.deflatorReason, row.deflatorImpact, row.estornoQuality, row.estornoInsurance, row.estornoCarousel, row.estornosTotal, row.commissionFinal, row.status]);
+  lines.push([]);
+  lines.push(["Detalhe por indicador"]);
+  lines.push(["Campanha", "Mes/ano", "Colaborador", "Filial", "Indicador", "Meta", "Realizado", "% atual", "Falta", "Projetado", "% projetado", "Comissao do indicador", "Deflator do indicador", "Status"]);
+  for (const row of snapshot.indicators) lines.push([snapshot.campaignName, snapshot.reference, row.seller, row.branch, row.metric, row.goal, row.realized, pct.format(row.currentPercent), row.missing, row.projected, pct.format(row.projectedPercent), row.commission, row.deflator, row.status]);
+  lines.push([]);
+  lines.push(["Desenvolvido por Cleiton Gerber"]);
+  return `\uFEFF${lines.map((line) => line.map(csvCell).join(";")).join("\n")}`;
 }
 
 function branches() {
@@ -1044,6 +1319,204 @@ function renderBranchEditor() {
     </div>
   `).join("");
 }
+
+function campaignSummary(campaign) {
+  if (campaign?.snapshot) {
+    return {
+      sellers: campaign.snapshot.totalSellers,
+      branches: campaign.snapshot.totalBranches,
+      commissionFinal: campaign.snapshot.commissionFinalTotal,
+    };
+  }
+  const activeId = state.activeCampaignId;
+  const currentPayload = campaignPayloadFrom(state);
+  try {
+    applyCampaignToState(state, campaign);
+    return {
+      sellers: state.sellers.length,
+      branches: branchesFromSellers(state.sellers).length,
+      commissionFinal: state.sellers.reduce((sum, seller) => sum + sellerResult(seller).projected, 0),
+    };
+  } finally {
+    applyCampaignToState(state, currentPayload);
+    state.activeCampaignId = activeId;
+  }
+}
+
+function renderCampaignSelector() {
+  const select = document.getElementById("campaignSelector");
+  const badge = document.getElementById("campaignStatusBadge");
+  if (!select || !badge) return;
+  const selected = state.activeCampaignId;
+  select.innerHTML = (state.campaigns || []).map((campaign) => `<option value="${campaign.id}" ${campaign.id === selected ? "selected" : ""}>${escapeHtml(campaign.name)} - ${escapeHtml(campaign.reference || campaign.period?.month || "")}</option>`).join("");
+  const campaign = activeCampaign();
+  badge.textContent = campaignStatusLabel(campaign);
+  badge.className = `campaign-status-badge ${campaignStatusClass(campaignStatusLabel(campaign))}`;
+}
+
+function campaignStatusClass(status) {
+  if (status === CAMPAIGN_STATUS.OPEN) return "ok";
+  if (status === CAMPAIGN_STATUS.OFFICIAL_CLOSED) return "neutral";
+  if (status === CAMPAIGN_STATUS.ADMIN_CLOSING) return "warn";
+  return "bad";
+}
+
+function campaignClosingRowsMarkup() {
+  const canEditEstornos = canEditCampaignData() && isAdminUnlocked();
+  return state.sellers.map((seller) => {
+    const row = sellerClosingRecord(seller);
+    return `<tr>
+      <td><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.branch)} - ${escapeHtml(row.area)}</small></td>
+      <td>${money.format(row.commissionGross)}</td>
+      <td>${money.format(row.deflator)}</td>
+      <td><input data-adjustment="quality" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${row.estornoQuality}" ${canEditEstornos ? "" : "disabled"}></td>
+      <td><input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${row.estornoInsurance}" ${canEditEstornos ? "" : "disabled"}></td>
+      <td><input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${row.estornoCarousel}" ${canEditEstornos ? "" : "disabled"}></td>
+      <td>${discountMoney(row.estornosTotal)}</td>
+      <td>${money.format(row.commissionFinal)}</td>
+      <td>${row.emExperiencia ? `<span class="status neutral">Em experiencia</span>` : `<span class="status">${escapeHtml(row.status)}</span>`}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderCampaignAdminPanel() {
+  const container = document.getElementById("campaignAdminPanel");
+  if (!container) return;
+  const campaign = activeCampaign();
+  if (!campaign) {
+    container.innerHTML = `<div class="section-title"><h3>Campanhas</h3><p>Nenhuma campanha cadastrada. Crie uma campanha para iniciar o acompanhamento de comissoes.</p></div><button id="createCampaign" class="primary-button" type="button">Nova campanha</button>`;
+    return;
+  }
+  const summary = campaignSummary(campaign);
+  const officialClosed = isCampaignOfficialClosed(campaign);
+  const canAdminEdit = canEditCampaignData();
+  const listRows = state.campaigns.map((item) => {
+    const itemSummary = campaignSummary(item);
+    return `<tr>
+      <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.reference || item.period?.month || "")}</small></td>
+      <td>${escapeHtml(item.startDate || "-")}</td>
+      <td>${escapeHtml(item.operationalCloseDate || "-")}</td>
+      <td>${escapeHtml(item.officialCloseDate || item.closedAt?.slice(0, 10) || "-")}</td>
+      <td><span class="campaign-status-badge ${campaignStatusClass(item.status)}">${escapeHtml(item.status)}</span></td>
+      <td>${itemSummary.sellers}</td>
+      <td>${itemSummary.branches}</td>
+      <td>${money.format(itemSummary.commissionFinal || 0)}</td>
+      <td>${item.officialFileCsv ? `<button class="ghost-button compact-action" data-download-campaign="${item.id}" type="button">Baixar</button>` : "Nao disponivel"}</td>
+      <td><button class="ghost-button compact-action" data-select-campaign="${item.id}" type="button">Visualizar</button><button class="ghost-button compact-action" data-duplicate-campaign="${item.id}" type="button">Duplicar</button></td>
+    </tr>`;
+  }).join("");
+  container.innerHTML = `
+    <div class="section-title inline-title">
+      <div>
+        <h3>Campanhas</h3>
+        <p>Crie campanhas independentes, encerre a operacao e congele o fechamento oficial.</p>
+      </div>
+      <div class="campaign-actions">
+        <button id="createCampaign" class="primary-button" type="button">Nova campanha</button>
+        <button id="duplicateActiveCampaign" class="ghost-button" type="button">Duplicar campanha</button>
+      </div>
+    </div>
+    <div class="campaign-current-grid">
+      <label>Nome da campanha<input data-campaign-field="name" value="${escapeHtml(campaign.name)}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
+      <label>Mes/ano<input data-campaign-field="reference" value="${escapeHtml(campaign.reference || "")}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
+      <label>Data de inicio<input data-campaign-field="startDate" type="date" value="${escapeHtml(campaign.startDate || "")}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
+      <label>Encerramento operacional<input data-campaign-field="operationalCloseDate" type="date" value="${escapeHtml(campaign.operationalCloseDate || "")}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
+      <label>Fechamento oficial<input data-campaign-field="officialCloseDate" type="date" value="${escapeHtml(campaign.officialCloseDate || "")}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
+      <div class="campaign-current-status"><span>Status</span><strong class="${campaignStatusClass(campaign.status)}">${escapeHtml(campaign.status)}</strong></div>
+    </div>
+    <div class="campaign-kpi-strip">
+      <span>Vendedores<strong>${summary.sellers}</strong></span>
+      <span>Filiais<strong>${summary.branches}</strong></span>
+      <span>Comissao final<strong>${money.format(summary.commissionFinal || 0)}</strong></span>
+    </div>
+    <div class="campaign-flow-actions">
+      <button id="operationalCloseCampaign" class="ghost-button" type="button" ${campaign.status !== CAMPAIGN_STATUS.OPEN || !canAdminEdit ? "disabled" : ""}>Encerrar operacionalmente</button>
+      <button id="startAdministrativeClosing" class="ghost-button" type="button" ${campaign.status !== CAMPAIGN_STATUS.OPERATIONAL_CLOSED || !canAdminEdit ? "disabled" : ""}>Iniciar fechamento administrativo</button>
+      <button id="officialCloseCampaign" class="danger-button" type="button" ${campaign.status !== CAMPAIGN_STATUS.ADMIN_CLOSING || !canAdminEdit ? "disabled" : ""}>Fechar comissionamento oficial</button>
+      <button id="downloadOfficialCampaignFile" class="ghost-button" type="button" ${campaign.officialFileCsv ? "" : "disabled"}>Baixar arquivo oficial</button>
+    </div>
+    <div class="table-wrap campaign-table-wrap">
+      <table>
+        <thead><tr><th>Campanha</th><th>Inicio</th><th>Enc. oper.</th><th>Fech. oficial</th><th>Status</th><th>Vendedores</th><th>Filiais</th><th>Comissao final</th><th>Arquivo</th><th>Acoes</th></tr></thead>
+        <tbody>${listRows}</tbody>
+      </table>
+    </div>
+    <div class="campaign-closing-panel">
+      <div class="section-title"><h3>Fechamento da comissao</h3><p>Revise comissao bruta, deflatores, estornos e comissao final da campanha ativa.</p></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Vendedor</th><th>Comissao bruta</th><th>Deflator</th><th>Qualidade</th><th>Seguro</th><th>Carrossel</th><th>Total estornos</th><th>Comissao final</th><th>Status</th></tr></thead>
+          <tbody>${campaignClosingRowsMarkup() || `<tr><td colspan="9">Nenhum vendedor nesta campanha.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function createCampaignFromActive(options = {}) {
+  syncActiveCampaignFromRoot();
+  const source = options.source || activeCampaign() || state;
+  const campaign = createCampaignFromSource(source, {
+    name: options.name || "Nova campanha",
+    reference: options.reference || "Novo periodo",
+    resetOperational: true,
+  });
+  campaign.period.month = campaign.reference;
+  campaign.period.daysDone = 0;
+  state.campaigns.push(campaign);
+  state.activeCampaignId = campaign.id;
+  applyCampaignToState(state, campaign);
+  saveState("Campanha criada");
+  renderAll();
+}
+
+function duplicateCampaign(campaignId) {
+  const source = state.campaigns.find((campaign) => campaign.id === campaignId) || activeCampaign();
+  if (!source) return;
+  createCampaignFromActive({
+    source,
+    name: `${source.name} - copia`,
+    reference: source.reference || source.period?.month || "Novo periodo",
+  });
+}
+
+function downloadCampaignOfficialFile(campaign = activeCampaign()) {
+  if (!campaign?.officialFileCsv) {
+    alert("Arquivo oficial nao disponivel para esta campanha.");
+    return;
+  }
+  downloadFile(campaign.officialFileName || campaignFileName(campaign, campaign.snapshot), "text/csv;charset=utf-8", campaign.officialFileCsv);
+}
+
+function officialCloseActiveCampaign() {
+  const campaign = activeCampaign();
+  if (!campaign) return;
+  syncActiveCampaignFromRoot({ force: true });
+  const snapshot = buildCampaignSnapshot(campaign);
+  const message = [
+    `Campanha: ${campaign.name}`,
+    `Mes/ano: ${campaign.reference}`,
+    `Vendedores: ${snapshot.totalSellers}`,
+    `Filiais: ${snapshot.totalBranches}`,
+    `Comissao bruta: ${money.format(snapshot.commissionGrossTotal)}`,
+    `Deflatores: ${money.format(snapshot.deflatorTotal)}`,
+    `Estornos: ${discountMoney(snapshot.estornosTotal)}`,
+    `Comissao final: ${money.format(snapshot.commissionFinalTotal)}`,
+    "",
+    "Apos confirmar, os dados ficarao congelados e sera gerado o arquivo oficial. Deseja continuar?",
+  ].join("\n");
+  if (!confirm(message)) return;
+  campaign.snapshot = snapshot;
+  campaign.status = CAMPAIGN_STATUS.OFFICIAL_CLOSED;
+  campaign.closedAt = snapshot.closedAt;
+  campaign.officialCloseDate = campaign.officialCloseDate || snapshot.closedAt.slice(0, 10);
+  campaign.officialFileName = campaignFileName(campaign, snapshot);
+  campaign.officialFileCsv = generateOfficialCommissionCsv(snapshot);
+  campaign.updatedAt = snapshot.closedAt;
+  saveState("Comissionamento fechado");
+  renderAll();
+}
+
 function renderSelectors() {
   const adminSelected = document.getElementById("adminSellerSelect")?.value;
   const collabSelected = activeCollaboratorId || document.getElementById("collabSellerSelect")?.value;
@@ -1117,6 +1590,7 @@ function renderAdminPeriodMessage() {
 function renderAdmin() {
   renderSelectors();
   updateAdminTabs();
+  renderCampaignAdminPanel();
   renderAdminSummary();
   renderAdminFilters();
   const adminPeriodMonth = document.getElementById("adminPeriodMonth");
@@ -1155,7 +1629,6 @@ function renderAdmin() {
   renderBranchEditor();
   renderMetricCatalogEditor();
   renderDeflators();
-  renderManagerAccessEditor();
 }
 function selectedAdminSeller() {
   const id = document.getElementById("adminSellerSelect").value || state.sellers[0]?.id;
@@ -1725,9 +2198,13 @@ function collaboratorEstornosMarkup(seller) {
 
 function collaboratorIndicatorTable(seller) {
   const { rows, totals } = collaboratorMetricRows(seller);
-  const body = rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}"></td><td>${achievementPill(row.currentPercent)}</td><td>${num.format(row.missing)}</td><td>${num.format(row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.deflator)}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td></tr>`).join("");
-  const cards = rows.map((row) => `<article class="collab-indicator-card"><div><strong>${escapeHtml(row.metric.name)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div><dl><dt>Meta</dt><dd>${num.format(row.goal)}</dd><dt>Realizado</dt><dd><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}"></dd><dt>% atual</dt><dd>${pct.format(row.currentPercent || 0)}</dd><dt>Falta</dt><dd>${num.format(row.missing)}</dd><dt>Projetado</dt><dd>${num.format(row.projectedValue)}</dd><dt>% projetado</dt><dd>${pct.format(row.projectedPercent || 0)}</dd><dt>Comissão</dt><dd>${money.format(row.commission)}</dd><dt>Deflator</dt><dd>${escapeHtml(row.deflator)}</dd></dl></article>`).join("");
-  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Resultado por indicador</h3><p>Atualize os realizados para simular novos cenários.</p></div><div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${num.format(totals.goal)}</td><td>${num.format(totals.realized)}</td><td>${achievementPill(totals.currentPercent)}</td><td>${num.format(totals.missing)}</td><td>${num.format(totals.projected)}</td><td>${achievementPill(totals.projectedPercent)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.status.cls}">${totals.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
+  const locked = isCampaignOperationLocked();
+  const disabled = locked ? "disabled" : "";
+  const body = rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></td><td>${achievementPill(row.currentPercent)}</td><td>${num.format(row.missing)}</td><td>${num.format(row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.deflator)}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td></tr>`).join("");
+  const cards = rows.map((row) => `<article class="collab-indicator-card"><div><strong>${escapeHtml(row.metric.name)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div><dl><dt>Meta</dt><dd>${num.format(row.goal)}</dd><dt>Realizado</dt><dd><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></dd><dt>% atual</dt><dd>${pct.format(row.currentPercent || 0)}</dd><dt>Falta</dt><dd>${num.format(row.missing)}</dd><dt>Projetado</dt><dd>${num.format(row.projectedValue)}</dd><dt>% projetado</dt><dd>${pct.format(row.projectedPercent || 0)}</dd><dt>Comissão</dt><dd>${money.format(row.commission)}</dd><dt>Deflator</dt><dd>${escapeHtml(row.deflator)}</dd></dl></article>`).join("");
+  const helper = locked ? "Esta campanha esta encerrada e nao permite novas alteracoes." : "Atualize os realizados para simular novos cenarios.";
+  const note = locked ? `<p class="admin-inline-note warning">Esta campanha esta encerrada e nao permite novas alteracoes.</p>` : "";
+  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Resultado por indicador</h3><p>${helper}</p></div>${note}<div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${num.format(totals.goal)}</td><td>${num.format(totals.realized)}</td><td>${achievementPill(totals.currentPercent)}</td><td>${num.format(totals.missing)}</td><td>${num.format(totals.projected)}</td><td>${achievementPill(totals.projectedPercent)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.status.cls}">${totals.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
 }
 
 function collaboratorGuidanceMarkup(seller) {
@@ -1826,6 +2303,7 @@ function safeRender(label, action) {
 }
 function renderAll() {
   renderBrand();
+  renderCampaignSelector();
   document.getElementById("periodMonthDisplay").textContent = state.period.month;
   document.getElementById("daysDone").value = state.period.daysDone;
   document.getElementById("daysTotalDisplay").textContent = state.period.daysTotal;
@@ -1936,7 +2414,7 @@ function openView(view, options = {}) {
   document.querySelectorAll(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   document.querySelectorAll(".view").forEach((panel) => panel.classList.remove("active"));
   document.getElementById(`${view}View`).classList.add("active");
-  document.getElementById("viewTitle").textContent = document.querySelector(`[data-view="${view}"]`).textContent;
+  document.getElementById("viewTitle").textContent = document.querySelector(`.nav-button[data-view="${view}"]`)?.textContent || "Home";
   document.body.dataset.view = view;
   if (!options.skipHistory && routeByView[view] && window.location.pathname !== routeByView[view]) {
     history.pushState({ view }, "", routeByView[view]);
@@ -1959,6 +2437,71 @@ document.addEventListener("click", async (event) => {
   if (adminTabJump) {
     activeAdminTab = adminTabJump.dataset.adminTabJump;
     updateAdminTabs();
+    return;
+  }
+
+  if (event.target.id === "createCampaign") {
+    createCampaignFromActive();
+    return;
+  }
+
+  if (event.target.id === "duplicateActiveCampaign") {
+    duplicateCampaign(state.activeCampaignId);
+    return;
+  }
+
+  const duplicateCampaignButton = event.target.closest("[data-duplicate-campaign]");
+  if (duplicateCampaignButton) {
+    duplicateCampaign(duplicateCampaignButton.dataset.duplicateCampaign);
+    return;
+  }
+
+  const selectCampaignButton = event.target.closest("[data-select-campaign]");
+  if (selectCampaignButton) {
+    setActiveCampaign(selectCampaignButton.dataset.selectCampaign);
+    return;
+  }
+
+  const downloadCampaignButton = event.target.closest("[data-download-campaign]");
+  if (downloadCampaignButton) {
+    downloadCampaignOfficialFile(state.campaigns.find((campaign) => campaign.id === downloadCampaignButton.dataset.downloadCampaign));
+    return;
+  }
+
+  if (event.target.id === "downloadOfficialCampaignFile") {
+    downloadCampaignOfficialFile();
+    return;
+  }
+
+  if (event.target.id === "operationalCloseCampaign") {
+    const campaign = activeCampaign();
+    if (!campaign || campaign.status !== CAMPAIGN_STATUS.OPEN) return;
+    if (!confirm("Voce esta encerrando esta campanha para operacao. Colaboradores e filiais nao poderao mais alterar ou simular resultados desta campanha. Deseja continuar?")) return;
+    syncActiveCampaignFromRoot();
+    campaign.status = CAMPAIGN_STATUS.OPERATIONAL_CLOSED;
+    campaign.operationalCloseDate = campaign.operationalCloseDate || new Date().toISOString().slice(0, 10);
+    saveState("Campanha encerrada operacionalmente");
+    renderAll();
+    return;
+  }
+
+  if (event.target.id === "startAdministrativeClosing") {
+    const campaign = activeCampaign();
+    if (!campaign || campaign.status !== CAMPAIGN_STATUS.OPERATIONAL_CLOSED) return;
+    campaign.status = CAMPAIGN_STATUS.ADMIN_CLOSING;
+    saveState("Fechamento administrativo iniciado");
+    renderAll();
+    return;
+  }
+
+  if (event.target.id === "officialCloseCampaign") {
+    officialCloseActiveCampaign();
+    return;
+  }
+
+  const protectedMutation = event.target.closest("#savePeriodAdmin,#addBranch,[data-delete-branch],[data-add-custom-metric],[data-delete-custom-metric],[data-add-deflator],[data-delete-deflator],#addSeller,[data-delete-seller],#resetData,#importGoalSheet,#goalSheetDropzone,#importData");
+  if (protectedMutation && !canEditCampaignData()) {
+    alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
     return;
   }
 
@@ -2192,6 +2735,41 @@ document.addEventListener("click", async (event) => {
 
 document.addEventListener("input", (event) => {
   const target = event.target;
+  const protectedInput = target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
+    ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id);
+  if (protectedInput && !canEditCampaignData()) {
+    alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
+    renderAll();
+    return;
+  }
+  if (target.dataset.collabRealized && isCampaignOperationLocked()) {
+    alert("Esta campanha esta encerrada e nao permite novas alteracoes.");
+    renderCollaborator();
+    return;
+  }
+  if (target.id === "daysDone" && isCampaignOperationLocked() && document.body.dataset.view !== "admin") {
+    alert("Esta campanha esta encerrada e nao permite novas alteracoes.");
+    renderAll();
+    return;
+  }
+  if (target.dataset.campaignField) {
+    const campaign = activeCampaign();
+    if (!campaign) return;
+    if (isCampaignOfficialClosed(campaign) && !isOwnerUnlocked()) {
+      alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
+      renderCampaignAdminPanel();
+      return;
+    }
+    campaign[target.dataset.campaignField] = target.value;
+    if (target.dataset.campaignField === "reference") {
+      campaign.period.month = target.value;
+      state.period.month = target.value;
+    }
+    campaign.updatedAt = new Date().toISOString();
+    saveState("Campanha atualizada");
+    renderCampaignSelector();
+    return;
+  }
   if (target.id === "daysDone" || target.id === "adminDaysDone") state.period.daysDone = Number(target.value) || 0;
   if (target.id === "adminPeriodMonth") state.period.month = target.value;
   if (target.id === "adminDaysTotal") state.period.daysTotal = Number(target.value) || 1;
@@ -2360,8 +2938,17 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.id === "campaignSelector") {
+    setActiveCampaign(event.target.value);
+    return;
+  }
 
   if (event.target.id === "goalSheetFile") {
+    if (!canEditCampaignData()) {
+      alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
+      event.target.value = "";
+      return;
+    }
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -2377,6 +2964,11 @@ document.addEventListener("change", (event) => {
     reader.readAsText(file);
   }
   if (event.target.id === "importDataFile") {
+    if (!canEditCampaignData()) {
+      alert("Esta campanha esta fechada oficialmente e nao permite importacao de backup.");
+      event.target.value = "";
+      return;
+    }
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();

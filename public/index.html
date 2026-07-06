@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260706-estornos" />
+    <link rel="stylesheet" href="./styles.css?v=20260706-campanhas" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -60,6 +60,13 @@
                 <strong id="daysTotalDisplay">26</strong>
               </div>
             </div>
+          </div>
+          <div class="campaign-card">
+            <label>
+              Campanha
+              <select id="campaignSelector"></select>
+            </label>
+            <span id="campaignStatusBadge" class="campaign-status-badge">Aberta</span>
           </div>
           <div id="branchTopAccess" class="branch-top-access" hidden></div>
           <div class="actions">
@@ -260,7 +267,7 @@
             </div>
 
             <nav class="admin-tabs" aria-label="Secoes do admin">
-              <button class="admin-tab active" data-admin-tab="campanha" type="button">Campanha</button>
+              <button class="admin-tab active" data-admin-tab="campanha" type="button">Campanhas</button>
               <button class="admin-tab" data-admin-tab="vendedores" type="button">Vendedores</button>
               <button class="admin-tab" data-admin-tab="filiais" type="button">Filiais</button>
               <button class="admin-tab" data-admin-tab="metas" type="button">Metas</button>
@@ -275,6 +282,10 @@
             <div class="admin-tab-panels">
               <section class="admin-tab-panel active" data-admin-panel="campanha">
                 <div class="admin-section-grid">
+                  <section class="admin-section-card wide">
+                    <div id="campaignAdminPanel"></div>
+                  </section>
+
                   <section class="admin-section-card compact">
                     <div class="section-title">
                       <h3>Periodo da campanha</h3>
@@ -543,7 +554,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260706-estornos"></script>
+    <script src="./app.js?v=20260706-campanhas"></script>
   </body>
 </html>
 
