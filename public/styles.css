@@ -2400,7 +2400,7 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
 .dashboard-filter-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   align-items: end;
 }
@@ -2705,6 +2705,14 @@ body[data-view="home"] .sidebar .nav-button.active::after {
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
+}
+
+.page-head-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .collab-page-head h2 {
@@ -3774,7 +3782,9 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 }
 
 /* Campaign lifecycle */
-.campaign-card {
+.campaign-card,
+.module-campaign-box,
+.module-campaign-selector {
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto;
   align-items: end;
@@ -3787,13 +3797,30 @@ body[data-view="home"] .sidebar .nav-button.active::after {
   box-shadow: var(--shadow-soft);
 }
 
-.campaign-card label {
+.campaign-card label,
+.module-campaign-box label,
+.module-campaign-selector {
   color: var(--muted);
 }
 
-.campaign-card select {
+.campaign-card select,
+.module-campaign-box select,
+.module-campaign-selector select {
   min-height: 34px;
   border-radius: 10px;
+}
+
+.module-campaign-selector {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  min-width: min(360px, 100%);
+}
+
+.dashboard-filter-grid .campaign-status-badge {
+  width: fit-content;
+  margin-top: 6px;
 }
 
 .campaign-status-badge {
@@ -3953,9 +3980,22 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
 @media (max-width: 760px) {
   .campaign-card,
+  .module-campaign-box,
+  .module-campaign-selector,
   .campaign-current-grid,
   .campaign-kpi-strip {
     grid-template-columns: 1fr;
+  }
+
+  .page-head-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .module-campaign-box,
+  .module-campaign-selector {
+    min-width: 0;
+    width: 100%;
   }
 
   .campaign-flow-actions > button,

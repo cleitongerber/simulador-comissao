@@ -166,16 +166,48 @@ function syncActiveCampaignFromRoot(options = {}) {
   campaign.updatedAt = new Date().toISOString();
 }
 
+function normalizedIdentity(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function findMatchingSeller(previousSeller) {
+  if (!previousSeller) return null;
+  return state.sellers.find((seller) => seller.id === previousSeller.id)
+    || state.sellers.find((seller) => (
+      normalizedIdentity(seller.name) === normalizedIdentity(previousSeller.name)
+      && normalizedIdentity(seller.branch) === normalizedIdentity(previousSeller.branch)
+      && normalizedIdentity(seller.area) === normalizedIdentity(previousSeller.area)
+      && String(seller.password || "1234") === String(previousSeller.password || "1234")
+    ))
+    || null;
+}
+
 function setActiveCampaign(campaignId) {
   if (!state.campaigns?.some((campaign) => campaign.id === campaignId)) return;
+  const previousCollaborator = state.sellers.find((seller) => seller.id === activeCollaboratorId) || null;
+  const previousBranch = activeBranchSession;
+  const previousManagerSeller = state.sellers.find((seller) => seller.id === activeManagerSellerId) || null;
   syncActiveCampaignFromRoot();
   state.activeCampaignId = campaignId;
   applyCampaignToState(state, activeCampaign());
-  activeCollaboratorId = "";
-  activeBranchSession = "";
-  activeManagerSellerId = "";
-  sessionStorage.removeItem(COLLAB_SESSION_KEY);
-  sessionStorage.removeItem(BRANCH_SESSION_KEY);
+  const matchingCollaborator = findMatchingSeller(previousCollaborator);
+  if (matchingCollaborator) {
+    activeCollaboratorId = matchingCollaborator.id;
+    sessionStorage.setItem(COLLAB_SESSION_KEY, matchingCollaborator.id);
+  } else if (activeCollaboratorId) {
+    activeCollaboratorId = "";
+    sessionStorage.removeItem(COLLAB_SESSION_KEY);
+  }
+  const matchingBranch = previousBranch ? branches().find((branch) => normalizedIdentity(branch) === normalizedIdentity(previousBranch)) : "";
+  if (matchingBranch) {
+    activeBranchSession = matchingBranch;
+    sessionStorage.setItem(BRANCH_SESSION_KEY, matchingBranch);
+  } else if (activeBranchSession) {
+    activeBranchSession = "";
+    sessionStorage.removeItem(BRANCH_SESSION_KEY);
+  }
+  const matchingManagerSeller = findMatchingSeller(previousManagerSeller);
+  activeManagerSellerId = matchingManagerSeller?.id || "";
   saveState("Campanha selecionada");
   renderAll();
 }
@@ -1343,15 +1375,32 @@ function campaignSummary(campaign) {
   }
 }
 
-function renderCampaignSelector() {
-  const select = document.getElementById("campaignSelector");
-  const badge = document.getElementById("campaignStatusBadge");
-  if (!select || !badge) return;
+function campaignOptionsMarkup(selected = state.activeCampaignId) {
+  return (state.campaigns || [])
+    .map((campaign) => `<option value="${campaign.id}" ${campaign.id === selected ? "selected" : ""}>${escapeHtml(campaign.name)} - ${escapeHtml(campaign.reference || campaign.period?.month || "")}</option>`)
+    .join("");
+}
+
+function renderCampaignSelectors() {
   const selected = state.activeCampaignId;
-  select.innerHTML = (state.campaigns || []).map((campaign) => `<option value="${campaign.id}" ${campaign.id === selected ? "selected" : ""}>${escapeHtml(campaign.name)} - ${escapeHtml(campaign.reference || campaign.period?.month || "")}</option>`).join("");
+  document.querySelectorAll("[data-campaign-select]").forEach((select) => {
+    select.innerHTML = campaignOptionsMarkup(selected);
+    if (state.campaigns?.some((campaign) => campaign.id === selected)) select.value = selected;
+  });
   const campaign = activeCampaign();
-  badge.textContent = campaignStatusLabel(campaign);
-  badge.className = `campaign-status-badge ${campaignStatusClass(campaignStatusLabel(campaign))}`;
+  const status = campaignStatusLabel(campaign);
+  document.querySelectorAll("[data-campaign-status]").forEach((badge) => {
+    badge.textContent = status;
+    badge.className = `campaign-status-badge ${campaignStatusClass(status)}`;
+  });
+}
+
+function moduleCampaignSelectorMarkup(scope) {
+  const status = campaignStatusLabel();
+  return `<div class="module-campaign-box">
+    <label>Campanha<select data-campaign-select="${escapeHtml(scope)}">${campaignOptionsMarkup()}</select></label>
+    <span class="campaign-status-badge ${campaignStatusClass(status)}" data-campaign-status="${escapeHtml(scope)}">${escapeHtml(status)}</span>
+  </div>`;
 }
 
 function campaignStatusClass(status) {
@@ -1967,8 +2016,8 @@ function branchDeflatorSummary(sellers) {
 function branchDashboardMarkup(branch, sellers) {
   const totals = branchTotals(sellers);
   const selectedSeller = sellers.find((seller) => seller.id === activeManagerSellerId) || null;
-  if (!sellers.length) return `<div class="branch-modern"><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
-  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div></div>${branchKpiCards(branch, sellers, totals)}${branchAlerts(sellers, totals)}${branchSellerFilter(sellers)}<div class="branch-main-grid"><div>${branchTeamTable(sellers)}${sellerDetailPanel(selectedSeller)}${branchIndicatorAchievementCard(sellers)}${branchDeflatorSummary(sellers)}</div><aside>${branchAttentionPoints(sellers)}${branchRankingCard(sellers)}</aside></div></div>`;
+  if (!sellers.length) return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
+  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchKpiCards(branch, sellers, totals)}${branchAlerts(sellers, totals)}${branchSellerFilter(sellers)}<div class="branch-main-grid"><div>${branchTeamTable(sellers)}${sellerDetailPanel(selectedSeller)}${branchIndicatorAchievementCard(sellers)}${branchDeflatorSummary(sellers)}</div><aside>${branchAttentionPoints(sellers)}${branchRankingCard(sellers)}</aside></div></div>`;
 }
 
 function renderManager() {
@@ -1988,11 +2037,12 @@ function renderManager() {
     }
     const options = state.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("");
     loginPanel.innerHTML = options ? `
+      ${moduleCampaignSelectorMarkup("filial-login")}
       <label>Filial<select id="managerBranchSelect">${options}</select></label>
       <label>Senha<input id="managerPassword" type="password" placeholder="Senha da filial"></label>
       <span id="managerLoginError" class="form-error"></span>
       <button id="managerLogin" class="nav-button active" type="button">Entrar</button>
-    ` : `<div class="empty-state">Cadastre uma filial no Admin para liberar esta visão.</div>`;
+    ` : `${moduleCampaignSelectorMarkup("filial-login")}<div class="empty-state">Cadastre uma filial no Admin para liberar esta visao.</div>`;
     dashboard.innerHTML = `<div class="empty-state">A filial acessa somente o atingimento dos vendedores vinculados a ela.</div>`;
     return;
   }
@@ -2303,7 +2353,7 @@ function safeRender(label, action) {
 }
 function renderAll() {
   renderBrand();
-  renderCampaignSelector();
+  renderCampaignSelectors();
   document.getElementById("periodMonthDisplay").textContent = state.period.month;
   document.getElementById("daysDone").value = state.period.daysDone;
   document.getElementById("daysTotalDisplay").textContent = state.period.daysTotal;
@@ -2767,7 +2817,7 @@ document.addEventListener("input", (event) => {
     }
     campaign.updatedAt = new Date().toISOString();
     saveState("Campanha atualizada");
-    renderCampaignSelector();
+    renderCampaignSelectors();
     return;
   }
   if (target.id === "daysDone" || target.id === "adminDaysDone") state.period.daysDone = Number(target.value) || 0;
@@ -2938,7 +2988,7 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
-  if (event.target.id === "campaignSelector") {
+  if (event.target.matches("[data-campaign-select]")) {
     setActiveCampaign(event.target.value);
     return;
   }

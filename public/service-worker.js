@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260706-campanhas";
+const CACHE_NAME = "comissao-pwa-v20260706-campanhas-modulos";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260706-campanhas",
-  "/app.js?v=20260706-campanhas",
+  "/styles.css?v=20260706-campanhas-modulos",
+  "/app.js?v=20260706-campanhas-modulos",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

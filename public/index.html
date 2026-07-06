@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260706-campanhas" />
+    <link rel="stylesheet" href="./styles.css?v=20260706-campanhas-modulos" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -60,13 +60,6 @@
                 <strong id="daysTotalDisplay">26</strong>
               </div>
             </div>
-          </div>
-          <div class="campaign-card">
-            <label>
-              Campanha
-              <select id="campaignSelector"></select>
-            </label>
-            <span id="campaignStatusBadge" class="campaign-status-badge">Aberta</span>
           </div>
           <div id="branchTopAccess" class="branch-top-access" hidden></div>
           <div class="actions">
@@ -126,6 +119,11 @@
 
             <section class="dashboard-card dashboard-filters-card">
               <div class="dashboard-filter-grid">
+                <label>
+                  Campanha
+                  <select data-campaign-select="dashboard"></select>
+                  <span class="campaign-status-badge" data-campaign-status="dashboard">Aberta</span>
+                </label>
                 <label>
                   Filial
                   <select id="branchFilter"></select>
@@ -520,7 +518,14 @@
                 <span>Simulador e painel de gestão de comissões, metas e performance comercial.</span>
                 <p>Acompanhe sua meta, projeção, comissão e oportunidades de ganho.</p>
               </div>
-              <button id="exportCollaboratorPdf" class="ghost-button" type="button">Exportar PDF</button>
+              <div class="page-head-actions">
+                <label class="module-campaign-selector">
+                  Campanha
+                  <select data-campaign-select="colaborador"></select>
+                  <span class="campaign-status-badge" data-campaign-status="colaborador">Aberta</span>
+                </label>
+                <button id="exportCollaboratorPdf" class="ghost-button" type="button">Exportar PDF</button>
+              </div>
             </section>
 
             <section id="collabAccessCard" class="collab-card collab-access-card">
@@ -554,7 +559,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260706-campanhas"></script>
+    <script src="./app.js?v=20260706-campanhas-modulos"></script>
   </body>
 </html>
 
