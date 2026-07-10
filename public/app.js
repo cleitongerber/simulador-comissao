@@ -1428,6 +1428,28 @@ function campaignClosingRowsMarkup() {
   }).join("");
 }
 
+function campaignShortStatus(status = campaignStatusLabel()) {
+  if (status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) return "Congelada";
+  if (status === CAMPAIGN_STATUS.ADMIN_CLOSING) return "Em revisao";
+  if (status === CAMPAIGN_STATUS.OFFICIAL_CLOSED) return "Fechada";
+  return "Aberta";
+}
+
+function campaignNextActionsMarkup(campaign) {
+  const status = campaignStatusLabel(campaign);
+  const steps = [
+    ["Configurar periodo da campanha", "campanha", "done"],
+    ["Salvar campanha", "campanha", "done"],
+    ["Congelar campanha", "fechamento", status === CAMPAIGN_STATUS.OPEN ? "active" : "done"],
+    ["Revisar resultados", "fechamento", status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED ? "active" : status === CAMPAIGN_STATUS.OPEN ? "" : "done"],
+    ["Lancar estornos", "estornos", status === CAMPAIGN_STATUS.ADMIN_CLOSING ? "active" : status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
+    ["Fechar comissao oficial", "fechamento", status === CAMPAIGN_STATUS.ADMIN_CLOSING ? "active" : status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
+    ["Gerar arquivo de comissionamento", "fechamento", status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
+    ["Iniciar novo mes/campanha", "campanha", status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "active" : ""],
+  ];
+  return steps.map((step, index) => `<button class="campaign-step ${step[2]}" data-admin-tab-jump="${step[1]}" type="button"><span>${index + 1}</span>${escapeHtml(step[0])}</button>`).join("");
+}
+
 function renderCampaignAdminPanel() {
   const container = document.getElementById("campaignAdminPanel");
   if (!container) return;
@@ -1439,6 +1461,8 @@ function renderCampaignAdminPanel() {
   const summary = campaignSummary(campaign);
   const officialClosed = isCampaignOfficialClosed(campaign);
   const canAdminEdit = canEditCampaignData();
+  const metricCount = ["Cabo", "Nao Cabo"].reduce((total, area) => total + metricsFor(area).length, 0);
+  const deflatorCount = ["Cabo", "Nao Cabo"].reduce((total, area) => total + (state.deflators?.[area] || []).length, 0);
   const listRows = state.campaigns.map((item) => {
     const itemSummary = campaignSummary(item);
     return `<tr>
@@ -1457,13 +1481,37 @@ function renderCampaignAdminPanel() {
   container.innerHTML = `
     <div class="section-title inline-title">
       <div>
-        <h3>Campanhas</h3>
-        <p>Crie campanhas independentes, encerre a operacao e congele o fechamento oficial.</p>
+        <h3>Admin / Campanha</h3>
+        <p>Painel de controle da campanha ativa e historico de campanhas independentes.</p>
       </div>
       <div class="campaign-actions">
         <button id="createCampaign" class="primary-button" type="button">Nova campanha</button>
         <button id="duplicateActiveCampaign" class="ghost-button" type="button">Duplicar campanha</button>
       </div>
+    </div>
+    <div class="campaign-command-card">
+      <div>
+        <span>Campanha atual</span>
+        <strong>${escapeHtml(campaign.name)}</strong>
+        <small>${escapeHtml(campaign.reference || campaign.period?.month || "-")}</small>
+      </div>
+      <div><span>Dias uteis</span><strong>${num.format(state.period.daysTotal || 0)}</strong><small>Planejados</small></div>
+      <div><span>Dias realizados</span><strong>${num.format(state.period.daysDone || 0)}</strong><small>Projecao ativa</small></div>
+      <div><span>Status</span><strong class="${campaignStatusClass(campaign.status)}">${campaignShortStatus(campaign.status)}</strong><small>${escapeHtml(campaign.status)}</small></div>
+    </div>
+    <div class="campaign-kpi-strip">
+      <span>Vendedores ativos<strong>${summary.sellers}</strong></span>
+      <span>Filiais ativas<strong>${summary.branches}</strong></span>
+      <span>Metas cadastradas<strong>${metricCount}</strong></span>
+      <span>Deflatores ativos<strong>${deflatorCount}</strong></span>
+      <span>Comissao final<strong>${money.format(summary.commissionFinal || 0)}</strong></span>
+    </div>
+    <div class="campaign-next-actions">
+      <div class="section-title">
+        <h3>Proximas acoes</h3>
+        <p>Use este roteiro para conduzir a campanha ate o fechamento oficial.</p>
+      </div>
+      <div class="campaign-step-grid">${campaignNextActionsMarkup(campaign)}</div>
     </div>
     <div class="campaign-current-grid">
       <label>Nome da campanha<input data-campaign-field="name" value="${escapeHtml(campaign.name)}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
@@ -1473,31 +1521,11 @@ function renderCampaignAdminPanel() {
       <label>Fechamento oficial<input data-campaign-field="officialCloseDate" type="date" value="${escapeHtml(campaign.officialCloseDate || "")}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
       <div class="campaign-current-status"><span>Status</span><strong class="${campaignStatusClass(campaign.status)}">${escapeHtml(campaign.status)}</strong></div>
     </div>
-    <div class="campaign-kpi-strip">
-      <span>Vendedores<strong>${summary.sellers}</strong></span>
-      <span>Filiais<strong>${summary.branches}</strong></span>
-      <span>Comissao final<strong>${money.format(summary.commissionFinal || 0)}</strong></span>
-    </div>
-    <div class="campaign-flow-actions">
-      <button id="operationalCloseCampaign" class="ghost-button" type="button" ${campaign.status !== CAMPAIGN_STATUS.OPEN || !canAdminEdit ? "disabled" : ""}>Encerrar operacionalmente</button>
-      <button id="startAdministrativeClosing" class="ghost-button" type="button" ${campaign.status !== CAMPAIGN_STATUS.OPERATIONAL_CLOSED || !canAdminEdit ? "disabled" : ""}>Iniciar fechamento administrativo</button>
-      <button id="officialCloseCampaign" class="danger-button" type="button" ${campaign.status !== CAMPAIGN_STATUS.ADMIN_CLOSING || !canAdminEdit ? "disabled" : ""}>Fechar comissionamento oficial</button>
-      <button id="downloadOfficialCampaignFile" class="ghost-button" type="button" ${campaign.officialFileCsv ? "" : "disabled"}>Baixar arquivo oficial</button>
-    </div>
     <div class="table-wrap campaign-table-wrap">
       <table>
         <thead><tr><th>Campanha</th><th>Inicio</th><th>Enc. oper.</th><th>Fech. oficial</th><th>Status</th><th>Vendedores</th><th>Filiais</th><th>Comissao final</th><th>Arquivo</th><th>Acoes</th></tr></thead>
         <tbody>${listRows}</tbody>
       </table>
-    </div>
-    <div class="campaign-closing-panel">
-      <div class="section-title"><h3>Fechamento da comissao</h3><p>Revise comissao bruta, deflatores, estornos e comissao final da campanha ativa.</p></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Vendedor</th><th>Comissao bruta</th><th>Deflator</th><th>Qualidade</th><th>Seguro</th><th>Carrossel</th><th>Total estornos</th><th>Comissao final</th><th>Status</th></tr></thead>
-          <tbody>${campaignClosingRowsMarkup() || `<tr><td colspan="9">Nenhum vendedor nesta campanha.</td></tr>`}</tbody>
-        </table>
-      </div>
     </div>
   `;
 }
@@ -1607,6 +1635,84 @@ function renderAdminSummary() {
   `).join("");
 }
 
+function renderAdminEstornosPanel() {
+  const container = document.getElementById("adminEstornosPanel");
+  if (!container) return;
+  const campaign = activeCampaign();
+  const canEditEstornos = canEditCampaignData() && isAdminUnlocked();
+  const rows = state.sellers.map((seller) => {
+    const record = sellerClosingRecord(seller);
+    return `<tr>
+      <td><strong>${escapeHtml(record.name)}</strong><small>${escapeHtml(record.branch)} - ${escapeHtml(record.area)}</small></td>
+      <td><input data-adjustment="quality" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${record.estornoQuality}" ${canEditEstornos ? "" : "disabled"}></td>
+      <td><input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${record.estornoInsurance}" ${canEditEstornos ? "" : "disabled"}></td>
+      <td><input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${record.estornoCarousel}" ${canEditEstornos ? "" : "disabled"}></td>
+      <td>${discountMoney(record.estornosTotal)}</td>
+      <td>${money.format(record.commissionFinal)}</td>
+      <td><span class="status ${record.estornosTotal ? "warn" : "neutral"}">${record.estornosTotal ? "Aplicado" : "Sem estorno"}</span></td>
+    </tr>`;
+  }).join("");
+  const totals = state.sellers.reduce((acc, seller) => acc + sellerEstornos(seller).total, 0);
+  container.innerHTML = `
+    <div class="section-title inline-title">
+      <div>
+        <h3>Estornos</h3>
+        <p>Informe descontos de Qualidade, Seguro e Carrossel antes do fechamento oficial.</p>
+      </div>
+      <span class="campaign-status-badge ${campaignStatusClass(campaign?.status)}">${campaignShortStatus(campaign?.status)}</span>
+    </div>
+    <div class="campaign-kpi-strip compact-strip">
+      <span>Campanha<strong>${escapeHtml(campaign?.name || "-")}</strong></span>
+      <span>Total de estornos<strong>${discountMoney(totals)}</strong></span>
+      <span>Edicao<strong>${canEditEstornos ? "Liberada" : "Bloqueada"}</strong></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Vendedor</th><th>Qualidade</th><th>Seguro</th><th>Carrossel</th><th>Total estornos</th><th>Comissao final</th><th>Status</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="7">Nenhum vendedor nesta campanha.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <p class="admin-inline-note">Estornos sempre reduzem a comissao final. A edicao e bloqueada apos fechamento oficial.</p>
+  `;
+}
+
+function renderAdminClosingPanel() {
+  const container = document.getElementById("adminClosingPanel");
+  if (!container) return;
+  const campaign = activeCampaign();
+  const snapshot = buildCampaignSnapshot(campaign);
+  const canAdminEdit = canEditCampaignData();
+  container.innerHTML = `
+    <div class="section-title inline-title">
+      <div>
+        <h3>Fechamento</h3>
+        <p>Confira totais, estornos e gere o arquivo oficial de comissionamento.</p>
+      </div>
+      <span class="campaign-status-badge ${campaignStatusClass(campaign?.status)}">${campaignShortStatus(campaign?.status)}</span>
+    </div>
+    <div class="campaign-command-card closing-summary">
+      <div><span>Campanha</span><strong>${escapeHtml(campaign?.name || "-")}</strong><small>${escapeHtml(campaign?.reference || "-")}</small></div>
+      <div><span>Vendedores</span><strong>${snapshot.totalSellers}</strong><small>Base do fechamento</small></div>
+      <div><span>Comissao bruta</span><strong>${money.format(snapshot.commissionGrossTotal)}</strong><small>Antes de descontos</small></div>
+      <div><span>Deflatores</span><strong>${money.format(snapshot.deflatorTotal)}</strong><small>Impacto total</small></div>
+      <div><span>Estornos</span><strong>${discountMoney(snapshot.estornosTotal)}</strong><small>Qualidade, seguro e carrossel</small></div>
+      <div><span>Comissao final</span><strong>${money.format(snapshot.commissionFinalTotal)}</strong><small>Total liquido</small></div>
+    </div>
+    <div class="campaign-flow-actions">
+      <button id="operationalCloseCampaign" class="warning-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.OPEN || !canAdminEdit ? "disabled" : ""}>Congelar campanha</button>
+      <button id="startAdministrativeClosing" class="ghost-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.OPERATIONAL_CLOSED || !canAdminEdit ? "disabled" : ""}>Iniciar revisao administrativa</button>
+      <button id="officialCloseCampaign" class="danger-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.ADMIN_CLOSING || !canAdminEdit ? "disabled" : ""}>Fechar comissao oficial</button>
+      <button id="downloadOfficialCampaignFile" class="ghost-button" type="button" ${campaign?.officialFileCsv ? "" : "disabled"}>Baixar arquivo oficial</button>
+    </div>
+    <div class="table-wrap campaign-closing-panel">
+      <table>
+        <thead><tr><th>Vendedor</th><th>Comissao bruta</th><th>Deflator</th><th>Qualidade</th><th>Seguro</th><th>Carrossel</th><th>Total estornos</th><th>Comissao final</th><th>Status</th></tr></thead>
+        <tbody>${campaignClosingRowsMarkup() || `<tr><td colspan="9">Nenhum vendedor nesta campanha.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderAdminFilters() {
   const branchFilter = document.getElementById("adminBranchFilter");
   if (branchFilter) {
@@ -1641,6 +1747,8 @@ function renderAdmin() {
   updateAdminTabs();
   renderCampaignAdminPanel();
   renderAdminSummary();
+  renderAdminEstornosPanel();
+  renderAdminClosingPanel();
   renderAdminFilters();
   const adminPeriodMonth = document.getElementById("adminPeriodMonth");
   const adminDaysTotal = document.getElementById("adminDaysTotal");
@@ -1680,17 +1788,24 @@ function renderAdmin() {
   renderDeflators();
 }
 function selectedAdminSeller() {
-  const id = document.getElementById("adminSellerSelect").value || state.sellers[0]?.id;
+  const id = document.getElementById("adminSellerSelect")?.value || state.sellers[0]?.id;
   return state.sellers.find((seller) => seller.id === id) || state.sellers[0];
 }
 
 function renderAdminMetrics() {
   const seller = selectedAdminSeller();
-  if (!seller) return;
+  const summary = document.getElementById("adminDeflatorSummary");
+  const body = document.getElementById("adminMetricsBody");
+  if (!summary || !body) return;
+  if (!seller) {
+    summary.innerHTML = "";
+    body.innerHTML = "";
+    return;
+  }
   ensureSellerValues(seller);
   const result = sellerResult(seller);
-  document.getElementById("adminDeflatorSummary").innerHTML = `Comissao bruta proj.: <strong>${money.format(result.projectedSubtotal)}</strong> | Deflator proj.: <strong>${money.format(result.projectedDeflator)}</strong> | Estornos: <strong>${discountMoney(result.estornos)}</strong> | Comissao final proj.: <strong>${money.format(result.projected)}</strong>`;
-  document.getElementById("adminMetricsBody").innerHTML = metricsFor(seller.area).map((metric) => {
+  summary.innerHTML = `Comissao bruta proj.: <strong>${money.format(result.projectedSubtotal)}</strong> | Deflator proj.: <strong>${money.format(result.projectedDeflator)}</strong> | Estornos: <strong>${discountMoney(result.estornos)}</strong> | Comissao final proj.: <strong>${money.format(result.projected)}</strong>`;
+  body.innerHTML = metricsFor(seller.area).map((metric) => {
     const value = seller.values[metric.id];
     return `<tr>
       <td>${metric.name}</td>
@@ -2549,7 +2664,7 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  const protectedMutation = event.target.closest("#savePeriodAdmin,#addBranch,[data-delete-branch],[data-add-custom-metric],[data-delete-custom-metric],[data-add-deflator],[data-delete-deflator],#addSeller,[data-delete-seller],#resetData,#importGoalSheet,#goalSheetDropzone,#importData");
+  const protectedMutation = event.target.closest("#savePeriodAdmin,#addBranch,[data-delete-branch],[data-add-custom-metric],[data-delete-custom-metric],[data-add-deflator],[data-delete-deflator],#addSeller,[data-delete-seller],#resetData,#importGoalSheet,#goalSheetDropzone,#importData,#adminImportBackup,#adminRestoreDefault");
   if (protectedMutation && !canEditCampaignData()) {
     alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
     return;
@@ -2607,6 +2722,18 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.id === "importGoalSheet") {
     document.getElementById("goalSheetFile").click();
+  }
+
+  if (event.target.id === "adminImportBackup") {
+    document.getElementById("importData")?.click();
+  }
+
+  if (event.target.id === "adminExportBackup") {
+    document.getElementById("exportData")?.click();
+  }
+
+  if (event.target.id === "adminRestoreDefault") {
+    document.getElementById("resetData")?.click();
   }
 
   if (event.target.id === "addBranch") {
