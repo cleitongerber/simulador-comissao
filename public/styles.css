@@ -4931,3 +4931,229 @@ body[data-view="home"] .main > .view > * {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Relatorio do colaborador: impressao/PDF sempre usa template proprio, nao a tela do app. */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  body.print-collaborator {
+    margin: 0 !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  body.print-collaborator .app-shell,
+  body.print-collaborator .sidebar,
+  body.print-collaborator .topbar,
+  body.print-collaborator .bottom-nav,
+  body.print-collaborator .mobile-nav,
+  body.print-collaborator .owner-credit,
+  body.print-collaborator .modal-backdrop,
+  body.print-collaborator button,
+  body.print-collaborator input,
+  body.print-collaborator select {
+    display: none !important;
+  }
+
+  body.print-collaborator #collabPrintReport,
+  body.print-collaborator .collab-print-report {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  body.print-collaborator .report-page {
+    display: grid !important;
+    gap: 7px !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+  }
+
+  body.print-collaborator .print-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: flex-start !important;
+    gap: 16px !important;
+    padding-bottom: 6px !important;
+    border-bottom: 2px solid #c80013 !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.print-collaborator .print-header h1,
+  body.print-collaborator .print-header p,
+  body.print-collaborator .report-title strong,
+  body.print-collaborator .report-title span,
+  body.print-collaborator .report-block h2,
+  body.print-collaborator .report-block p {
+    margin: 0 !important;
+  }
+
+  body.print-collaborator .print-header h1 {
+    color: #c80013 !important;
+    font-size: 19px !important;
+    line-height: 1.1 !important;
+  }
+
+  body.print-collaborator .print-header p {
+    margin-top: 2px !important;
+    color: #444 !important;
+    font-size: 9px !important;
+  }
+
+  body.print-collaborator .report-title {
+    display: grid !important;
+    gap: 2px !important;
+    text-align: right !important;
+  }
+
+  body.print-collaborator .report-title strong {
+    color: #111 !important;
+    font-size: 13px !important;
+  }
+
+  body.print-collaborator .report-title span {
+    color: #555 !important;
+    font-size: 8px !important;
+  }
+
+  body.print-collaborator .report-meta,
+  body.print-collaborator .report-summary {
+    display: grid !important;
+    gap: 5px !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.print-collaborator .report-meta {
+    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+  }
+
+  body.print-collaborator .report-summary {
+    grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
+  }
+
+  body.print-collaborator .report-meta span,
+  body.print-collaborator .report-summary span,
+  body.print-collaborator .report-block {
+    display: grid !important;
+    gap: 2px !important;
+    padding: 5px !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 3px !important;
+    background: #fff6f7 !important;
+    color: #555 !important;
+    font-size: 7px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+  }
+
+  body.print-collaborator .report-meta strong,
+  body.print-collaborator .report-summary strong {
+    color: #111 !important;
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+    text-transform: none !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  body.print-collaborator .print-table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    font-size: 7.8px !important;
+  }
+
+  body.print-collaborator .print-table thead {
+    display: table-header-group !important;
+  }
+
+  body.print-collaborator .print-table tfoot {
+    display: table-footer-group !important;
+  }
+
+  body.print-collaborator .print-table tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.print-collaborator .print-table th,
+  body.print-collaborator .print-table td {
+    padding: 4px !important;
+    border: 1px solid #ddd !important;
+    text-align: left !important;
+    vertical-align: top !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  body.print-collaborator .print-table th {
+    background: #c80013 !important;
+    color: #fff !important;
+    font-weight: 800 !important;
+  }
+
+  body.print-collaborator .print-table th:nth-child(1),
+  body.print-collaborator .print-table td:nth-child(1) {
+    width: 18% !important;
+  }
+
+  body.print-collaborator .print-table th:nth-child(8),
+  body.print-collaborator .print-table td:nth-child(8),
+  body.print-collaborator .print-table th:nth-child(9),
+  body.print-collaborator .print-table td:nth-child(9),
+  body.print-collaborator .print-table th:nth-child(10),
+  body.print-collaborator .print-table td:nth-child(10) {
+    width: 10% !important;
+  }
+
+  body.print-collaborator .total-row td {
+    background: #fff1f3 !important;
+    color: #c80013 !important;
+    font-weight: 900 !important;
+  }
+
+  body.print-collaborator .print-notes {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.print-collaborator .report-block {
+    min-height: 44px !important;
+    text-transform: none !important;
+  }
+
+  body.print-collaborator .report-block h2 {
+    color: #c80013 !important;
+    font-size: 9px !important;
+  }
+
+  body.print-collaborator .report-block p {
+    color: #222 !important;
+    font-size: 8px !important;
+    line-height: 1.25 !important;
+  }
+
+  body.print-collaborator .print-footer {
+    padding-top: 4px !important;
+    border-top: 1px solid #e5e7eb !important;
+    color: #666 !important;
+    text-align: right !important;
+    font-size: 7px !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}

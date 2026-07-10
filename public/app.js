@@ -2395,11 +2395,101 @@ function collaboratorReportHtml(seller) {
   const rows = collaboratorMetricRows(seller);
   const estornos = sellerEstornos(seller);
   const exportedAt = dateTime.format(new Date());
-  const deflatorText = summary.preview.triggered.length ? `Deflator aplicado: -${pct.format(summary.preview.rate)} | Impacto financeiro: ${money.format(summary.result.projectedDeflator)} | Comissao bruta: ${money.format(summary.gross)} | Estornos: ${discountMoney(summary.estornos)} | Comissao final: ${money.format(summary.final)}` : "Nenhum deflator aplicado no momento.";
-  const experienceText = seller.emExperiencia && summary.preview.triggered.length ? "Vendedor em experiencia - deflator previsto ignorado." : "";
+  const campaign = activeCampaign();
+  const campaignStatus = campaignShortStatus(campaign?.status);
+  const deflatorText = summary.preview.triggered.length ? `Deflator aplicado: -${pct.format(summary.preview.rate)} | Impacto financeiro: ${money.format(summary.result.projectedDeflator)} | Comissão bruta: ${money.format(summary.gross)} | Estornos: ${discountMoney(summary.estornos)} | Comissão final: ${money.format(summary.final)}` : "Nenhum deflator aplicado no momento.";
+  const experienceText = seller.emExperiencia && summary.preview.triggered.length ? "Vendedor em experiência - deflator previsto ignorado." : "";
   const estornoText = estornos.total ? estornos.items.map((item) => `${item.label}: ${discountMoney(item.value)}`).join(" | ") + ` | Total de estornos: ${discountMoney(estornos.total)}` : "Nenhum estorno aplicado.";
   const tableRows = rows.rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td>${num.format(row.realized)}</td><td>${pct.format(row.currentPercent || 0)}</td><td>${num.format(row.missing)}</td><td>${num.format(row.projectedValue)}</td><td>${pct.format(row.projectedPercent || 0)}</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.deflator)}</td><td>${row.status.label}</td></tr>`).join("");
-  return `<div class="report-page"><header><div><h1>Comissao 360</h1><p>Simulador e painel de gestao de comissoes, metas e performance comercial.</p></div><strong>Relatorio do colaborador</strong></header><section class="report-meta"><span>Colaborador<strong>${escapeHtml(seller.name)}</strong></span><span>Filial<strong>${escapeHtml(seller.branch)}</strong></span><span>Area<strong>${escapeHtml(seller.area)}</strong></span><span>Mes<strong>${escapeHtml(state.period.month)}</strong></span><span>Dias realizados<strong>${num.format(state.period.daysDone)}</strong></span><span>Dias uteis<strong>${num.format(state.period.daysTotal)}</strong></span><span>Exportado em<strong>${exportedAt}</strong></span></section><section class="report-summary"><span>Comissao final<strong>${money.format(summary.final)}</strong></span><span>% atual<strong>${pct.format(summary.currentPercent)}</strong></span><span>% projetado<strong>${pct.format(summary.projectedPercent)}</strong></span><span>Status<strong>${summary.status.label}</strong></span><span>Comissao bruta<strong>${money.format(summary.gross)}</strong></span><span>Deflator<strong>${summary.preview.rate ? `-${pct.format(summary.preview.rate)}` : "Nenhum"}</strong></span><span>Impacto deflator<strong>${money.format(summary.result.projectedDeflator)}</strong></span><span>Estornos<strong>${discountMoney(summary.estornos)}</strong></span></section><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissao</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${tableRows}<tr class="total-row"><td>Total</td><td>${num.format(rows.totals.goal)}</td><td>${num.format(rows.totals.realized)}</td><td>${pct.format(rows.totals.currentPercent || 0)}</td><td>${num.format(rows.totals.missing)}</td><td>${num.format(rows.totals.projected)}</td><td>${pct.format(rows.totals.projectedPercent || 0)}</td><td>${money.format(summary.final)}</td><td>-</td><td>${rows.totals.status.label}</td></tr></tbody></table><section class="report-block"><h2>Deflatores</h2><p>${escapeHtml(experienceText || deflatorText)}</p></section><section class="report-block"><h2>Estornos</h2><p>${escapeHtml(estornoText)}</p></section><section class="report-block"><h2>Orientacao</h2><p>${escapeHtml(collaboratorGuidance(seller))}</p></section><footer>Desenvolvido por Cleiton Gerber</footer></div>`;
+  return `<div class="report-page print-report">
+    <header class="print-header">
+      <div>
+        <h1>Comiss&atilde;o 360</h1>
+        <p>Simulador e painel de gest&atilde;o de comiss&otilde;es, metas e performance comercial.</p>
+      </div>
+      <div class="report-title">
+        <strong>Relat&oacute;rio do colaborador</strong>
+        <span>Gerado em: ${escapeHtml(exportedAt)}</span>
+      </div>
+    </header>
+    <section class="report-meta">
+      <span>Colaborador<strong>${escapeHtml(seller.name)}</strong></span>
+      <span>Filial<strong>${escapeHtml(seller.branch)}</strong></span>
+      <span>Fun&ccedil;&atilde;o / &Aacute;rea<strong>${escapeHtml(seller.area)}</strong></span>
+      <span>Campanha / M&ecirc;s<strong>${escapeHtml(campaign?.reference || state.period.month)}</strong></span>
+      <span>Dias realizados<strong>${num.format(state.period.daysDone)}</strong></span>
+      <span>Dias &uacute;teis<strong>${num.format(state.period.daysTotal)}</strong></span>
+      <span>Status campanha<strong>${escapeHtml(campaignStatus)}</strong></span>
+    </section>
+    <section class="report-summary">
+      <span>Comiss&atilde;o estimada<strong>${money.format(summary.final)}</strong></span>
+      <span>Comiss&atilde;o bruta<strong>${money.format(summary.gross)}</strong></span>
+      <span>Deflatores<strong>${money.format(summary.result.projectedDeflator)}</strong></span>
+      <span>Estornos<strong>${discountMoney(summary.estornos)}</strong></span>
+      <span>Comiss&atilde;o final<strong>${money.format(summary.final)}</strong></span>
+      <span>Status performance<strong>${escapeHtml(summary.status.label)}</strong></span>
+      <span>Atingimento atual<strong>${pct.format(summary.currentPercent)}</strong></span>
+      <span>Atingimento projetado<strong>${pct.format(summary.projectedPercent)}</strong></span>
+    </section>
+    <table class="print-table">
+      <thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comiss&atilde;o</th><th>Deflator</th><th>Status</th></tr></thead>
+      <tbody>${tableRows}<tr class="total-row"><td>Total</td><td>${num.format(rows.totals.goal)}</td><td>${num.format(rows.totals.realized)}</td><td>${pct.format(rows.totals.currentPercent || 0)}</td><td>${num.format(rows.totals.missing)}</td><td>${num.format(rows.totals.projected)}</td><td>${pct.format(rows.totals.projectedPercent || 0)}</td><td>${money.format(summary.final)}</td><td>-</td><td>${escapeHtml(rows.totals.status.label)}</td></tr></tbody>
+    </table>
+    <section class="print-notes">
+      <div class="report-block"><h2>Deflatores</h2><p>${escapeHtml(experienceText || deflatorText)}</p></div>
+      <div class="report-block"><h2>Estornos</h2><p>${escapeHtml(estornoText)}</p></div>
+      <div class="report-block"><h2>Orienta&ccedil;&atilde;o</h2><p>${escapeHtml(collaboratorGuidance(seller))}</p></div>
+    </section>
+    <footer class="print-footer">Desenvolvido por Cleiton Gerber | Comiss&atilde;o 360</footer>
+  </div>`;
+}
+
+function collaboratorPrintDocumentHtml(reportHtml) {
+  return `<!doctype html>
+  <html lang="pt-BR">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Relat&oacute;rio do colaborador - Comiss&atilde;o 360</title>
+      <style>
+        @page { size: A4 landscape; margin: 10mm; }
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        html, body { margin: 0; background: #fff; color: #111; font-family: Arial, Helvetica, sans-serif; }
+        body { padding: 0; }
+        .report-page { display: grid; gap: 7px; width: 100%; max-width: none; margin: 0; }
+        .print-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 6px; border-bottom: 2px solid #c80013; break-inside: avoid; page-break-inside: avoid; }
+        .print-header h1, .print-header p { margin: 0; }
+        .print-header h1 { color: #c80013; font-size: 19px; line-height: 1.1; }
+        .print-header p { margin-top: 2px; color: #444; font-size: 9px; }
+        .report-title { display: grid; gap: 2px; text-align: right; }
+        .report-title strong { font-size: 13px; }
+        .report-title span { color: #555; font-size: 8px; }
+        .report-meta, .report-summary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; break-inside: avoid; page-break-inside: avoid; }
+        .report-summary { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+        .report-meta span, .report-summary span, .report-block { display: grid; gap: 2px; padding: 5px; border: 1px solid #e5e7eb; border-radius: 3px; background: #fff6f7; color: #555; font-size: 7px; font-weight: 700; text-transform: uppercase; }
+        .report-meta strong, .report-summary strong { color: #111; font-size: 9px; line-height: 1.15; text-transform: none; overflow-wrap: anywhere; }
+        .print-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 7.8px; }
+        .print-table thead { display: table-header-group; }
+        .print-table tfoot { display: table-footer-group; }
+        .print-table tr { break-inside: avoid; page-break-inside: avoid; }
+        .print-table th, .print-table td { padding: 4px; border: 1px solid #ddd; text-align: left; vertical-align: top; white-space: normal; overflow-wrap: anywhere; }
+        .print-table th { background: #c80013; color: #fff; font-weight: 800; }
+        .print-table th:nth-child(1), .print-table td:nth-child(1) { width: 18%; }
+        .print-table th:nth-child(8), .print-table td:nth-child(8) { width: 10%; }
+        .print-table th:nth-child(9), .print-table td:nth-child(9) { width: 10%; }
+        .print-table th:nth-child(10), .print-table td:nth-child(10) { width: 10%; }
+        .total-row td { background: #fff1f3; color: #c80013; font-weight: 900; }
+        .print-notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; break-inside: avoid; page-break-inside: avoid; }
+        .report-block { min-height: 44px; text-transform: none; }
+        .report-block h2, .report-block p { margin: 0; }
+        .report-block h2 { color: #c80013; font-size: 9px; }
+        .report-block p { color: #222; font-size: 8px; line-height: 1.25; }
+        .print-footer { padding-top: 4px; border-top: 1px solid #e5e7eb; color: #666; text-align: right; font-size: 7px; break-inside: avoid; page-break-inside: avoid; }
+        @media print { body { margin: 0; } }
+      </style>
+    </head>
+    <body>${reportHtml}</body>
+  </html>`;
 }
 
 function prepareCollaboratorPdfExport() {
@@ -2408,8 +2498,26 @@ function prepareCollaboratorPdfExport() {
     alert("Entre com a senha do colaborador antes de exportar.");
     return;
   }
+  const reportHtml = collaboratorReportHtml(seller);
+  const printWindow = window.open("", "_blank");
+  if (printWindow) {
+    try {
+      printWindow.opener = null;
+    } catch (error) {
+      console.warn("Nao foi possivel isolar a janela de impressao", error);
+    }
+    printWindow.document.open();
+    printWindow.document.write(collaboratorPrintDocumentHtml(reportHtml));
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.onafterprint = () => printWindow.close();
+    window.setTimeout(() => {
+      printWindow.print();
+    }, 350);
+    return;
+  }
   const report = document.getElementById("collabPrintReport");
-  if (report) report.innerHTML = collaboratorReportHtml(seller);
+  if (report) report.innerHTML = reportHtml;
   document.body.classList.add("print-collaborator");
   window.setTimeout(() => window.print(), 150);
 }
