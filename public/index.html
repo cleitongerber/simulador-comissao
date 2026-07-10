@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260710-print-report" />
+    <link rel="stylesheet" href="./styles.css?v=20260710-layout-polish" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -110,18 +110,6 @@
           <div class="dashboard-modern">
             <div id="dashboardEmptyState" class="dashboard-empty-state"></div>
 
-            <div id="dashboardExecutiveCards" class="dashboard-executive-grid"></div>
-
-            <section class="dashboard-card executive-summary-card">
-              <div class="dashboard-card-head">
-                <div>
-                  <h3>Resumo executivo</h3>
-                  <p>Leitura automatica da performance geral da operacao.</p>
-                </div>
-              </div>
-              <div id="executiveSummary" class="executive-summary-text"></div>
-            </section>
-
             <section class="dashboard-card dashboard-filters-card">
               <div class="dashboard-filter-grid">
                 <label>
@@ -134,11 +122,11 @@
                   <select id="branchFilter"></select>
                 </label>
                 <label>
-                  Area
+                  Área
                   <select id="dashboardAreaFilter">
                     <option value="Todas">Todas</option>
                     <option value="Cabo">Cabo</option>
-                    <option value="Nao Cabo">Nao Cabo</option>
+                    <option value="Nao Cabo">Não Cabo</option>
                   </select>
                 </label>
                 <label>
@@ -150,8 +138,8 @@
                   <select id="dashboardStatusFilter">
                     <option value="Todos">Todos</option>
                     <option value="Acima da meta">Acima da meta</option>
-                    <option value="Em atencao">Em atencao</option>
-                    <option value="Critico">Critico</option>
+                    <option value="Em atenção">Em atenção</option>
+                    <option value="Crítico">Crítico</option>
                   </select>
                 </label>
                 <label>
@@ -164,6 +152,18 @@
                 </label>
                 <button id="clearDashboardFilters" class="ghost-button" type="button">Limpar filtros</button>
               </div>
+            </section>
+
+            <div id="dashboardExecutiveCards" class="dashboard-executive-grid"></div>
+
+            <section class="dashboard-card executive-summary-card">
+              <div class="dashboard-card-head">
+                <div>
+                  <h3>Resumo executivo</h3>
+                  <p>Leitura automática da performance geral da operação.</p>
+                </div>
+              </div>
+              <div id="executiveSummary" class="executive-summary-text"></div>
             </section>
 
             <div class="dashboard-exec-layout">
@@ -191,7 +191,7 @@
                 <div class="dashboard-card-head">
                   <div>
                     <h3>Resultado por vendedor</h3>
-                    <p>Visao consolidada para acompanhamento operacional.</p>
+                    <p>Visão consolidada para acompanhamento operacional.</p>
                   </div>
                   <button id="exportDashboardXls" class="ghost-button" type="button">Exportar Excel</button>
                 </div>
@@ -201,14 +201,14 @@
                       <tr>
                         <th>Vendedor</th>
                         <th>Filial</th>
-                        <th>Area</th>
+                        <th>Área</th>
                         <th>Atual</th>
                         <th>% atual</th>
-                        <th>Comissao bruta</th>
+                        <th>Comissão bruta</th>
                         <th>% proj.</th>
                         <th>Deflator</th>
                         <th>Estornos</th>
-                        <th>Comissao final</th>
+                        <th>Comissão final</th>
                         <th>Status</th>
                       </tr>
                     </thead>
@@ -220,8 +220,8 @@
               <section class="dashboard-card">
                 <div class="dashboard-card-head">
                   <div>
-                    <h3>Pontos de atencao</h3>
-                    <p>Alertas automaticos para acao do gestor.</p>
+                    <h3>Pontos de atenção</h3>
+                    <p>Alertas automáticos para ação do gestor.</p>
                   </div>
                 </div>
                 <div id="attentionPointsList" class="attention-list"></div>
@@ -251,7 +251,7 @@
               <section class="dashboard-card wide">
                 <div class="dashboard-card-head">
                   <div>
-                    <h3>Metas criticas</h3>
+                  <h3>Metas críticas</h3>
                     <p>Indicadores com maior índice de não atingimento.</p>
                   </div>
                 </div>
@@ -264,7 +264,7 @@
           <div class="admin-modern">
             <div class="admin-page-head">
               <div>
-                <p class="eyebrow">Comissao 360</p>
+                <p class="eyebrow">Comissão 360</p>
                 <h2>Admin</h2>
               </div>
               <label class="module-campaign-selector">
@@ -572,7 +572,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260710-print-report"></script>
+    <script src="./app.js?v=20260710-layout-polish"></script>
   </body>
 </html>
 

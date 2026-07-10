@@ -1053,8 +1053,8 @@ function dashboardBaseSellers() {
 
 function dashboardStatusFromPercent(percent) {
   if (percent >= 1) return { label: "Acima da meta", cls: "ok", action: "Acompanhamento" };
-  if (percent >= 0.7) return { label: "Em atencao", cls: "warn", action: "Plano de acao" };
-  return { label: "Critico", cls: "bad", action: "Acao imediata" };
+  if (percent >= 0.7) return { label: "Em atenção", cls: "warn", action: "Plano de ação" };
+  return { label: "Crítico", cls: "bad", action: "Ação imediata" };
 }
 
 function sellerDashboardStatus(seller) {
@@ -1203,20 +1203,27 @@ function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent,
   const container = document.getElementById("dashboardExecutiveCards");
   if (!container) return;
   const cards = [
-    ["Resultado geral", money.format(totals.current), "Comissao atual", "target", null],
+    ["Comissão final", money.format(totals.projected), "Após deflatores e estornos", "money", null],
     ["% atual geral", pct.format(currentPercent), "Atingimento atual", "percent", currentPercent],
-    ["% projetado geral", pct.format(projectedPercent), "Projecao da meta", "trend", projectedPercent],
-    ["Comissao bruta total", money.format(totals.gross), "Antes dos descontos", "money", null],
-    ["Deflatores totais", money.format(totals.deflator), `${deflatorCounts.withDeflator}/${deflatorCounts.withoutDeflator} com / sem`, "scale", deflatorCounts.withDeflator ? 0 : 1],
-    ["Estornos totais", discountMoney(totals.estornos), "Qualidade, seguro e carrossel", "alert", totals.estornos ? 0 : 1],
-    ["Comissao final total", money.format(totals.projected), "Apos deflatores e estornos", "money", null],
-    ["Filiais em risco", riskBranches, "Abaixo de 70%", "alert", riskBranches ? 0 : 1],
-    ["Vendedores em destaque", highlightSellers, "Acima de 120%", "star", highlightSellers ? 1 : null],
+    ["% projetado geral", pct.format(projectedPercent), "Projeção da meta", "trend", projectedPercent],
+    ["Risco / destaque", `${riskBranches}/${highlightSellers}`, "Filiais em risco / vendedores destaque", "alert", riskBranches ? 0 : highlightSellers ? 1 : null],
   ];
+  const financialComposition = `<article class="dashboard-kpi dashboard-finance-composition">
+    <span aria-hidden="true"></span>
+    <div>
+      <small>Composição da comissão</small>
+      <div class="finance-mini-grid">
+        <strong><b>Bruta</b>${money.format(totals.gross)}</strong>
+        <strong><b>Deflatores</b>${discountMoney(totals.deflator)}</strong>
+        <strong><b>Estornos</b>${discountMoney(totals.estornos)}</strong>
+        <strong><b>Com / sem deflator</b>${deflatorCounts.withDeflator}/${deflatorCounts.withoutDeflator}</strong>
+      </div>
+    </div>
+  </article>`;
   container.innerHTML = cards.map(([label, value, detail, icon, percent]) => `<article class="dashboard-kpi ${icon}">
     <span aria-hidden="true"></span>
     <div><small>${label}</small><strong>${value}</strong><em class="${achievementClass(percent)}">${detail}</em></div>
-  </article>`).join("");
+  </article>`).join("") + financialComposition;
 }
 
 function renderExecutiveSummary(sellers, branchRows, currentPercent, projectedPercent, riskBranches) {
@@ -1230,7 +1237,9 @@ function renderExecutiveSummary(sellers, branchRows, currentPercent, projectedPe
   const lowSellers = sellers.filter((seller) => dashboardSellerSummaryResult(seller).currentPercent < 0.7).length;
   const health = projectedPercent >= 1 ? "acima da meta projetada" : "abaixo da meta projetada";
   const branchText = bestBranch ? `${bestBranch.branch} lidera com ${pct.format(bestBranch.currentPercent)} de atingimento atual.` : "";
-  container.innerHTML = `A operacao esta com <strong>${pct.format(currentPercent)}</strong> de atingimento atual e projecao de <strong>${pct.format(projectedPercent)}</strong>, ficando ${health}. ${branchText} ${riskBranches} filial${riskBranches === 1 ? "" : "is"} em risco e ${lowSellers} vendedor${lowSellers === 1 ? "" : "es"} abaixo de 70% exigem atencao.`;
+  const branchRiskText = `${riskBranches} ${riskBranches === 1 ? "filial em risco" : "filiais em risco"}`;
+  const sellerRiskText = `${lowSellers} ${lowSellers === 1 ? "vendedor" : "vendedores"} abaixo de 70%`;
+  container.innerHTML = `A operação está com <strong>${pct.format(currentPercent)}</strong> de atingimento atual e projeção de <strong>${pct.format(projectedPercent)}</strong>, ficando ${health}. ${branchText} ${branchRiskText} e ${sellerRiskText} exigem atenção.`;
 }
 
 function renderSellerSummary(sellers) {
@@ -1328,9 +1337,9 @@ function renderAttentionPoints(sellers, branchRows, currentPercent, projectedPer
   const lowSellers = sellers.filter((seller) => dashboardSellerSummaryResult(seller).currentPercent < 0.7).length;
   const criticalGoals = criticalGoalRows(sellers).slice(0, 1)[0];
   const points = [];
-  if (riskBranches) points.push({ cls: "bad", title: `${riskBranches} filial${riskBranches === 1 ? "" : "is"} abaixo de 70%`, detail: "Priorizar plano de acao por loja." });
+  if (riskBranches) points.push({ cls: "bad", title: `${riskBranches} ${riskBranches === 1 ? "filial abaixo de 70%" : "filiais abaixo de 70%"}`, detail: "Priorizar plano de ação por loja." });
   if (lowSellers) points.push({ cls: "bad", title: `${lowSellers} vendedor${lowSellers === 1 ? "" : "es"} abaixo de 70%`, detail: "Acompanhar gaps individuais." });
-  if (projectedPercent < 1) points.push({ cls: "warn", title: "Projecao abaixo de 100%", detail: `Atingimento projetado em ${pct.format(projectedPercent)}.` });
+  if (projectedPercent < 1) points.push({ cls: "warn", title: "Projeção abaixo de 100%", detail: `Atingimento projetado em ${pct.format(projectedPercent)}.` });
   if (criticalGoals) points.push({ cls: "warn", title: `${criticalGoals.metricName} abaixo da meta`, detail: `${criticalGoals.sellerCount} vendedor${criticalGoals.sellerCount === 1 ? "" : "es"} impactando o indicador.` });
   if (!points.length && sellers.length) points.push({ cls: "ok", title: "Nenhum ponto critico identificado", detail: `Operacao com ${pct.format(currentPercent)} de atingimento atual.` });
   container.innerHTML = points.map((point) => `<div class="attention-row ${point.cls}"><strong>${escapeHtml(point.title)}</strong><span>${escapeHtml(point.detail)}</span></div>`).join("") || `<p class="muted-note">Nenhum dado disponivel.</p>`;
@@ -1900,8 +1909,8 @@ function branchMetricRows(sellers) {
 
 function branchStatusFromPercent(percent) {
   if (percent >= 1) return { label: "Acima da meta", cls: "ok", action: "Acompanhamento" };
-  if (percent >= 0.7) return { label: "Em atencao", cls: "warn", action: "Plano de acao" };
-  return { label: "Critico", cls: "bad", action: "Acao imediata" };
+  if (percent >= 0.7) return { label: "Em atenção", cls: "warn", action: "Plano de ação" };
+  return { label: "Crítico", cls: "bad", action: "Ação imediata" };
 }
 
 function sellerBranchSummary(seller) {
@@ -1979,10 +1988,8 @@ function branchKpiCards(branch, sellers, totals) {
     ["Meta da filial", num.format(totals.totalGoal), "Meta consolidada", "target", null],
     ["Realizado", num.format(totals.realized), "Resultado atual", "trend", totals.currentPercent],
     ["% atual", pct.format(totals.currentPercent), "Atingimento atual", "percent", totals.currentPercent],
-    ["Projetado", num.format(totals.projectedTotal), "Projecao da filial", "trend", totals.projectedPercent],
-    ["% projetado", pct.format(totals.projectedPercent), "Projecao / meta", "percent", totals.projectedPercent],
-    ["Estornos", discountMoney(totals.estornosTotal), "Qualidade, seguro e carrossel", "alert", totals.estornosTotal ? 0 : 1],
-    ["Comissao estimada", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)}`, "money", null],
+    ["Projetado", `${num.format(totals.projectedTotal)} (${pct.format(totals.projectedPercent)})`, "Projeção / meta", "trend", totals.projectedPercent],
+    ["Comissão final", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)} | Estornos ${discountMoney(totals.estornosTotal)}`, "money", null],
   ];
   return `<div class="branch-kpi-grid">${cards.map(([label, value, detail, icon, percent]) => `<article class="branch-kpi ${icon}"><span aria-hidden="true"></span><div><small>${label}</small><strong>${value}</strong><em class="${achievementClass(percent)}">${detail}</em></div></article>`).join("")}</div>`;
 }
@@ -1999,7 +2006,7 @@ function branchAlerts(sellers, totals) {
     ? `${estornoSellers.length} vendedor${estornoSellers.length === 1 ? "" : "es"} com estornos. Impacto total: ${discountMoney(totals.estornosTotal)}.`
     : "Nenhum estorno aplicado no momento.";
   return `<div class="branch-alert-grid">
-    <article class="branch-alert ${riskSellers.length ? "bad" : "ok"}"><strong>${riskSellers.length} vendedor${riskSellers.length === 1 ? "" : "es"} em risco</strong><span>${riskSellers.length ? "Estao com performance abaixo de 70% da meta atual." : "Nenhum vendedor abaixo de 70% no momento."}</span></article>
+    <article class="branch-alert ${riskSellers.length ? "bad" : "ok"}"><strong>${riskSellers.length} vendedor${riskSellers.length === 1 ? "" : "es"} em risco</strong><span>${riskSellers.length ? "Estão com performance abaixo de 70% da meta atual." : "Nenhum vendedor abaixo de 70% no momento."}</span></article>
     <article class="branch-alert ${totals.projectedPercent >= 1 ? "ok" : "warn"}"><strong>Meta projetada</strong><span>A filial deve atingir ${pct.format(totals.projectedPercent)} da meta. ${projectedGap ? `Faltam ${num.format(projectedGap)} para atingir 100%.` : "Meta projetada atingida."}</span></article>
     <article class="branch-alert ${deflatorSellers.length ? "bad" : "ok"}"><strong>Deflatores ativos</strong><span>${deflatorText}</span></article>
     <article class="branch-alert ${estornoSellers.length ? "warn" : "ok"}"><strong>Estornos</strong><span>${estornoText}</span></article>
@@ -2024,7 +2031,7 @@ function branchTeamTable(sellers) {
       <td><button class="ghost-button compact-action" data-manager-seller-detail="${seller.id}" type="button">Ver detalhes</button></td>
     </tr>`;
   }).join("");
-  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissao bruta, deflator, estornos e comissao final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Colaborador</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissao bruta</th><th>Deflator</th><th>Estornos</th><th>Comissao final</th><th>Status</th><th>Acoes</th></tr></thead><tbody>${rows || `<tr><td colspan="11">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
+  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissão bruta, deflator, estornos e comissão final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Colaborador</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissão bruta</th><th>Deflator</th><th>Estornos</th><th>Comissão final</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows || `<tr><td colspan="11">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function branchSellerFilter(sellers) {
@@ -2100,13 +2107,13 @@ function branchAttentionPoints(sellers) {
   for (const seller of sellers) {
     const summary = sellerBranchSummary(seller);
     const preview = projectedDeflatorPreview(seller);
-    if (summary.currentPercent < 0.7) points.push({ cls: "bad", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Critico` });
-    else if (summary.currentPercent < 1) points.push({ cls: "warn", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Em atencao` });
+    if (summary.currentPercent < 0.7) points.push({ cls: "bad", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Crítico` });
+    else if (summary.currentPercent < 1) points.push({ cls: "warn", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Em atenção` });
     if (preview.triggered.length) points.push({ cls: preview.ignored ? "neutral" : "bad", text: `${seller.name} - Deflator -${pct.format(preview.rate)} - ${preview.triggered[0].metric.name} abaixo do minimo${preview.ignored ? " (ignorado)" : ""}` });
     if (summary.estornos > 0) points.push({ cls: "warn", text: `${seller.name} possui ${money.format(summary.estornos)} em estornos aplicados no fechamento.` });
     if (seller.emExperiencia) points.push({ cls: "neutral", text: `${seller.name} - Em experiencia - Deflator ignorado` });
   }
-  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Pontos de atencao</h3><p>Vendedores e indicadores que exigem acao.</p></div></div><div class="branch-attention-list">${points.slice(0, 8).map((point) => `<div class="attention-row ${point.cls}"><strong>${escapeHtml(point.text)}</strong></div>`).join("") || `<p class="muted-note">Nenhum ponto critico identificado no momento.</p>`}</div></section>`;
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Pontos de atenção</h3><p>Vendedores e indicadores que exigem ação.</p></div></div><div class="branch-attention-list">${points.slice(0, 8).map((point) => `<div class="attention-row ${point.cls}"><strong>${escapeHtml(point.text)}</strong></div>`).join("") || `<p class="muted-note">Nenhum ponto crítico identificado no momento.</p>`}</div></section>`;
 }
 
 function branchRankingCard(sellers) {
@@ -2526,14 +2533,16 @@ function renderCollaborator() {
   renderSelectors();
   const seller = selectedCollabSeller();
   const dashboard = document.getElementById("collabDashboard");
+  const accessCard = document.getElementById("collabAccessCard");
   if (!seller || !dashboard) return;
+  accessCard?.classList.toggle("is-authenticated", activeCollaboratorId === seller.id);
   if (activeCollaboratorId !== seller.id) {
     document.getElementById("collabHero").innerHTML = collaboratorLoginMarkup(seller);
     dashboard.innerHTML = `<section class="collab-empty-state">Selecione um colaborador e informe a senha para visualizar seu desempenho.</section>`;
     return;
   }
   ensureSellerValues(seller);
-  document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Colaborador</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button" type="button">Trocar colaborador</button>`;
+  document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Colaborador</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button compact-action" type="button">Trocar</button>`;
   dashboard.innerHTML = `
     <div class="collab-top-grid">${collaboratorKpiMarkup(seller)}${collaboratorGuidanceMarkup(seller)}</div>
     <div class="collab-mid-grid">${collaboratorMonthMarkup()}${collaboratorDeflatorMarkup(seller)}${collaboratorEstornosMarkup(seller)}</div>

@@ -5157,3 +5157,386 @@ body[data-view="home"] .main > .view > * {
     page-break-inside: avoid !important;
   }
 }
+
+/* Visual refinement pass: denser executive views without changing calculations. */
+.dashboard-modern,
+.branch-modern,
+.collab-modern {
+  gap: 14px;
+}
+
+.dashboard-filters-card {
+  padding: 12px;
+}
+
+.dashboard-filter-grid {
+  grid-template-columns: minmax(190px, 1.2fr) repeat(5, minmax(120px, 1fr)) minmax(120px, .75fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.dashboard-filter-grid label {
+  gap: 5px;
+  font-size: 11px;
+}
+
+.dashboard-filter-grid select,
+.dashboard-filter-grid button {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.dashboard-filter-grid .campaign-status-badge {
+  min-height: 28px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.dashboard-executive-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dashboard-kpi {
+  min-height: 76px;
+  padding: 10px 12px;
+}
+
+.dashboard-kpi > span {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  font-size: 18px;
+}
+
+.dashboard-kpi small,
+.dashboard-kpi em,
+.branch-kpi small,
+.branch-kpi em {
+  font-size: 10px;
+}
+
+.dashboard-kpi strong {
+  margin: 3px 0;
+  font-size: 19px;
+}
+
+.dashboard-finance-composition {
+  grid-column: 1 / -1;
+  min-height: 66px;
+}
+
+.dashboard-finance-composition > span::before {
+  content: "$";
+}
+
+.dashboard-finance-composition > div {
+  width: 100%;
+}
+
+.finance-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.finance-mini-grid strong {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid #f0e1e4;
+  border-radius: 10px;
+  background: #fffafa;
+  font-size: 14px;
+}
+
+.finance-mini-grid b {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.executive-summary-card {
+  padding: 14px;
+}
+
+.executive-summary-card .dashboard-card-head {
+  margin-bottom: 8px;
+}
+
+.executive-summary-text {
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.38;
+}
+
+.dashboard-exec-layout {
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
+}
+
+.dashboard-card {
+  padding: 14px;
+}
+
+.dashboard-card-head {
+  margin-bottom: 10px;
+}
+
+.dashboard-card-head h3 {
+  font-size: 16px;
+}
+
+.branch-kpi-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.branch-kpi {
+  min-height: 82px;
+  padding: 12px;
+}
+
+.branch-kpi > span {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+}
+
+.branch-kpi strong {
+  margin: 3px 0;
+  font-size: 18px;
+  line-height: 1.08;
+}
+
+.branch-alert-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.branch-alert {
+  min-height: 68px;
+  gap: 4px;
+  padding: 11px 12px;
+}
+
+.branch-alert strong {
+  font-size: 13px;
+}
+
+.branch-alert span {
+  font-size: 11px;
+  line-height: 1.28;
+}
+
+.branch-filter-panel {
+  padding: 10px 12px;
+}
+
+.branch-filter-panel label {
+  grid-template-columns: auto minmax(180px, 360px);
+  align-items: center;
+  max-width: none;
+}
+
+.branch-filter-panel select {
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.branch-main-grid {
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, .55fr);
+  gap: 14px;
+}
+
+.branch-card-panel {
+  padding: 14px;
+}
+
+.branch-main-grid > div,
+.branch-main-grid aside,
+.branch-detail-grid > div {
+  gap: 14px;
+}
+
+.collab-page-head {
+  min-height: 0;
+  padding-bottom: 2px;
+}
+
+.collab-page-head h2 {
+  font-size: 28px;
+}
+
+.collab-page-head span,
+.collab-page-head p {
+  font-size: 13px;
+}
+
+.collab-access-card.is-authenticated {
+  min-height: 0;
+}
+
+.collab-access-card.is-authenticated .collab-card-head {
+  grid-template-columns: auto minmax(260px, 1fr);
+  min-height: 52px;
+  padding: 10px 14px;
+}
+
+.collab-access-card.is-authenticated .collab-card-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.collab-access-card.is-authenticated #collabSellerSelect {
+  min-height: 38px;
+}
+
+.collab-access-card.is-authenticated #collabHero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.collab-access-card.is-authenticated .collab-login-identity {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.collab-access-card.is-authenticated .collab-login-identity strong {
+  font-size: 20px;
+}
+
+.collab-access-card.is-authenticated .collab-login-identity small {
+  font-size: 11px;
+}
+
+.collab-top-grid,
+.collab-mid-grid,
+.collab-bottom-grid {
+  gap: 14px;
+}
+
+.collab-card {
+  border-radius: 14px;
+}
+
+.collab-main-kpi {
+  min-height: 0;
+  padding: 16px;
+}
+
+.collab-money {
+  font-size: clamp(32px, 4vw, 42px);
+}
+
+.owner-credit {
+  right: 16px;
+  bottom: 10px;
+  max-width: 210px;
+  opacity: .48;
+  pointer-events: auto;
+}
+
+@media (min-width: 1181px) {
+  .dashboard-exec-layout,
+  .branch-main-grid,
+  .branch-detail-grid {
+    grid-template-columns: minmax(0, 1.4fr) minmax(280px, .6fr);
+  }
+}
+
+@media (max-width: 1180px) {
+  .dashboard-filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-exec-layout,
+  .branch-main-grid,
+  .branch-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .branch-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .branch-alert-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-filter-grid label:first-child,
+  .dashboard-filter-grid button {
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-executive-grid,
+  .branch-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-finance-composition,
+  .branch-kpi.money {
+    grid-column: 1 / -1;
+  }
+
+  .finance-mini-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .branch-filter-panel label {
+    grid-template-columns: 1fr;
+  }
+
+  .collab-access-card.is-authenticated .collab-card-head,
+  .collab-access-card.is-authenticated #collabHero {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .collab-access-card.is-authenticated #collabHero {
+    gap: 8px;
+  }
+
+  .owner-credit {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboard-kpi,
+  .branch-kpi {
+    min-height: 74px;
+    padding: 10px;
+  }
+
+  .dashboard-kpi strong,
+  .branch-kpi strong {
+    font-size: 17px;
+  }
+
+  .dashboard-kpi > span,
+  .branch-kpi > span {
+    width: 30px;
+    height: 30px;
+  }
+
+  .branch-alert-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .collab-page-head h2 {
+    font-size: 24px;
+  }
+}
