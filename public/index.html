@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260711-metric-order-icons" />
+    <link rel="stylesheet" href="./styles.css?v=20260711-vendedor-labels" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -30,7 +30,7 @@
           <button class="nav-button active" data-view="home" type="button">Home</button>
           <button class="nav-button" data-view="dashboard" type="button">Dashboard</button>
           <button class="nav-button" data-view="gerente" type="button">Filial</button>
-          <button class="nav-button" data-view="colaborador" type="button">Colaborador</button>
+          <button class="nav-button" data-view="colaborador" type="button">Vendedor</button>
           <button class="nav-button" data-view="admin" type="button">Admin</button>
         </nav>
       </aside>
@@ -64,7 +64,6 @@
           <div id="branchTopAccess" class="branch-top-access" hidden></div>
           <div class="actions">
             <span id="saveStatus" class="save-status">Conectando ao banco</span>
-            <span class="user-avatar" aria-label="Usuario">SC</span>
             <button id="saveNow" class="ghost-button admin-action" type="button" hidden>Salvar agora</button>
             <details class="more-actions admin-action" hidden>
               <summary>Mais acoes</summary>
@@ -326,7 +325,7 @@
                   <div class="section-title inline-title">
                     <div>
                       <h3>Vendedores</h3>
-                      <p>Cadastre, filtre e mantenha os acessos dos colaboradores.</p>
+                      <p>Cadastre, filtre e mantenha os acessos dos vendedores.</p>
                     </div>
                     <button id="addSeller" class="primary-button" type="button">Novo vendedor</button>
                   </div>
@@ -502,7 +501,7 @@
                   <div class="permission-list">
                     <div><strong>Dashboard</strong><span>Somente visualizacao</span></div>
                     <div><strong>Admin</strong><span>Configuracoes administrativas</span></div>
-                    <div><strong>Colaborador / Filial</strong><span>Acesso operacional por senha cadastrada</span></div>
+                    <div><strong>Vendedor / Filial</strong><span>Acesso operacional por senha cadastrada</span></div>
                     <div><strong>Desenvolvedor / Proprietario</strong><span>Acesso total protegido por configuracao segura</span></div>
                   </div>
                   <p class="admin-inline-note">Padrao inicial: admin admin123 e dashboard dashboard123.</p>
@@ -543,7 +542,7 @@
 
             <section id="collabAccessCard" class="collab-card collab-access-card">
               <div class="collab-card-head">
-                <h3>Acesso do colaborador</h3>
+                <h3>Acesso do vendedor</h3>
                 <select id="collabSellerSelect"></select>
               </div>
               <div id="collabHero"></div>
@@ -572,7 +571,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260711-metric-order-icons"></script>
+    <script src="./app.js?v=20260711-vendedor-labels"></script>
   </body>
 </html>
 

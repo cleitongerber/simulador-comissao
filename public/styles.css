@@ -3486,7 +3486,7 @@ body[data-view="home"] .sidebar .nav-button.active::after {
   font-weight: 900;
 }
 
-.admin-summary-card.user > span::before { content: "U"; }
+.admin-summary-card.user > span::before { content: "V"; }
 .admin-summary-card.store > span::before { content: "F"; }
 .admin-summary-card.target > span::before { content: "M"; }
 .admin-summary-card.percent > span::before { content: "%"; }

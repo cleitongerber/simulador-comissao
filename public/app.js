@@ -824,11 +824,11 @@ function generateOfficialCommissionCsv(snapshot) {
   lines.push(["Status", snapshot.status]);
   lines.push([]);
   lines.push(["Detalhe por vendedor"]);
-  lines.push(["Campanha", "Mes/ano", "Colaborador", "Filial", "Area", "Vendedor em experiencia", "Comissao bruta", "Deflator aplicado", "Motivo do deflator", "Impacto financeiro do deflator", "Estorno Qualidade", "Estorno Seguro", "Estorno Carrossel", "Total de estornos", "Comissao final", "Status do fechamento"]);
+  lines.push(["Campanha", "Mes/ano", "Vendedor", "Filial", "Area", "Vendedor em experiencia", "Comissao bruta", "Deflator aplicado", "Motivo do deflator", "Impacto financeiro do deflator", "Estorno Qualidade", "Estorno Seguro", "Estorno Carrossel", "Total de estornos", "Comissao final", "Status do fechamento"]);
   for (const row of snapshot.sellers) lines.push([snapshot.campaignName, snapshot.reference, row.name, row.branch, row.area, row.emExperiencia ? "Sim" : "Nao", row.commissionGross, row.deflator, row.deflatorReason, row.deflatorImpact, row.estornoQuality, row.estornoInsurance, row.estornoCarousel, row.estornosTotal, row.commissionFinal, row.status]);
   lines.push([]);
   lines.push(["Detalhe por indicador"]);
-  lines.push(["Campanha", "Mes/ano", "Colaborador", "Filial", "Indicador", "Meta", "Realizado", "% atual", "Falta", "Projetado", "% projetado", "Comissao do indicador", "Deflator do indicador", "Status"]);
+  lines.push(["Campanha", "Mes/ano", "Vendedor", "Filial", "Indicador", "Meta", "Realizado", "% atual", "Falta", "Projetado", "% projetado", "Comissao do indicador", "Deflator do indicador", "Status"]);
   for (const row of snapshot.indicators) lines.push([snapshot.campaignName, snapshot.reference, row.seller, row.branch, row.metric, row.goal, row.realized, pct.format(row.currentPercent), row.missing, row.projected, pct.format(row.projectedPercent), row.commission, row.deflator, row.status]);
   lines.push([]);
   lines.push(["Desenvolvido por Cleiton Gerber"]);
@@ -1916,7 +1916,7 @@ function renderAdmin() {
         <label>Carrossel<input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" min="0" step="0.01" placeholder="R$ 0,00" value="${sellerEstornos(seller).items.find((item) => item.id === "carousel")?.value || 0}"></label>
         <span class="seller-estornos-total">Total de estornos <strong>${discountMoney(sellerEstornos(seller).total)}</strong></span>
       </div>
-      <label>Senha colaborador<input data-seller-field="password" data-seller-id="${seller.id}" type="text" value="${escapeHtml(seller.password || "1234")}"></label>
+      <label>Senha vendedor<input data-seller-field="password" data-seller-id="${seller.id}" type="text" value="${escapeHtml(seller.password || "1234")}"></label>
       <label class="checkbox-line"><input data-seller-experience="${seller.id}" type="checkbox" ${seller.emExperiencia ? "checked" : ""}> Vendedor em experiência</label>
       <button class="delete-seller-button" data-delete-seller="${seller.id}" type="button">Excluir vendedor</button>
     </div>
@@ -2179,7 +2179,7 @@ function branchTeamTable(sellers) {
       <td><button class="ghost-button compact-action" data-manager-seller-detail="${seller.id}" type="button">Ver detalhes</button></td>
     </tr>`;
   }).join("");
-  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissão bruta, deflator, estornos e comissão final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Colaborador</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissão bruta</th><th>Deflator</th><th>Estornos</th><th>Comissão final</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows || `<tr><td colspan="11">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
+  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissão bruta, deflator, estornos e comissão final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissão bruta</th><th>Deflator</th><th>Estornos</th><th>Comissão final</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows || `<tr><td colspan="11">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function branchSellerFilter(sellers) {
@@ -2334,9 +2334,9 @@ function selectedCollabSeller() {
 
 function legacyCollaboratorLoginMarkup(seller) {
   return `<div class="collab-login">
-    <div class="hero-number"><span>Colaborador</span><strong>${seller?.name || "Selecione"}</strong></div>
+    <div class="hero-number"><span>Vendedor</span><strong>${seller?.name || "Selecione"}</strong></div>
     <label>Senha
-      <input id="collabPassword" type="password" placeholder="Senha do colaborador">
+      <input id="collabPassword" type="password" placeholder="Senha do vendedor">
     </label>
     <span id="collabLoginError" class="form-error"></span>
     <button id="collabLogin" class="nav-button active" type="button">Entrar</button>
@@ -2346,13 +2346,13 @@ function legacyCollaboratorLoginMarkup(seller) {
 function legacyPrepareCollaboratorPdfExport() {
   const seller = selectedCollabSeller();
   if (!seller || activeCollaboratorId !== seller.id) {
-    alert("Entre com a senha do colaborador antes de exportar.");
+    alert("Entre com a senha do vendedor antes de exportar.");
     return;
   }
   const stamp = document.getElementById("collabExportStamp");
   if (stamp) {
     stamp.innerHTML = `
-      <strong>Relatório do colaborador</strong>
+      <strong>Relatório do vendedor</strong>
       <span>${seller.name} - ${seller.branch} - ${seller.area}</span>
       <span>Mês: ${state.period.month} | Dias realizados: ${state.period.daysDone} | Dias úteis: ${state.period.daysTotal}</span>
       <span>Exportado em ${dateTime.format(new Date())}</span>
@@ -2381,7 +2381,7 @@ function legacyRenderCollaborator() {
     <div class="hero-number"><span>Deflator</span><strong>${money.format(result.projectedDeflator)}</strong></div>
     <div class="hero-number"><span>Comissão final proj.</span><strong>${money.format(result.projected)}</strong></div>
     <div class="hero-number"><span>Status</span><strong><span class="status ${status.cls}">${status.label}</span></strong></div>
-    <button id="collabLogout" class="ghost-button" type="button">Trocar colaborador</button>
+    <button id="collabLogout" class="ghost-button" type="button">Trocar vendedor</button>
   `;
   document.getElementById("collabMetricsBody").innerHTML = metricsFor(seller.area).map((metric) => {
     const value = seller.values[metric.id];
@@ -2454,11 +2454,11 @@ function collaboratorSummary(seller) {
 
 function collaboratorLoginMarkup(seller) {
   return `<div class="collab-login">
-    <div class="collab-login-identity"><span>Colaborador</span><strong>${escapeHtml(seller?.name || "Selecione")}</strong><small>${escapeHtml(seller ? `${seller.branch} - ${seller.area}` : "Selecione um colaborador")}</small></div>
-    <label>Senha<input id="collabPassword" type="password" placeholder="Senha do colaborador"></label>
+    <div class="collab-login-identity"><span>Vendedor</span><strong>${escapeHtml(seller?.name || "Selecione")}</strong><small>${escapeHtml(seller ? `${seller.branch} - ${seller.area}` : "Selecione um vendedor")}</small></div>
+    <label>Senha<input id="collabPassword" type="password" placeholder="Senha do vendedor"></label>
     <span id="collabLoginError" class="form-error"></span>
     <button id="collabLogin" class="nav-button active" type="button">Entrar</button>
-    <p class="muted-note">Selecione um colaborador e informe a senha para visualizar seu desempenho.</p>
+    <p class="muted-note">Selecione um vendedor e informe a senha para visualizar seu desempenho.</p>
   </div>`;
 }
 
@@ -2563,12 +2563,12 @@ function collaboratorReportHtml(seller) {
         <p>Simulador e painel de gest&atilde;o de comiss&otilde;es, metas e performance comercial.</p>
       </div>
       <div class="report-title">
-        <strong>Relat&oacute;rio do colaborador</strong>
+        <strong>Relat&oacute;rio do vendedor</strong>
         <span>Gerado em: ${escapeHtml(exportedAt)}</span>
       </div>
     </header>
     <section class="report-meta">
-      <span>Colaborador<strong>${escapeHtml(seller.name)}</strong></span>
+      <span>Vendedor<strong>${escapeHtml(seller.name)}</strong></span>
       <span>Filial<strong>${escapeHtml(seller.branch)}</strong></span>
       <span>Fun&ccedil;&atilde;o / &Aacute;rea<strong>${escapeHtml(seller.area)}</strong></span>
       <span>Campanha / M&ecirc;s<strong>${escapeHtml(campaign?.reference || state.period.month)}</strong></span>
@@ -2605,7 +2605,7 @@ function collaboratorPrintDocumentHtml(reportHtml) {
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Relat&oacute;rio do colaborador - Comiss&atilde;o 360</title>
+      <title>Relat&oacute;rio do vendedor - Comiss&atilde;o 360</title>
       <style>
         @page { size: A4 landscape; margin: 10mm; }
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -2650,7 +2650,7 @@ function collaboratorPrintDocumentHtml(reportHtml) {
 function prepareCollaboratorPdfExport() {
   const seller = selectedCollabSeller();
   if (!seller || activeCollaboratorId !== seller.id) {
-    alert("Entre com a senha do colaborador antes de exportar.");
+    alert("Entre com a senha do vendedor antes de exportar.");
     return;
   }
   const reportHtml = collaboratorReportHtml(seller);
@@ -2686,11 +2686,11 @@ function renderCollaborator() {
   accessCard?.classList.toggle("is-authenticated", activeCollaboratorId === seller.id);
   if (activeCollaboratorId !== seller.id) {
     document.getElementById("collabHero").innerHTML = collaboratorLoginMarkup(seller);
-    dashboard.innerHTML = `<section class="collab-empty-state">Selecione um colaborador e informe a senha para visualizar seu desempenho.</section>`;
+    dashboard.innerHTML = `<section class="collab-empty-state">Selecione um vendedor e informe a senha para visualizar seu desempenho.</section>`;
     return;
   }
   ensureSellerValues(seller);
-  document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Colaborador</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button compact-action" type="button">Trocar</button>`;
+  document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Vendedor</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button compact-action" type="button">Trocar</button>`;
   dashboard.innerHTML = `
     <div class="collab-top-grid">${collaboratorKpiMarkup(seller)}${collaboratorGuidanceMarkup(seller)}</div>
     <div class="collab-mid-grid">${collaboratorMonthMarkup()}${collaboratorDeflatorMarkup(seller)}${collaboratorEstornosMarkup(seller)}</div>
@@ -2920,7 +2920,7 @@ document.addEventListener("click", async (event) => {
   if (event.target.id === "operationalCloseCampaign") {
     const campaign = activeCampaign();
     if (!campaign || campaign.status !== CAMPAIGN_STATUS.OPEN) return;
-    if (!confirm("Voce esta encerrando esta campanha para operacao. Colaboradores e filiais nao poderao mais alterar ou simular resultados desta campanha. Deseja continuar?")) return;
+    if (!confirm("Voce esta encerrando esta campanha para operacao. Vendedores e filiais nao poderao mais alterar ou simular resultados desta campanha. Deseja continuar?")) return;
     syncActiveCampaignFromRoot();
     campaign.status = CAMPAIGN_STATUS.OPERATIONAL_CLOSED;
     campaign.operationalCloseDate = campaign.operationalCloseDate || new Date().toISOString().slice(0, 10);
@@ -2932,7 +2932,7 @@ document.addEventListener("click", async (event) => {
   if (event.target.id === "reopenOperationalCampaign") {
     const campaign = activeCampaign();
     if (!campaign || ![CAMPAIGN_STATUS.OPERATIONAL_CLOSED, CAMPAIGN_STATUS.ADMIN_CLOSING].includes(campaign.status)) return;
-    if (!confirm("Voce esta descongelando esta campanha. Colaboradores e filiais voltarao a poder alterar e simular resultados. Os estornos ja lancados serao mantidos. Deseja continuar?")) return;
+    if (!confirm("Voce esta descongelando esta campanha. Vendedores e filiais voltarao a poder alterar e simular resultados. Os estornos ja lancados serao mantidos. Deseja continuar?")) return;
     syncActiveCampaignFromRoot();
     campaign.status = CAMPAIGN_STATUS.OPEN;
     campaign.operationalCloseDate = "";
