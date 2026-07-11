@@ -2007,8 +2007,8 @@ function renderMetricCatalogEditor() {
         <div class="metric-row metric-catalog-row ${isCustom ? "custom" : "system"}">
           <div class="metric-order-cell">
             <span>${metric.sortOrder}</span>
-            <button class="ghost-button compact-action" data-move-metric-order="-1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" ${moveDisabledUp ? "disabled" : ""}>Subir</button>
-            <button class="ghost-button compact-action" data-move-metric-order="1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" ${moveDisabledDown ? "disabled" : ""}>Descer</button>
+            <button class="ghost-button compact-action icon-order-button" data-move-metric-order="-1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" title="Mover para cima" aria-label="Mover ${escapeHtml(metric.name)} para cima" ${moveDisabledUp ? "disabled" : ""}>↑</button>
+            <button class="ghost-button compact-action icon-order-button" data-move-metric-order="1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" title="Mover para baixo" aria-label="Mover ${escapeHtml(metric.name)} para baixo" ${moveDisabledDown ? "disabled" : ""}>↓</button>
           </div>
           <label>Indicador<input ${isCustom ? `data-custom-metric-field="name" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"} value="${escapeHtml(metric.name)}"></label>
           <label>Unidade<input ${isCustom ? `data-custom-metric-field="unit" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"} value="${escapeHtml(metric.unit || "Qtd.")}"></label>
