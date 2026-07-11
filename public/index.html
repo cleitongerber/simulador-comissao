@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260711-vendedor-labels" />
+    <link rel="stylesheet" href="./styles.css?v=20260711-audit-logs" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -506,6 +506,87 @@
                   </div>
                   <p class="admin-inline-note">Padrao inicial: admin admin123 e dashboard dashboard123.</p>
                 </section>
+
+                <section class="admin-section-card audit-log-card">
+                  <div class="section-title admin-card-title-row">
+                    <div>
+                      <h3>Logs de auditoria</h3>
+                      <p>Acompanhe acessos, tentativas de login e alteracoes importantes do sistema.</p>
+                    </div>
+                    <button id="exportAuditLogs" class="ghost-button" type="button">Exportar logs</button>
+                  </div>
+                  <div class="audit-filter-grid">
+                    <label>Inicio<input id="auditStartDate" type="date" /></label>
+                    <label>Fim<input id="auditEndDate" type="date" /></label>
+                    <label>Tipo
+                      <select id="auditTypeFilter">
+                        <option value="">Todos</option>
+                        <option>Acesso</option>
+                        <option>Atualizacao</option>
+                        <option>Erro</option>
+                        <option>Seguranca</option>
+                      </select>
+                    </label>
+                    <label>Perfil
+                      <select id="auditProfileFilter">
+                        <option value="">Todos</option>
+                        <option>Admin</option>
+                        <option>Dashboard</option>
+                        <option>Filial</option>
+                        <option>Vendedor</option>
+                        <option>Desenvolvedor/Proprietario</option>
+                        <option>Sistema</option>
+                      </select>
+                    </label>
+                    <label>Modulo
+                      <select id="auditModuleFilter">
+                        <option value="">Todos</option>
+                        <option>Home</option>
+                        <option>Dashboard</option>
+                        <option>Admin</option>
+                        <option>Filial</option>
+                        <option>Vendedor</option>
+                        <option>Campanhas</option>
+                        <option>Metas</option>
+                        <option>Vendedores</option>
+                        <option>Filiais</option>
+                        <option>Regras e Deflatores</option>
+                        <option>Estornos</option>
+                        <option>Fechamento</option>
+                        <option>Importacao / Backup</option>
+                        <option>Identidade</option>
+                        <option>Seguranca</option>
+                      </select>
+                    </label>
+                    <label>Campanha<select id="auditCampaignFilter"></select></label>
+                    <label>Status
+                      <select id="auditStatusFilter">
+                        <option value="">Todos</option>
+                        <option>Sucesso</option>
+                        <option>Falha</option>
+                      </select>
+                    </label>
+                    <label>Busca<input id="auditSearch" type="search" placeholder="Buscar por acao, item ou usuario" /></label>
+                  </div>
+                  <div class="table-wrap audit-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Data/hora</th>
+                          <th>Tipo</th>
+                          <th>Perfil/usuario</th>
+                          <th>Modulo</th>
+                          <th>Acao</th>
+                          <th>Campanha</th>
+                          <th>Status</th>
+                          <th>Detalhe</th>
+                        </tr>
+                      </thead>
+                      <tbody id="auditLogBody"></tbody>
+                    </table>
+                  </div>
+                  <div id="auditLogDetail" class="audit-log-detail"></div>
+                </section>
               </section>
             </div>
           </div>
@@ -571,7 +652,7 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260711-vendedor-labels"></script>
+    <script src="./app.js?v=20260711-audit-logs"></script>
   </body>
 </html>
 

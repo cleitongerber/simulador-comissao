@@ -126,6 +126,7 @@ function seedState() {
     deflators: structuredClone(defaultDeflators),
     branchPasswords: { CURITIBANOS: "1234", FRAIBURGO: "1234" },
     settings: defaultSettings(),
+    auditLogs: [],
   };
 }
 
@@ -140,6 +141,8 @@ let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 let activeManagerSellerId = "";
 let activeAdminTab = "campanha";
 let pendingAccessView = "dashboard";
+let activeAuditLogId = "";
+let lastAccessLogKey = "";
 
 function activeCampaign() {
   return state?.campaigns?.find((campaign) => campaign.id === state.activeCampaignId) || state?.campaigns?.[0] || null;
@@ -212,6 +215,15 @@ function setActiveCampaign(campaignId) {
   }
   const matchingManagerSeller = findMatchingSeller(previousManagerSeller);
   activeManagerSellerId = matchingManagerSeller?.id || "";
+  const campaign = activeCampaign();
+  logAccess({
+    status: "Sucesso",
+    module: auditModuleName(document.body.dataset.view),
+    action: "Selecionou campanha",
+    campaignId: campaign?.id || campaignId,
+    campaignName: campaign?.name || "",
+    message: `${currentAuditProfile()} selecionou a campanha ${campaign?.name || campaignId}.`,
+  });
   saveState("Campanha selecionada");
   renderAll();
 }
@@ -253,6 +265,163 @@ function updateSaveStatus(message = "Salvo no banco") {
   updateSaveStatus.timer = window.setTimeout(() => {
     status.textContent = "Salvo no banco";
   }, 2200);
+}
+
+function sanitizeAuditValue(value, field = "") {
+  if (/senha|password/i.test(field)) return value ? "Senha alterada" : "";
+  if (value === undefined || value === null) return "";
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value).slice(0, 700);
+    } catch {
+      return "[valor nao disponivel]";
+    }
+  }
+  return String(value).slice(0, 700);
+}
+
+function normalizeAuditLog(log) {
+  if (!log || typeof log !== "object") return null;
+  return {
+    id: log.id || makeId(),
+    timestamp: log.timestamp || log.date || new Date().toISOString(),
+    type: log.type || "Atualizacao",
+    status: log.status || "Sucesso",
+    profile: log.profile || "",
+    userId: log.userId || "",
+    userName: log.userName || "",
+    sellerName: log.sellerName || "",
+    branchName: log.branchName || "",
+    module: log.module || "",
+    action: log.action || "",
+    campaignId: log.campaignId || "",
+    campaignName: log.campaignName || "",
+    itemId: log.itemId || "",
+    itemName: log.itemName || "",
+    previousValue: sanitizeAuditValue(log.previousValue, log.action || log.itemName || ""),
+    newValue: sanitizeAuditValue(log.newValue, log.action || log.itemName || ""),
+    message: log.message || "",
+    device: log.device || "",
+  };
+}
+
+function normalizeAuditLogs(source) {
+  return Array.isArray(source) ? source.map(normalizeAuditLog).filter(Boolean) : [];
+}
+
+function auditCampaignInfo(campaign = activeCampaign()) {
+  return {
+    campaignId: campaign?.id || "",
+    campaignName: campaign?.name || campaign?.reference || "",
+  };
+}
+
+function currentAuditProfile() {
+  if (isOwnerUnlocked()) return "Desenvolvedor/Proprietario";
+  if (sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok") return "Admin";
+  if (sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok") return "Dashboard";
+  if (activeBranchSession) return "Filial";
+  if (activeCollaboratorId) return "Vendedor";
+  return "Sistema";
+}
+
+function currentAuditUser() {
+  const seller = state?.sellers?.find((item) => item.id === activeCollaboratorId);
+  if (seller) return { userId: seller.id, userName: seller.name, sellerName: seller.name, branchName: seller.branch };
+  if (activeBranchSession) return { userName: activeBranchSession, branchName: activeBranchSession };
+  return {};
+}
+
+function addAuditLog(entry, options = {}) {
+  try {
+    state.auditLogs = normalizeAuditLogs(state.auditLogs);
+    const field = entry.field || entry.action || entry.itemName || "";
+    const log = normalizeAuditLog({
+      id: makeId(),
+      timestamp: new Date().toISOString(),
+      type: entry.type || "Atualizacao",
+      status: entry.status || "Sucesso",
+      profile: entry.profile || currentAuditProfile(),
+      ...auditCampaignInfo(),
+      ...currentAuditUser(),
+      ...entry,
+      previousValue: sanitizeAuditValue(entry.previousValue, field),
+      newValue: sanitizeAuditValue(entry.newValue, field),
+      device: navigator?.userAgent || "",
+    });
+    state.auditLogs.push(log);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (options.persist) {
+      window.clearTimeout(cloudSaveTimer);
+      cloudSaveTimer = window.setTimeout(() => saveStateToCloud("Log registrado"), 350);
+    }
+  } catch (error) {
+    console.error("Falha ao registrar log", error);
+  }
+}
+
+function logAccess(entry, options = {}) {
+  addAuditLog({ type: "Acesso", ...entry }, options);
+}
+
+function logUpdate(entry, options = {}) {
+  addAuditLog({ type: "Atualizacao", ...entry }, options);
+}
+
+function auditModuleName(view) {
+  return { home: "Home", dashboard: "Dashboard", admin: "Admin", gerente: "Filial", colaborador: "Vendedor" }[view] || view || "";
+}
+
+function auditText(value) {
+  return String(value || "").toLowerCase();
+}
+
+function auditLogDate(log) {
+  return String(log.timestamp || "").slice(0, 10);
+}
+
+function auditLogDisplayDate(log) {
+  const date = new Date(log.timestamp);
+  return Number.isNaN(date.getTime()) ? "-" : dateTime.format(date);
+}
+
+function auditLogMatchesFilters(log, filters) {
+  const date = auditLogDate(log);
+  if (filters.start && date && date < filters.start) return false;
+  if (filters.end && date && date > filters.end) return false;
+  if (filters.type && log.type !== filters.type) return false;
+  if (filters.profile && log.profile !== filters.profile) return false;
+  if (filters.module && log.module !== filters.module) return false;
+  if (filters.status && log.status !== filters.status) return false;
+  if (filters.campaign && log.campaignId !== filters.campaign && log.campaignName !== filters.campaign) return false;
+  if (filters.search) {
+    const haystack = [
+      log.profile, log.userName, log.sellerName, log.branchName, log.module,
+      log.action, log.campaignName, log.itemName, log.message,
+    ].map(auditText).join(" ");
+    if (!haystack.includes(auditText(filters.search))) return false;
+  }
+  return true;
+}
+
+function auditFiltersFromDom() {
+  return {
+    start: document.getElementById("auditStartDate")?.value || "",
+    end: document.getElementById("auditEndDate")?.value || "",
+    type: document.getElementById("auditTypeFilter")?.value || "",
+    profile: document.getElementById("auditProfileFilter")?.value || "",
+    module: document.getElementById("auditModuleFilter")?.value || "",
+    campaign: document.getElementById("auditCampaignFilter")?.value || "",
+    status: document.getElementById("auditStatusFilter")?.value || "",
+    search: document.getElementById("auditSearch")?.value || "",
+  };
+}
+
+function filteredAuditLogs() {
+  const filters = auditFiltersFromDom();
+  return normalizeAuditLogs(state.auditLogs)
+    .filter((log) => auditLogMatchesFilters(log, filters))
+    .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
 }
 
 function normalizeCustomMetrics(source) {
@@ -326,9 +495,19 @@ function moveMetricOrder(area, metricId, direction) {
   const index = order.indexOf(metricId);
   const target = index + direction;
   if (index < 0 || target < 0 || target >= order.length) return;
+  const metric = metricsFor(area).find((item) => item.id === metricId);
   [order[index], order[target]] = [order[target], order[index]];
   state.metricOrder[area] = order;
   syncCustomMetricSortOrder(area);
+  logUpdate({
+    action: "Reordenou metas",
+    module: "Metas",
+    itemId: metricId,
+    itemName: metric?.name || metricId,
+    previousValue: `Posicao ${index + 1}`,
+    newValue: `Posicao ${target + 1}`,
+    message: `Meta ${metric?.name || metricId} movida na area ${area}.`,
+  });
   saveState("Ordem das metas atualizada com sucesso.");
   renderAll();
 }
@@ -499,6 +678,7 @@ function normalizeState(candidate) {
   candidate.deflators = normalizeDeflators(candidate.deflators);
   candidate.branches = normalizeBranches(candidate.branches, candidate.sellers);
   candidate.branchPasswords = normalizeBranchPasswords(candidate.branchPasswords, candidate.managerAccess, candidate._legacyManagers, candidate.branches);
+  candidate.auditLogs = normalizeAuditLogs(candidate.auditLogs);
   candidate.campaigns = normalizeCampaigns(candidate);
   if (!candidate.campaigns.some((campaign) => campaign.id === candidate.activeCampaignId)) {
     candidate.activeCampaignId = candidate.campaigns.find((campaign) => campaign.status === CAMPAIGN_STATUS.OPEN)?.id || candidate.campaigns[0]?.id;
@@ -970,12 +1150,14 @@ function exportDashboardExcel() {
   }).join("");
   const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>% atual</th><th>Comissao bruta</th><th>% projetado</th><th>Deflator</th><th>Estornos</th><th>Comissao final</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
   downloadFile(`resultado-vendedores-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
+  logUpdate({ action: "Exportou resultado por vendedor", module: "Dashboard", message: "Relatorio do Dashboard exportado em Excel." }, { persist: true });
 }
 
 function exportCriticalGoalsExcel() {
   const rows = criticalGoalRows(typeof dashboardSellers === "function" ? dashboardSellers() : visibleSellers()).map((row) => `<tr><td>${escapeHtml(row.metricName)}</td><td>${escapeHtml(row.area)}</td><td>${row.sellerCount}</td><td>${num.format(row.goal)}</td><td>${num.format(row.realized)}</td><td>${num.format(row.projected)}</td><td>${pct.format(row.percent)}</td><td>${num.format(row.missing)}</td></tr>`).join("");
   const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Indicador</th><th>Area</th><th>Vendedores abaixo</th><th>Meta total</th><th>Realizado total</th><th>Projetado total</th><th>Atingimento medio</th><th>Falta total</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
   downloadFile(`metas-criticas-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
+  logUpdate({ action: "Exportou metas criticas", module: "Dashboard", message: "Metas criticas exportadas em Excel." }, { persist: true });
 }
 function csvCell(value) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
@@ -991,6 +1173,7 @@ function downloadGoalTemplateCsv() {
     }
   }
   downloadFile("modelo-metas-comissao.csv", "text/csv;charset=utf-8", lines.map((line) => line.map(csvCell).join(";")).join("\n"));
+  logUpdate({ action: "Baixou modelo CSV", module: "Importacao / Backup", message: "Modelo CSV de metas baixado." }, { persist: true });
 }
 
 function parseCsv(text) {
@@ -1110,6 +1293,12 @@ function importGoalTemplateCsv(text) {
     updated += 1;
   }
   state.branches = normalizeBranches(state.branches, state.sellers);
+  logUpdate({
+    action: "Importou CSV",
+    module: "Importacao / Backup",
+    newValue: `${updated} linhas; ${createdSellers} vendedores; ${createdBranches} filiais; ${createdMetrics} metas novas; ${ignoredRows} ignoradas`,
+    message: `CSV importado com ${updated} linhas atualizadas.`,
+  });
   saveState(`${updated} linhas importadas (${createdSellers} vendedores, ${createdBranches} filiais, ${createdMetrics} metas novas, ${ignoredRows} ignoradas)`);
   renderAll();
 }
@@ -1658,6 +1847,15 @@ function createCampaignFromActive(options = {}) {
   state.campaigns.push(campaign);
   state.activeCampaignId = campaign.id;
   applyCampaignToState(state, campaign);
+  logUpdate({
+    action: options.source ? "Duplicou campanha" : "Criou campanha",
+    module: "Campanhas",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: campaign.id,
+    itemName: campaign.name,
+    message: options.source ? `Campanha ${campaign.name} criada a partir de campanha anterior.` : `Campanha ${campaign.name} criada.`,
+  });
   saveState("Campanha criada");
   renderAll();
 }
@@ -1678,6 +1876,14 @@ function downloadCampaignOfficialFile(campaign = activeCampaign()) {
     return;
   }
   downloadFile(campaign.officialFileName || campaignFileName(campaign, campaign.snapshot), "text/csv;charset=utf-8", campaign.officialFileCsv);
+  logUpdate({
+    action: "Baixou arquivo oficial",
+    module: "Fechamento",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemName: campaign.officialFileName || campaignFileName(campaign, campaign.snapshot),
+    message: `Arquivo oficial de comissionamento da campanha ${campaign.name} baixado.`,
+  }, { persist: true });
 }
 
 function previewCampaignFileName(campaign, snapshot) {
@@ -1698,6 +1904,13 @@ function downloadCampaignPreviewFile(campaign = activeCampaign()) {
     }
     const snapshot = buildCampaignSnapshot(campaign, { status: campaignStatusLabel(campaign) });
     downloadFile(previewCampaignFileName(campaign, snapshot), "text/csv;charset=utf-8", generateOfficialCommissionCsv(snapshot));
+    logUpdate({
+      action: "Gerou previa do comissionamento",
+      module: "Fechamento",
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      message: `Previa do arquivo de comissionamento da campanha ${campaign.name} gerada.`,
+    }, { persist: true });
   } finally {
     if (originalRoot) applyCampaignToState(state, originalRoot);
   }
@@ -1728,6 +1941,16 @@ function officialCloseActiveCampaign() {
   campaign.officialFileName = campaignFileName(campaign, snapshot);
   campaign.officialFileCsv = generateOfficialCommissionCsv(snapshot);
   campaign.updatedAt = snapshot.closedAt;
+  logUpdate({
+    action: "Fechou comissionamento oficial",
+    module: "Fechamento",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: campaign.id,
+    itemName: campaign.name,
+    newValue: `Comissao final total: ${money.format(snapshot.commissionFinalTotal)}`,
+    message: `Comissionamento da campanha ${campaign.name} fechado oficialmente. Comissao final total: ${money.format(snapshot.commissionFinalTotal)}.`,
+  });
   saveState("Comissionamento fechado");
   renderAll();
 }
@@ -1882,6 +2105,183 @@ function renderAdminPeriodMessage() {
   message.classList.toggle("warning", invalid);
 }
 
+function renderAuditCampaignFilter() {
+  const select = document.getElementById("auditCampaignFilter");
+  if (!select) return;
+  const previous = select.value;
+  const options = [`<option value="">Todas</option>`]
+    .concat((state.campaigns || []).map((campaign) => `<option value="${escapeHtml(campaign.id)}">${escapeHtml(campaign.name || campaign.reference || "Campanha")}</option>`));
+  select.innerHTML = options.join("");
+  if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+}
+
+function auditProfileUser(log) {
+  const user = log.userName || log.sellerName || log.branchName || "";
+  return user ? `${log.profile} / ${user}` : log.profile || "-";
+}
+
+function renderAuditLogDetail(logs) {
+  const container = document.getElementById("auditLogDetail");
+  if (!container) return;
+  const log = logs.find((item) => item.id === activeAuditLogId) || logs[0];
+  activeAuditLogId = log?.id || "";
+  if (!log) {
+    container.className = "audit-log-detail empty";
+    container.textContent = "Nenhum log selecionado.";
+    return;
+  }
+  container.className = "audit-log-detail";
+  container.innerHTML = `
+    <div class="audit-detail-grid">
+      <span>Data/hora<strong>${escapeHtml(auditLogDisplayDate(log))}</strong></span>
+      <span>Tipo<strong>${escapeHtml(log.type)}</strong></span>
+      <span>Status<strong>${escapeHtml(log.status)}</strong></span>
+      <span>Responsavel<strong>${escapeHtml(auditProfileUser(log))}</strong></span>
+      <span>Modulo<strong>${escapeHtml(log.module || "-")}</strong></span>
+      <span>Acao<strong>${escapeHtml(log.action || "-")}</strong></span>
+      <span>Campanha<strong>${escapeHtml(log.campaignName || "-")}</strong></span>
+      <span>Item<strong>${escapeHtml(log.itemName || "-")}</strong></span>
+      <span>Dispositivo<strong>${escapeHtml(log.device || "-")}</strong></span>
+    </div>
+    <div class="audit-detail-values">
+      <span>Valor anterior<strong>${escapeHtml(log.previousValue || "Nao disponivel")}</strong></span>
+      <span>Valor novo<strong>${escapeHtml(log.newValue || "Nao disponivel")}</strong></span>
+    </div>
+    <p class="muted-note">${escapeHtml(log.message || "Sem descricao adicional.")}</p>
+  `;
+}
+
+function renderAuditLogs() {
+  renderAuditCampaignFilter();
+  const body = document.getElementById("auditLogBody");
+  if (!body) return;
+  const logs = filteredAuditLogs();
+  body.innerHTML = logs.length ? logs.slice(0, 250).map((log) => `
+    <tr>
+      <td>${escapeHtml(auditLogDisplayDate(log))}</td>
+      <td>${escapeHtml(log.type)}</td>
+      <td>${escapeHtml(auditProfileUser(log))}</td>
+      <td>${escapeHtml(log.module || "-")}</td>
+      <td>${escapeHtml(log.action || "-")}</td>
+      <td>${escapeHtml(log.campaignName || "-")}</td>
+      <td><span class="status ${log.status === "Falha" ? "bad" : "ok"}">${escapeHtml(log.status)}</span></td>
+      <td><button class="audit-row-button" data-audit-log-detail="${escapeHtml(log.id)}" type="button">Ver</button></td>
+    </tr>
+  `).join("") : `<tr><td colspan="8">Nenhum log encontrado para os filtros selecionados.</td></tr>`;
+  renderAuditLogDetail(logs);
+}
+
+function exportAuditLogsCsv() {
+  const rows = filteredAuditLogs().map((log) => [
+    auditLogDisplayDate(log),
+    log.type,
+    auditProfileUser(log),
+    log.module,
+    log.action,
+    log.campaignName,
+    log.message,
+    log.status,
+  ]);
+  const header = ["Data/hora", "Tipo", "Perfil/usuario", "Modulo", "Acao", "Campanha", "Descricao", "Status"];
+  const csv = `\uFEFF${[header, ...rows].map((line) => line.map(csvCell).join(";")).join("\n")}`;
+  downloadFile(`logs-auditoria-${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8", csv);
+  logUpdate({ action: "Exportou logs", module: "Seguranca", message: "Admin exportou logs de auditoria em CSV." }, { persist: true });
+}
+
+function auditRawElementValue(target) {
+  if (target.type === "checkbox") return target.checked ? "Sim" : "Nao";
+  if (target.type === "password" || target.dataset?.sellerField === "password" || target.dataset?.branchPassword || /password|senha/i.test(target.id || "")) {
+    return target.value ? "Senha alterada" : "";
+  }
+  return target.value ?? "";
+}
+
+function auditMetricName(area, metricId) {
+  return metricsFor(area).find((metric) => metric.id === metricId)?.name || metricId || "";
+}
+
+function auditFieldDescriptor(target) {
+  if (!target) return null;
+  if (target.dataset.campaignField) {
+    const campaign = activeCampaign();
+    return { action: "Editou campanha", module: "Campanhas", itemId: campaign?.id || "", itemName: campaign?.name || "", field: target.dataset.campaignField, message: `Admin editou a campanha ${campaign?.name || ""}.` };
+  }
+  if (["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) {
+    return { action: "Alterou periodo da campanha", module: "Campanhas", itemName: activeCampaign()?.name || "", field: target.id, message: "Admin alterou dados do periodo da campanha." };
+  }
+  if (target.id === "partnerName") {
+    return { action: "Alterou identidade do sistema", module: "Identidade", itemName: "Nome da parceira", field: "partnerName", message: "Admin alterou o nome da parceira/franquia." };
+  }
+  if (target.id === "newAdminPassword" || target.id === "newDashboardPassword") {
+    const profile = target.id === "newAdminPassword" ? "Admin" : "Dashboard";
+    return { type: "Seguranca", action: "Alterou senha de acesso", module: "Seguranca", itemName: `Senha ${profile}`, field: target.id, forceLog: target.value.trim().length >= 4, message: `Senha de acesso ${profile} alterada.` };
+  }
+  if (target.dataset.sellerExperience) {
+    const seller = state.sellers.find((item) => item.id === target.dataset.sellerExperience);
+    return { action: target.checked ? "Marcou vendedor em experiencia" : "Removeu vendedor de experiencia", module: "Vendedores", itemId: seller?.id || "", itemName: seller?.name || "", field: "emExperiencia", message: `Status de experiencia do vendedor ${seller?.name || ""} alterado.` };
+  }
+  if (target.dataset.sellerField) {
+    const seller = state.sellers.find((item) => item.id === target.dataset.sellerId);
+    const field = target.dataset.sellerField;
+    const action = field === "password" ? "Alterou senha do vendedor" : "Editou vendedor";
+    return { type: field === "password" ? "Seguranca" : "Atualizacao", action, module: "Vendedores", itemId: seller?.id || "", itemName: seller?.name || "", field, forceLog: field === "password", message: `Admin editou o vendedor ${seller?.name || ""}.` };
+  }
+  if (target.dataset.adjustment) {
+    const seller = state.sellers.find((item) => item.id === target.dataset.sellerId);
+    const label = estornoFields.find((item) => item.id === target.dataset.adjustment)?.label || target.dataset.adjustment;
+    return { action: "Editou estornos", module: "Estornos", itemId: seller?.id || "", itemName: seller?.name || "", field: `Estorno ${label}`, message: `Admin alterou estorno ${label} do vendedor ${seller?.name || ""}.` };
+  }
+  if (target.dataset.metricGoal || target.dataset.metricRealized) {
+    const seller = selectedAdminSeller();
+    const metricId = target.dataset.metricGoal || target.dataset.metricRealized;
+    const metric = auditMetricName(seller?.area, metricId);
+    return { action: target.dataset.metricGoal ? "Alterou meta por vendedor" : "Alterou realizado por vendedor", module: "Metas", itemId: metricId, itemName: `${seller?.name || ""} / ${metric}`, field: target.dataset.metricGoal ? "Meta" : "Realizado", message: `Admin alterou ${target.dataset.metricGoal ? "meta" : "realizado"} de ${metric} para ${seller?.name || ""}.` };
+  }
+  if (target.dataset.collabRealized) {
+    const seller = selectedCollabSeller();
+    const metric = auditMetricName(seller?.area, target.dataset.collabRealized);
+    return { action: "Alterou realizado pelo vendedor", module: "Vendedor", itemId: target.dataset.collabRealized, itemName: `${seller?.name || ""} / ${metric}`, field: "Realizado", profile: "Vendedor", userId: seller?.id || "", userName: seller?.name || "", sellerName: seller?.name || "", branchName: seller?.branch || "", message: `Vendedor ${seller?.name || ""} alterou realizado de ${metric}.` };
+  }
+  if (target.dataset.customMetricField) {
+    const metric = state.customMetrics?.[target.dataset.customMetricArea]?.find((item) => item.id === target.dataset.customMetricId);
+    return { action: "Editou meta", module: "Metas", itemId: metric?.id || "", itemName: metric?.name || "", field: target.dataset.customMetricField, message: `Admin editou a meta ${metric?.name || ""}.` };
+  }
+  if (target.dataset.ruleAt || target.dataset.ruleRate) {
+    const area = document.getElementById("ruleAreaSelect")?.value || "";
+    const metricId = target.dataset.ruleAt || target.dataset.ruleRate;
+    return { action: "Editou regra", module: "Regras e Deflatores", itemId: metricId, itemName: auditMetricName(area, metricId), field: target.dataset.ruleAt ? "Faixa" : "Taxa", message: `Admin editou regra de ${auditMetricName(area, metricId)}.` };
+  }
+  if (target.dataset.deflatorField) {
+    const item = state.deflators?.[target.dataset.deflatorArea]?.find((deflator) => deflator.id === target.dataset.deflatorId);
+    return { action: "Editou deflator", module: "Regras e Deflatores", itemId: item?.id || "", itemName: item?.name || "", field: target.dataset.deflatorField, message: `Admin editou o deflator ${item?.name || ""}.` };
+  }
+  if (target.dataset.branchName) {
+    return { action: "Editou filial", module: "Filiais", itemName: target.dataset.branchName, field: "Filial", message: `Admin editou a filial ${target.dataset.branchName}.` };
+  }
+  if (target.dataset.branchPassword) {
+    return { type: "Seguranca", action: "Alterou senha da filial", module: "Filiais", itemName: target.dataset.branchPassword, field: "Senha da filial", forceLog: true, message: `Senha da filial ${target.dataset.branchPassword} alterada.` };
+  }
+  return null;
+}
+
+function rememberAuditPreviousValue(target) {
+  const descriptor = auditFieldDescriptor(target);
+  if (!descriptor) return;
+  target.dataset.auditPreviousValue = auditRawElementValue(target);
+}
+
+function recordAuditFieldChange(target) {
+  const descriptor = auditFieldDescriptor(target);
+  if (!descriptor) return;
+  if ((target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") || ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) && !canEditCampaignData()) return;
+  if (target.dataset.collabRealized && isCampaignOperationLocked()) return;
+  const previousValue = target.dataset.auditPreviousValue || "";
+  const newValue = auditRawElementValue(target);
+  if (!descriptor.forceLog && previousValue === newValue) return;
+  logUpdate({ ...descriptor, previousValue, newValue });
+  target.dataset.auditPreviousValue = newValue;
+}
+
 function renderAdmin() {
   renderSelectors();
   updateAdminTabs();
@@ -1926,6 +2326,7 @@ function renderAdmin() {
   renderBranchEditor();
   renderMetricCatalogEditor();
   renderDeflators();
+  renderAuditLogs();
 }
 function selectedAdminSeller() {
   const id = document.getElementById("adminSellerSelect")?.value || state.sellers[0]?.id;
@@ -2801,6 +3202,13 @@ async function handleAccessLogin() {
   error.textContent = "";
 
   if (pendingAccessView === "dashboard" && typed === dashboardPassword()) {
+    logAccess({
+      status: "Sucesso",
+      profile: "Dashboard",
+      module: "Dashboard",
+      action: "Login realizado",
+      message: "Dashboard acessou a visualizacao executiva.",
+    }, { persist: true });
     sessionStorage.setItem(DASHBOARD_SESSION_KEY, "ok");
     closeAccessLogin();
     renderAll();
@@ -2809,6 +3217,13 @@ async function handleAccessLogin() {
   }
 
   if (typed === adminPassword()) {
+    logAccess({
+      status: "Sucesso",
+      profile: "Admin",
+      module: pendingAccessView === "dashboard" ? "Dashboard" : "Admin",
+      action: "Login realizado",
+      message: pendingAccessView === "dashboard" ? "Admin acessou o Dashboard." : "Admin acessou as configuracoes administrativas.",
+    }, { persist: true });
     sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
     closeAccessLogin();
     renderAll();
@@ -2817,6 +3232,13 @@ async function handleAccessLogin() {
   }
 
   if (await verifyOwnerAccess(typed)) {
+    logAccess({
+      status: "Sucesso",
+      profile: "Desenvolvedor/Proprietario",
+      module: pendingAccessView === "dashboard" ? "Dashboard" : "Admin",
+      action: "Login realizado",
+      message: "Desenvolvedor/Proprietario acessou o sistema.",
+    }, { persist: true });
     sessionStorage.setItem(OWNER_SESSION_KEY, "ok");
     sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
     sessionStorage.setItem(DASHBOARD_SESSION_KEY, "ok");
@@ -2826,6 +3248,13 @@ async function handleAccessLogin() {
     return;
   }
 
+  logAccess({
+    status: "Falha",
+    profile: pendingAccessView === "dashboard" ? "Dashboard" : "Admin",
+    module: pendingAccessView === "dashboard" ? "Dashboard" : "Admin",
+    action: "Tentativa de login invalida",
+    message: `Tentativa invalida de acesso ao modulo ${auditModuleName(pendingAccessView)}.`,
+  }, { persist: true });
   error.textContent = "Senha incorreta";
 }
 
@@ -2853,6 +3282,24 @@ function openView(view, options = {}) {
     history.pushState({ view }, "", routeByView[view]);
   }
   updateActionVisibility();
+  const profile = currentAuditProfile();
+  const canLogAccess = view !== "home" && profile !== "Sistema" && (
+    (view === "admin" && isAdminUnlocked())
+    || (view === "dashboard" && isDashboardUnlocked())
+    || (view === "gerente" && activeBranchSession)
+    || (view === "colaborador" && activeCollaboratorId)
+  );
+  const accessKey = `${view}:${profile}:${activeCollaboratorId}:${activeBranchSession}:${state.activeCampaignId}`;
+  if (canLogAccess && accessKey !== lastAccessLogKey) {
+    lastAccessLogKey = accessKey;
+    logAccess({
+      status: "Sucesso",
+      profile,
+      module: auditModuleName(view),
+      action: "Acesso ao modulo",
+      message: `${profile} acessou o modulo ${auditModuleName(view)}.`,
+    }, { persist: true });
+  }
 }
 
 document.addEventListener("click", async (event) => {
@@ -2870,6 +3317,18 @@ document.addEventListener("click", async (event) => {
   if (adminTabJump) {
     activeAdminTab = adminTabJump.dataset.adminTabJump;
     updateAdminTabs();
+    return;
+  }
+
+  const auditDetailButton = event.target.closest("[data-audit-log-detail]");
+  if (auditDetailButton) {
+    activeAuditLogId = auditDetailButton.dataset.auditLogDetail;
+    renderAuditLogs();
+    return;
+  }
+
+  if (event.target.id === "exportAuditLogs") {
+    exportAuditLogsCsv();
     return;
   }
 
@@ -2924,6 +3383,15 @@ document.addEventListener("click", async (event) => {
     syncActiveCampaignFromRoot();
     campaign.status = CAMPAIGN_STATUS.OPERATIONAL_CLOSED;
     campaign.operationalCloseDate = campaign.operationalCloseDate || new Date().toISOString().slice(0, 10);
+    logUpdate({
+      action: "Encerrou campanha operacionalmente",
+      module: "Campanhas",
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      itemName: campaign.name,
+      newValue: campaign.status,
+      message: `Campanha ${campaign.name} encerrada operacionalmente.`,
+    });
     saveState("Campanha encerrada operacionalmente");
     renderAll();
     return;
@@ -2937,6 +3405,15 @@ document.addEventListener("click", async (event) => {
     campaign.status = CAMPAIGN_STATUS.OPEN;
     campaign.operationalCloseDate = "";
     campaign.updatedAt = new Date().toISOString();
+    logUpdate({
+      action: "Descongelou campanha",
+      module: "Campanhas",
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      itemName: campaign.name,
+      newValue: campaign.status,
+      message: `Campanha ${campaign.name} descongelada e reaberta para operacao.`,
+    });
     saveState("Campanha descongelada");
     renderAll();
     return;
@@ -2946,6 +3423,15 @@ document.addEventListener("click", async (event) => {
     const campaign = activeCampaign();
     if (!campaign || campaign.status !== CAMPAIGN_STATUS.OPERATIONAL_CLOSED) return;
     campaign.status = CAMPAIGN_STATUS.ADMIN_CLOSING;
+    logUpdate({
+      action: "Iniciou fechamento administrativo",
+      module: "Fechamento",
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      itemName: campaign.name,
+      newValue: campaign.status,
+      message: `Fechamento administrativo iniciado para a campanha ${campaign.name}.`,
+    });
     saveState("Fechamento administrativo iniciado");
     renderAll();
     return;
@@ -3036,6 +3522,13 @@ document.addEventListener("click", async (event) => {
     state.branches.push(name);
     state.branchPasswords = state.branchPasswords || {};
     state.branchPasswords[name] = "1234";
+    logUpdate({
+      action: "Criou filial",
+      module: "Filiais",
+      itemName: name,
+      newValue: name,
+      message: `Filial ${name} criada.`,
+    });
     saveState("Filial adicionada");
     renderAll();
   }
@@ -3050,10 +3543,18 @@ document.addEventListener("click", async (event) => {
     }
     state.branches = state.branches.filter((item) => item !== branch);
     if (state.branchPasswords) delete state.branchPasswords[branch];
+    logUpdate({
+      action: "Excluiu filial",
+      module: "Filiais",
+      itemName: branch,
+      previousValue: branch,
+      message: `Filial ${branch} excluida.`,
+    });
     saveState("Filial excluida");
     renderAll();
   }
   if (event.target.id === "saveNow") {
+    logUpdate({ action: "Salvou manualmente", module: "Admin", message: "Admin executou salvamento manual." });
     flushSaveState("Salvo manualmente");
   }
 
@@ -3071,6 +3572,14 @@ document.addEventListener("click", async (event) => {
     ensureMetricOrder(area);
     if (!state.metricOrder[area].includes(id)) state.metricOrder[area].push(id);
     syncCustomMetricSortOrder(area);
+    logUpdate({
+      action: "Criou meta",
+      module: "Metas",
+      itemId: id,
+      itemName: "NOVA META",
+      newValue: `Area ${area}`,
+      message: `Nova meta criada na area ${area}.`,
+    });
     saveState("Meta adicionada");
     renderAll();
   }
@@ -3079,6 +3588,7 @@ document.addEventListener("click", async (event) => {
   if (deleteMetricButton) {
     const area = deleteMetricButton.dataset.customMetricArea;
     const metricId = deleteMetricButton.dataset.deleteCustomMetric;
+    const metric = state.customMetrics[area]?.find((item) => item.id === metricId);
     if (!confirm("Excluir este item de meta?")) return;
     state.customMetrics[area] = state.customMetrics[area].filter((metric) => metric.id !== metricId);
     state.metricOrder = normalizeMetricOrder(state, state.customMetrics);
@@ -3087,6 +3597,14 @@ document.addEventListener("click", async (event) => {
     state.deflators[area] = state.deflators[area].filter((item) => item.metricId !== metricId);
     for (const seller of state.sellers.filter((item) => item.area === area)) delete seller.values[metricId];
     delete state.rules[area][metricId];
+    logUpdate({
+      action: "Excluiu meta",
+      module: "Metas",
+      itemId: metricId,
+      itemName: metric?.name || metricId,
+      previousValue: metric?.name || metricId,
+      message: `Meta ${metric?.name || metricId} excluida da area ${area}.`,
+    });
     saveState("Meta excluida");
     renderAll();
   }
@@ -3094,7 +3612,16 @@ document.addEventListener("click", async (event) => {
   const addDeflatorButton = event.target.closest("[data-add-deflator]");
   if (addDeflatorButton) {
     const area = addDeflatorButton.dataset.addDeflator;
-    state.deflators[area].push({ id: makeId(), metricId: metricsFor(area)[0]?.id || "gross", name: "Novo deflator", min: 0.8, penaltyRate: 0.1 });
+    const deflator = { id: makeId(), metricId: metricsFor(area)[0]?.id || "gross", name: "Novo deflator", min: 0.8, penaltyRate: 0.1 };
+    state.deflators[area].push(deflator);
+    logUpdate({
+      action: "Criou deflator",
+      module: "Regras e Deflatores",
+      itemId: deflator.id,
+      itemName: deflator.name,
+      newValue: `Area ${area}`,
+      message: `Deflator criado na area ${area}.`,
+    });
     saveState("Deflator adicionado");
     renderAll();
   }
@@ -3102,7 +3629,16 @@ document.addEventListener("click", async (event) => {
   const deleteDeflatorButton = event.target.closest("[data-delete-deflator]");
   if (deleteDeflatorButton) {
     const area = deleteDeflatorButton.dataset.deflatorArea;
+    const deflator = state.deflators[area]?.find((item) => item.id === deleteDeflatorButton.dataset.deleteDeflator);
     state.deflators[area] = state.deflators[area].filter((item) => item.id !== deleteDeflatorButton.dataset.deleteDeflator);
+    logUpdate({
+      action: "Excluiu deflator",
+      module: "Regras e Deflatores",
+      itemId: deleteDeflatorButton.dataset.deleteDeflator,
+      itemName: deflator?.name || deleteDeflatorButton.dataset.deleteDeflator,
+      previousValue: deflator?.name || "",
+      message: `Deflator ${deflator?.name || ""} excluido da area ${area}.`,
+    });
     saveState("Deflator excluido");
     renderAll();
   }
@@ -3113,13 +3649,40 @@ document.addEventListener("click", async (event) => {
     if (typed === String(state.branchPasswords?.[branch] || "1234")) {
       activeBranchSession = branch;
       sessionStorage.setItem(BRANCH_SESSION_KEY, branch);
+      logAccess({
+        status: "Sucesso",
+        profile: "Filial",
+        module: "Filial",
+        action: "Login realizado",
+        branchName: branch,
+        userName: branch,
+        message: `Filial ${branch} acessou o painel da filial.`,
+      }, { persist: true });
       renderAll();
     } else {
+      logAccess({
+        status: "Falha",
+        profile: "Filial",
+        module: "Filial",
+        action: "Tentativa de login invalida",
+        branchName: branch,
+        userName: branch,
+        message: `Tentativa invalida de acesso da filial ${branch}.`,
+      }, { persist: true });
       document.getElementById("managerLoginError").textContent = "Senha incorreta";
     }
   }
 
   if (event.target.id === "managerLogout") {
+    logAccess({
+      status: "Sucesso",
+      profile: "Filial",
+      module: "Filial",
+      action: "Logout",
+      branchName: activeBranchSession,
+      userName: activeBranchSession,
+      message: `Filial ${activeBranchSession} saiu do sistema.`,
+    }, { persist: true });
     activeBranchSession = "";
     activeManagerSellerId = "";
     sessionStorage.removeItem(BRANCH_SESSION_KEY);
@@ -3131,7 +3694,16 @@ document.addEventListener("click", async (event) => {
     renderManager();
   }
   if (event.target.id === "addSeller") {
-    state.sellers.push({ id: makeId(), name: "NOVO VENDEDOR", branch: "FILIAL", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} });
+    const seller = { id: makeId(), name: "NOVO VENDEDOR", branch: "FILIAL", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} };
+    state.sellers.push(seller);
+    logUpdate({
+      action: "Criou vendedor",
+      module: "Vendedores",
+      itemId: seller.id,
+      itemName: seller.name,
+      newValue: `${seller.branch} - ${seller.area}`,
+      message: `Vendedor ${seller.name} criado.`,
+    });
     saveState();
     renderAll();
   }
@@ -3151,11 +3723,26 @@ document.addEventListener("click", async (event) => {
       activeCollaboratorId = "";
       sessionStorage.removeItem(COLLAB_SESSION_KEY);
     }
+    logUpdate({
+      action: "Excluiu vendedor",
+      module: "Vendedores",
+      itemId: seller.id,
+      itemName: seller.name,
+      previousValue: `${seller.branch} - ${seller.area}`,
+      message: `Vendedor ${seller.name} excluido.`,
+    });
     saveState("Vendedor excluido");
     renderAll();
   }
   if (event.target.id === "resetData" && confirm("Restaurar os dados padrao?")) {
+    const auditLogs = normalizeAuditLogs(state.auditLogs);
     state = seedState();
+    state.auditLogs = auditLogs;
+    logUpdate({
+      action: "Restaurou padrao",
+      module: "Importacao / Backup",
+      message: "Dados padrao restaurados. Logs de auditoria preservados.",
+    });
     saveState();
     renderAll();
   }
@@ -3173,9 +3760,20 @@ document.addEventListener("click", async (event) => {
     link.click();
     URL.revokeObjectURL(url);
     updateSaveStatus("Backup exportado");
+    logUpdate({ action: "Exportou backup", module: "Importacao / Backup", message: "Backup JSON exportado." }, { persist: true });
   }
 
   if (event.target.id === "exportCollaboratorPdf") {
+    const seller = selectedCollabSeller();
+    logUpdate({
+      action: "Exportou relatorio do vendedor",
+      module: "Vendedor",
+      itemId: seller?.id || "",
+      itemName: seller?.name || "",
+      sellerName: seller?.name || "",
+      branchName: seller?.branch || "",
+      message: seller ? `Relatorio do vendedor ${seller.name} exportado em PDF.` : "Tentativa de exportar relatorio do vendedor.",
+    }, { persist: true });
     prepareCollaboratorPdfExport();
   }
 
@@ -3214,8 +3812,70 @@ document.addEventListener("click", async (event) => {
   if (event.target.id === "accessCancel") closeAccessLogin();
 });
 
+document.addEventListener("click", (event) => {
+  if (event.target.id === "collabLogin") {
+    const seller = selectedCollabSeller();
+    const typed = document.getElementById("collabPassword")?.value;
+    const success = seller && typed === String(seller.password || "1234");
+    logAccess({
+      status: success ? "Sucesso" : "Falha",
+      profile: "Vendedor",
+      module: "Vendedor",
+      action: success ? "Login realizado" : "Tentativa de login invalida",
+      userId: seller?.id || "",
+      userName: seller?.name || "",
+      sellerName: seller?.name || "",
+      branchName: seller?.branch || "",
+      message: success ? `Vendedor ${seller.name} acessou seu desempenho.` : (seller ? `Tentativa invalida de acesso do vendedor ${seller.name}.` : "Tentativa invalida de acesso de vendedor."),
+    }, { persist: true });
+  }
+
+  if (event.target.id === "collabLogout") {
+    const seller = state.sellers.find((item) => item.id === activeCollaboratorId);
+    logAccess({
+      status: "Sucesso",
+      profile: "Vendedor",
+      module: "Vendedor",
+      action: "Logout",
+      userId: seller?.id || "",
+      userName: seller?.name || "",
+      sellerName: seller?.name || "",
+      branchName: seller?.branch || "",
+      message: seller ? `Vendedor ${seller.name} saiu do sistema.` : "Vendedor saiu do sistema.",
+    }, { persist: true });
+  }
+
+  if (event.target.id === "globalLogout") {
+    const profile = currentAuditProfile();
+    const module = auditModuleName(document.body.dataset.view);
+    logAccess({
+      status: "Sucesso",
+      profile,
+      module,
+      action: "Logout",
+      message: `${profile} saiu do sistema.`,
+    }, { persist: true });
+  }
+}, true);
+
+document.addEventListener("focusin", (event) => {
+  rememberAuditPreviousValue(event.target);
+});
+
+document.addEventListener("change", (event) => {
+  if (event.target.id?.startsWith("audit") || event.target.id === "auditSearch") {
+    renderAuditLogs();
+    return;
+  }
+  recordAuditFieldChange(event.target);
+}, true);
+
 document.addEventListener("input", (event) => {
   const target = event.target;
+  if (target.id === "auditSearch") {
+    renderAuditLogs();
+    return;
+  }
   const protectedInput = target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
     ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id);
   if (protectedInput && !canEditCampaignData()) {
@@ -3456,7 +4116,15 @@ document.addEventListener("change", (event) => {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        state = normalizeState(JSON.parse(reader.result));
+        const currentLogs = normalizeAuditLogs(state.auditLogs);
+        const imported = normalizeState(JSON.parse(reader.result));
+        const byId = new Map([...currentLogs, ...normalizeAuditLogs(imported.auditLogs)].map((log) => [log.id, log]));
+        state = { ...imported, auditLogs: [...byId.values()] };
+        logUpdate({
+          action: "Importou backup",
+          module: "Importacao / Backup",
+          message: "Backup JSON importado. Historico de auditoria preservado.",
+        });
         saveState("Backup importado");
         renderAll();
       } catch (error) {
@@ -3544,6 +4212,7 @@ state.branches = normalizeBranches(state.branches, state.sellers);
 state.deflators = normalizeDeflators(state.deflators);
 state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.managerAccess, state._legacyManagers, state.branches);
 state.settings = { ...defaultSettings(), ...(state.settings || {}), adminPassword: adminPassword(), dashboardPassword: dashboardPassword() };
+state.auditLogs = normalizeAuditLogs(state.auditLogs);
 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 renderAll();
 openRouteView({ skipHistory: true });

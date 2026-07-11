@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260711-vendedor-labels";
+const CACHE_NAME = "comissao-pwa-v20260711-audit-logs";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260711-vendedor-labels",
-  "/app.js?v=20260711-vendedor-labels",
+  "/styles.css?v=20260711-audit-logs",
+  "/app.js?v=20260711-audit-logs",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

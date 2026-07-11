@@ -5541,6 +5541,113 @@ body[data-view="home"] .main > .view > * {
   }
 }
 
+.admin-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.audit-log-card {
+  margin-top: 18px;
+}
+
+.audit-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.audit-filter-grid label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.audit-table-wrap {
+  padding: 0 16px 16px;
+}
+
+.audit-row-button {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid #f0cfd5;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--red);
+  font-weight: 800;
+}
+
+.audit-log-detail {
+  display: grid;
+  gap: 10px;
+  margin: 0 16px 16px;
+  padding: 14px;
+  border: 1px solid #f0dfe2;
+  border-radius: 14px;
+  background: #fff8f9;
+}
+
+.audit-log-detail.empty {
+  color: var(--muted);
+}
+
+.audit-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.audit-detail-grid span,
+.audit-detail-values span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.audit-detail-grid strong,
+.audit-detail-values strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: none;
+  word-break: break-word;
+}
+
+.audit-detail-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 1180px) {
+  .audit-filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-card-title-row,
+  .audit-detail-values {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .audit-filter-grid,
+  .audit-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Manual metric ordering in Admin > Metas. */
 #adminView .metric-row.metric-catalog-row {
   grid-template-columns: 116px minmax(180px, 1.25fr) minmax(96px, .55fr) minmax(180px, 1fr) minmax(116px, .65fr) minmax(128px, auto);
