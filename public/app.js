@@ -668,7 +668,7 @@ function sellerClosingRecord(seller) {
   };
 }
 
-function buildCampaignSnapshot(campaign = activeCampaign()) {
+function buildCampaignSnapshot(campaign = activeCampaign(), options = {}) {
   const sellerRows = state.sellers.map(sellerClosingRecord);
   const indicatorRows = sellerRows.flatMap((seller) => seller.indicators);
   const totalGoal = sellerRows.reduce((sum, row) => sum + row.goal, 0);
@@ -685,8 +685,8 @@ function buildCampaignSnapshot(campaign = activeCampaign()) {
     campaignId: campaign?.id,
     campaignName: campaign?.name || "Campanha",
     reference: campaign?.reference || state.period.month,
-    status: CAMPAIGN_STATUS.OFFICIAL_CLOSED,
-    closedAt: new Date().toISOString(),
+    status: options.status || CAMPAIGN_STATUS.OFFICIAL_CLOSED,
+    closedAt: options.closedAt || new Date().toISOString(),
     totalSellers: sellerRows.length,
     totalBranches: branchesList.length,
     totalGoal,
@@ -1452,8 +1452,9 @@ function campaignNextActionsMarkup(campaign) {
     ["Congelar campanha", "fechamento", status === CAMPAIGN_STATUS.OPEN ? "active" : "done"],
     ["Revisar resultados", "fechamento", status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED ? "active" : status === CAMPAIGN_STATUS.OPEN ? "" : "done"],
     ["Lancar estornos", "estornos", status === CAMPAIGN_STATUS.ADMIN_CLOSING ? "active" : status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
+    ["Baixar prévia do arquivo", "fechamento", status === CAMPAIGN_STATUS.ADMIN_CLOSING ? "active" : status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
     ["Fechar comissao oficial", "fechamento", status === CAMPAIGN_STATUS.ADMIN_CLOSING ? "active" : status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
-    ["Gerar arquivo de comissionamento", "fechamento", status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
+    ["Baixar arquivo oficial", "fechamento", status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
     ["Iniciar novo mes/campanha", "campanha", status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "active" : ""],
   ];
   return steps.map((step, index) => `<button class="campaign-step ${step[2]}" data-admin-tab-jump="${step[1]}" type="button"><span>${index + 1}</span>${escapeHtml(step[0])}</button>`).join("");
@@ -1483,7 +1484,11 @@ function renderCampaignAdminPanel() {
       <td>${itemSummary.sellers}</td>
       <td>${itemSummary.branches}</td>
       <td>${money.format(itemSummary.commissionFinal || 0)}</td>
-      <td>${item.officialFileCsv ? `<button class="ghost-button compact-action" data-download-campaign="${item.id}" type="button">Baixar</button>` : "Nao disponivel"}</td>
+      <td>${item.officialFileCsv
+        ? `<button class="ghost-button compact-action" data-download-campaign="${item.id}" type="button">Baixar oficial</button>`
+        : item.status !== CAMPAIGN_STATUS.OFFICIAL_CLOSED
+          ? `<button class="ghost-button compact-action" data-download-preview-campaign="${item.id}" type="button">Baixar prévia</button>`
+          : "Nao disponivel"}</td>
       <td><button class="ghost-button compact-action" data-select-campaign="${item.id}" type="button">Visualizar</button><button class="ghost-button compact-action" data-duplicate-campaign="${item.id}" type="button">Duplicar</button></td>
     </tr>`;
   }).join("");
@@ -1572,6 +1577,29 @@ function downloadCampaignOfficialFile(campaign = activeCampaign()) {
     return;
   }
   downloadFile(campaign.officialFileName || campaignFileName(campaign, campaign.snapshot), "text/csv;charset=utf-8", campaign.officialFileCsv);
+}
+
+function previewCampaignFileName(campaign, snapshot) {
+  return campaignFileName(campaign, snapshot).replace("Comissao_360_Comissionamento_", "Comissao_360_Previa_");
+}
+
+function downloadCampaignPreviewFile(campaign = activeCampaign()) {
+  if (!campaign) {
+    alert("Nenhuma campanha selecionada.");
+    return;
+  }
+  const originalRoot = campaign.id !== state.activeCampaignId ? campaignPayloadFrom(state) : null;
+  try {
+    if (campaign.id === state.activeCampaignId && !isCampaignOfficialClosed(campaign)) {
+      syncActiveCampaignFromRoot();
+    } else if (campaign.id !== state.activeCampaignId) {
+      applyCampaignToState(state, campaign);
+    }
+    const snapshot = buildCampaignSnapshot(campaign, { status: campaignStatusLabel(campaign) });
+    downloadFile(previewCampaignFileName(campaign, snapshot), "text/csv;charset=utf-8", generateOfficialCommissionCsv(snapshot));
+  } finally {
+    if (originalRoot) applyCampaignToState(state, originalRoot);
+  }
 }
 
 function officialCloseActiveCampaign() {
@@ -1709,9 +1737,11 @@ function renderAdminClosingPanel() {
     </div>
     <div class="campaign-flow-actions">
       <button id="operationalCloseCampaign" class="warning-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.OPEN || !canAdminEdit ? "disabled" : ""}>Congelar campanha</button>
-      <button id="startAdministrativeClosing" class="ghost-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.OPERATIONAL_CLOSED || !canAdminEdit ? "disabled" : ""}>Iniciar revisao administrativa</button>
+      <button id="reopenOperationalCampaign" class="ghost-button" type="button" ${![CAMPAIGN_STATUS.OPERATIONAL_CLOSED, CAMPAIGN_STATUS.ADMIN_CLOSING].includes(campaign?.status) || !canAdminEdit ? "disabled" : ""}>Descongelar campanha</button>
+      <button id="startAdministrativeClosing" class="ghost-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.OPERATIONAL_CLOSED || !canAdminEdit ? "disabled" : ""}>Iniciar revisão administrativa</button>
+      <button id="downloadPreviewCampaignFile" class="ghost-button" type="button" ${campaign && campaign.status !== CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "" : "disabled"}>Baixar prévia</button>
       <button id="officialCloseCampaign" class="danger-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.ADMIN_CLOSING || !canAdminEdit ? "disabled" : ""}>Fechar comissao oficial</button>
-      <button id="downloadOfficialCampaignFile" class="ghost-button" type="button" ${campaign?.officialFileCsv ? "" : "disabled"}>Baixar arquivo oficial</button>
+      <button id="downloadOfficialCampaignFile" class="ghost-button" type="button" ${campaign?.officialFileCsv ? "" : "disabled"}>Baixar oficial</button>
     </div>
     <div class="table-wrap campaign-closing-panel">
       <table>
@@ -2750,8 +2780,19 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const downloadPreviewCampaignButton = event.target.closest("[data-download-preview-campaign]");
+  if (downloadPreviewCampaignButton) {
+    downloadCampaignPreviewFile(state.campaigns.find((campaign) => campaign.id === downloadPreviewCampaignButton.dataset.downloadPreviewCampaign));
+    return;
+  }
+
   if (event.target.id === "downloadOfficialCampaignFile") {
     downloadCampaignOfficialFile();
+    return;
+  }
+
+  if (event.target.id === "downloadPreviewCampaignFile") {
+    downloadCampaignPreviewFile();
     return;
   }
 
@@ -2763,6 +2804,19 @@ document.addEventListener("click", async (event) => {
     campaign.status = CAMPAIGN_STATUS.OPERATIONAL_CLOSED;
     campaign.operationalCloseDate = campaign.operationalCloseDate || new Date().toISOString().slice(0, 10);
     saveState("Campanha encerrada operacionalmente");
+    renderAll();
+    return;
+  }
+
+  if (event.target.id === "reopenOperationalCampaign") {
+    const campaign = activeCampaign();
+    if (!campaign || ![CAMPAIGN_STATUS.OPERATIONAL_CLOSED, CAMPAIGN_STATUS.ADMIN_CLOSING].includes(campaign.status)) return;
+    if (!confirm("Voce esta descongelando esta campanha. Colaboradores e filiais voltarao a poder alterar e simular resultados. Os estornos ja lancados serao mantidos. Deseja continuar?")) return;
+    syncActiveCampaignFromRoot();
+    campaign.status = CAMPAIGN_STATUS.OPEN;
+    campaign.operationalCloseDate = "";
+    campaign.updatedAt = new Date().toISOString();
+    saveState("Campanha descongelada");
     renderAll();
     return;
   }

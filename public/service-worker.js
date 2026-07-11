@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260710-layout-polish";
+const CACHE_NAME = "comissao-pwa-v20260710-campaign-unfreeze";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260710-layout-polish",
-  "/app.js?v=20260710-layout-polish",
+  "/styles.css?v=20260710-campaign-unfreeze",
+  "/app.js?v=20260710-campaign-unfreeze",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
