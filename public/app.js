@@ -118,6 +118,10 @@ function seedState() {
     ],
     rules: structuredClone(defaultRules),
     customMetrics: { Cabo: [], "Nao Cabo": [] },
+    metricOrder: {
+      Cabo: areaMetrics.Cabo.map((metric) => metric.id),
+      "Nao Cabo": areaMetrics["Nao Cabo"].map((metric) => metric.id),
+    },
     branches: ["CURITIBANOS", "FRAIBURGO"],
     deflators: structuredClone(defaultDeflators),
     branchPasswords: { CURITIBANOS: "1234", FRAIBURGO: "1234" },
@@ -253,9 +257,88 @@ function updateSaveStatus(message = "Salvo no banco") {
 
 function normalizeCustomMetrics(source) {
   return {
-    Cabo: Array.isArray(source?.Cabo) ? source.Cabo : [],
-    "Nao Cabo": Array.isArray(source?.["Nao Cabo"]) ? source["Nao Cabo"] : [],
+    Cabo: Array.isArray(source?.Cabo) ? source.Cabo.map(normalizeCustomMetric) : [],
+    "Nao Cabo": Array.isArray(source?.["Nao Cabo"]) ? source["Nao Cabo"].map(normalizeCustomMetric) : [],
   };
+}
+
+function normalizeCustomMetric(metric) {
+  return {
+    id: metric?.id || `custom_${makeId()}`,
+    name: metric?.name || "NOVA META",
+    unit: metric?.unit || "Qtd.",
+    type: metric?.type || "unit100",
+    goal: Number(metric?.goal) || 0,
+    sortOrder: Number(metric?.sortOrder) || 0,
+  };
+}
+
+function metricIdsForArea(area, customMetrics = state?.customMetrics) {
+  return [
+    ...(areaMetrics[area] || []).map((metric) => metric.id),
+    ...((customMetrics?.[area] || []).map((metric) => metric.id)),
+  ];
+}
+
+function normalizeMetricOrder(source, customMetrics = source?.customMetrics) {
+  const normalized = {};
+  for (const area of ["Cabo", "Nao Cabo"]) {
+    const validIds = metricIdsForArea(area, customMetrics);
+    const savedOrder = Array.isArray(source?.metricOrder?.[area]) ? source.metricOrder[area] : [];
+    const ordered = savedOrder.filter((id, index, list) => validIds.includes(id) && list.indexOf(id) === index);
+    normalized[area] = [...ordered, ...validIds.filter((id) => !ordered.includes(id))];
+  }
+  return normalized;
+}
+
+function ensureMetricOrder(area) {
+  state.metricOrder = normalizeMetricOrder(state, state.customMetrics);
+  state.metricOrder[area] = normalizeMetricOrder(state, state.customMetrics)[area];
+  return state.metricOrder[area];
+}
+
+function metricOrderIndex(area, metricId, sourceState = state) {
+  const order = normalizeMetricOrder(sourceState, sourceState?.customMetrics)[area] || [];
+  const index = order.indexOf(metricId);
+  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+}
+
+function canReorderMetrics() {
+  const status = campaignStatusLabel();
+  if (status === CAMPAIGN_STATUS.OFFICIAL_CLOSED) return false;
+  if (status === CAMPAIGN_STATUS.OPEN) return isAdminUnlocked();
+  return isOwnerUnlocked();
+}
+
+function metricOrderLockMessage() {
+  const status = campaignStatusLabel();
+  if (status === CAMPAIGN_STATUS.OFFICIAL_CLOSED) return "Campanha fechada oficialmente. A ordem das metas está congelada.";
+  if (status !== CAMPAIGN_STATUS.OPEN && !isOwnerUnlocked()) return "Esta campanha está encerrada e não permite alteração na ordem das metas.";
+  return "";
+}
+
+function moveMetricOrder(area, metricId, direction) {
+  if (!canReorderMetrics()) {
+    alert(metricOrderLockMessage() || "Apenas Admin pode alterar a ordem das metas.");
+    return;
+  }
+  const order = ensureMetricOrder(area);
+  const index = order.indexOf(metricId);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= order.length) return;
+  [order[index], order[target]] = [order[target], order[index]];
+  state.metricOrder[area] = order;
+  syncCustomMetricSortOrder(area);
+  saveState("Ordem das metas atualizada com sucesso.");
+  renderAll();
+}
+
+function syncCustomMetricSortOrder(area) {
+  const order = ensureMetricOrder(area);
+  for (const metric of state.customMetrics?.[area] || []) {
+    const index = order.indexOf(metric.id);
+    metric.sortOrder = index >= 0 ? index + 1 : order.length + 1;
+  }
 }
 
 function normalizeDeflators(source) {
@@ -313,6 +396,7 @@ function campaignPayloadFrom(source, options = {}) {
     sellers: cloneData(source.sellers || []),
     rules: cloneData(source.rules || defaultRules),
     customMetrics: normalizeCustomMetrics(source.customMetrics),
+    metricOrder: normalizeMetricOrder(source, normalizeCustomMetrics(source.customMetrics)),
     branches: cloneData(source.branches || []),
     deflators: normalizeDeflators(source.deflators),
     branchPasswords: cloneData(source.branchPasswords || {}),
@@ -368,6 +452,7 @@ function normalizeCampaign(campaign, fallback) {
   normalized.sellers = Array.isArray(normalized.sellers) ? normalized.sellers : cloneData(fallback.sellers || []);
   normalized.rules = normalized.rules || cloneData(fallback.rules || defaultRules);
   normalized.customMetrics = normalizeCustomMetrics(normalized.customMetrics);
+  normalized.metricOrder = normalizeMetricOrder(normalized, normalized.customMetrics);
   normalized.deflators = normalizeDeflators(normalized.deflators);
   normalized.branches = normalizeBranches(normalized.branches, normalized.sellers);
   normalized.branchPasswords = normalizeBranchPasswords(normalized.branchPasswords, normalized.managerAccess, normalized._legacyManagers, normalized.branches);
@@ -396,6 +481,7 @@ function applyCampaignToState(target, campaign) {
   target.sellers = cloneData(campaign.sellers);
   target.rules = cloneData(campaign.rules);
   target.customMetrics = normalizeCustomMetrics(campaign.customMetrics);
+  target.metricOrder = normalizeMetricOrder(campaign, target.customMetrics);
   target.branches = normalizeBranches(cloneData(campaign.branches), target.sellers);
   target.deflators = normalizeDeflators(campaign.deflators);
   target.branchPasswords = normalizeBranchPasswords(campaign.branchPasswords, campaign.managerAccess, campaign._legacyManagers, target.branches);
@@ -409,6 +495,7 @@ function normalizeState(candidate) {
   candidate.settings = { ...defaultSettings(), ...(candidate.settings || {}) };
   candidate.rules = candidate.rules || structuredClone(defaultRules);
   candidate.customMetrics = normalizeCustomMetrics(candidate.customMetrics);
+  candidate.metricOrder = normalizeMetricOrder(candidate, candidate.customMetrics);
   candidate.deflators = normalizeDeflators(candidate.deflators);
   candidate.branches = normalizeBranches(candidate.branches, candidate.sellers);
   candidate.branchPasswords = normalizeBranchPasswords(candidate.branchPasswords, candidate.managerAccess, candidate._legacyManagers, candidate.branches);
@@ -476,9 +563,15 @@ function flushSaveState(message = "Salvo no banco") {
 }
 
 function metricsFor(area, sourceState = state) {
-  const defaults = areaMetrics[area] || [];
-  const custom = sourceState?.customMetrics?.[area] || [];
-  return [...defaults, ...custom];
+  const defaults = (areaMetrics[area] || []).map((metric) => ({ ...metric, isCustom: false }));
+  const custom = (sourceState?.customMetrics?.[area] || []).map((metric) => ({ ...metric, isCustom: true }));
+  const order = normalizeMetricOrder(sourceState, sourceState?.customMetrics)[area] || [];
+  return [...defaults, ...custom]
+    .map((metric) => {
+      const index = order.indexOf(metric.id);
+      return { ...metric, sortOrder: index >= 0 ? index + 1 : order.length + 1 };
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 }
 
 function ensureSellerValues(seller, sourceState = state) {
@@ -949,6 +1042,9 @@ function findOrCreateMetric(area, metricName, goalValue) {
   };
   state.customMetrics[area] = state.customMetrics[area] || [];
   state.customMetrics[area].push(metric);
+  ensureMetricOrder(area);
+  if (!state.metricOrder[area].includes(id)) state.metricOrder[area].push(id);
+  syncCustomMetricSortOrder(area);
   state.rules[area] = state.rules[area] || {};
   state.rules[area][id] = [];
   return metric;
@@ -1035,7 +1131,12 @@ function renderDashboardFilterControls(baseSellers) {
   if (statusSelect) statusSelect.value = activeDashboardStatus;
   if (deflatorSelect) deflatorSelect.value = activeDashboardDeflator;
   if (indicatorSelect) {
-    const names = [...new Set(baseSellers.flatMap((seller) => metricsFor(seller.area).filter((metric) => metric.type !== "deviceRevenue").map((metric) => metric.name)))].sort();
+    const names = [];
+    for (const seller of baseSellers) {
+      for (const metric of metricsFor(seller.area).filter((item) => item.type !== "deviceRevenue")) {
+        if (!names.includes(metric.name)) names.push(metric.name);
+      }
+    }
     const options = ["Todos", ...names];
     indicatorSelect.innerHTML = options.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
     if (!options.includes(activeDashboardIndicator)) activeDashboardIndicator = "Todos";
@@ -1894,23 +1995,40 @@ function metricOptions(area, selectedId) {
 function renderMetricCatalogEditor() {
   const container = document.getElementById("metricCatalogEditor");
   if (!container) return;
+  const allowReorder = canReorderMetrics();
+  const lockMessage = metricOrderLockMessage();
   container.innerHTML = ["Cabo", "Nao Cabo"].map((area) => {
-    const custom = state.customMetrics?.[area] || [];
-    const rows = custom.length ? custom.map((metric) => `
-      <div class="metric-row">
-        <label>Nome<input data-custom-metric-field="name" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}" value="${metric.name}"></label>
-        <label>Unidade<input data-custom-metric-field="unit" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}" value="${metric.unit || "Qtd."}"></label>
-        <label>Tipo
-          <select data-custom-metric-field="type" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}">
-            <option value="unit100" ${metric.type === "unit100" ? "selected" : ""}>Quantidade x taxa x 100</option>
-            <option value="revenue" ${metric.type === "revenue" ? "selected" : ""}>Receita x taxa</option>
-          </select>
-        </label>
-        <label>Meta padrao<input data-custom-metric-field="goal" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}" type="number" step="0.01" value="${metric.goal || 0}"></label>
-        <button class="danger-button" data-delete-custom-metric="${metric.id}" data-custom-metric-area="${area}" type="button">Excluir item</button>
-      </div>
-    `).join("") : `<p class="muted-note">Nenhum item extra cadastrado.</p>`;
-    return `<div class="rule-card"><h4>${area}</h4>${rows}<button class="ghost-button" data-add-custom-metric="${area}" type="button">Adicionar meta</button></div>`;
+    const metrics = metricsFor(area);
+    const rows = metrics.map((metric, index) => {
+      const isCustom = metric.isCustom === true;
+      const moveDisabledUp = !allowReorder || index === 0;
+      const moveDisabledDown = !allowReorder || index === metrics.length - 1;
+      return `
+        <div class="metric-row metric-catalog-row ${isCustom ? "custom" : "system"}">
+          <div class="metric-order-cell">
+            <span>${metric.sortOrder}</span>
+            <button class="ghost-button compact-action" data-move-metric-order="-1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" ${moveDisabledUp ? "disabled" : ""}>Subir</button>
+            <button class="ghost-button compact-action" data-move-metric-order="1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" ${moveDisabledDown ? "disabled" : ""}>Descer</button>
+          </div>
+          <label>Indicador<input ${isCustom ? `data-custom-metric-field="name" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"} value="${escapeHtml(metric.name)}"></label>
+          <label>Unidade<input ${isCustom ? `data-custom-metric-field="unit" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"} value="${escapeHtml(metric.unit || "Qtd.")}"></label>
+          <label>Tipo
+            <select ${isCustom ? `data-custom-metric-field="type" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"}>
+              <option value="unit100" ${metric.type === "unit100" ? "selected" : ""}>Quantidade x taxa x 100</option>
+              <option value="revenue" ${metric.type === "revenue" ? "selected" : ""}>Receita x taxa</option>
+              <option value="deviceRevenue" ${metric.type === "deviceRevenue" ? "selected" : ""}>Receita de aparelho</option>
+              <option value="deviceQty" ${metric.type === "deviceQty" ? "selected" : ""}>Quantidade de aparelho</option>
+            </select>
+          </label>
+          <label>Meta padrão<input ${isCustom ? `data-custom-metric-field="goal" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"} type="number" step="0.01" value="${metric.goal || 0}"></label>
+          ${isCustom
+            ? `<button class="danger-button" data-delete-custom-metric="${metric.id}" data-custom-metric-area="${area}" type="button">Excluir item</button>`
+            : `<span class="system-metric-badge">Padrão do sistema</span>`}
+        </div>
+      `;
+    }).join("");
+    const note = lockMessage ? `<p class="admin-inline-note warning">${lockMessage}</p>` : `<p class="admin-inline-note">Use Subir/Descer para definir a sequência das metas nesta campanha.</p>`;
+    return `<div class="rule-card metric-catalog-card"><h4>${area}</h4>${note}${rows}<button class="ghost-button" data-add-custom-metric="${area}" type="button">Adicionar meta</button></div>`;
   }).join("");
 }
 
@@ -1934,7 +2052,7 @@ function branchMetricRows(sellers) {
     currentPercent: row.goal ? row.realized / row.goal : null,
     projectedPercent: row.goal ? row.projected / row.goal : null,
     status: branchStatusFromPercent(row.goal ? row.realized / row.goal : 0),
-  })).sort((a, b) => (a.currentPercent || 0) - (b.currentPercent || 0));
+  })).sort((a, b) => metricOrderIndex(a.area, a.id) - metricOrderIndex(b.area, b.id) || a.area.localeCompare(b.area));
 }
 
 function branchStatusFromPercent(percent) {
@@ -2685,6 +2803,7 @@ async function handleAccessLogin() {
   if (pendingAccessView === "dashboard" && typed === dashboardPassword()) {
     sessionStorage.setItem(DASHBOARD_SESSION_KEY, "ok");
     closeAccessLogin();
+    renderAll();
     openView("dashboard");
     return;
   }
@@ -2692,6 +2811,7 @@ async function handleAccessLogin() {
   if (typed === adminPassword()) {
     sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
     closeAccessLogin();
+    renderAll();
     openView(pendingAccessView === "dashboard" ? "dashboard" : "admin");
     return;
   }
@@ -2701,6 +2821,7 @@ async function handleAccessLogin() {
     sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
     sessionStorage.setItem(DASHBOARD_SESSION_KEY, "ok");
     closeAccessLogin();
+    renderAll();
     openView(pendingAccessView === "dashboard" ? "dashboard" : "admin");
     return;
   }
@@ -2936,11 +3057,20 @@ document.addEventListener("click", async (event) => {
     flushSaveState("Salvo manualmente");
   }
 
+  const moveMetricButton = event.target.closest("[data-move-metric-order]");
+  if (moveMetricButton) {
+    moveMetricOrder(moveMetricButton.dataset.metricOrderArea, moveMetricButton.dataset.metricOrderId, Number(moveMetricButton.dataset.moveMetricOrder));
+    return;
+  }
 
   const addMetricButton = event.target.closest("[data-add-custom-metric]");
   if (addMetricButton) {
     const area = addMetricButton.dataset.addCustomMetric;
-    state.customMetrics[area].push({ id: `custom_${makeId()}`, name: "NOVA META", unit: "Qtd.", type: "unit100", goal: 1 });
+    const id = `custom_${makeId()}`;
+    state.customMetrics[area].push({ id, name: "NOVA META", unit: "Qtd.", type: "unit100", goal: 1 });
+    ensureMetricOrder(area);
+    if (!state.metricOrder[area].includes(id)) state.metricOrder[area].push(id);
+    syncCustomMetricSortOrder(area);
     saveState("Meta adicionada");
     renderAll();
   }
@@ -2951,6 +3081,9 @@ document.addEventListener("click", async (event) => {
     const metricId = deleteMetricButton.dataset.deleteCustomMetric;
     if (!confirm("Excluir este item de meta?")) return;
     state.customMetrics[area] = state.customMetrics[area].filter((metric) => metric.id !== metricId);
+    state.metricOrder = normalizeMetricOrder(state, state.customMetrics);
+    state.metricOrder[area] = (state.metricOrder[area] || []).filter((id) => id !== metricId);
+    syncCustomMetricSortOrder(area);
     state.deflators[area] = state.deflators[area].filter((item) => item.metricId !== metricId);
     for (const seller of state.sellers.filter((item) => item.area === area)) delete seller.values[metricId];
     delete state.rules[area][metricId];
@@ -3175,6 +3308,7 @@ document.addEventListener("input", (event) => {
     if (!metric) return;
     const field = target.dataset.customMetricField;
     metric[field] = field === "goal" ? Number(target.value) || 0 : target.value;
+    syncCustomMetricSortOrder(area);
     state.rules[area][metric.id] = state.rules[area][metric.id] || [];
     for (const seller of state.sellers.filter((item) => item.area === area)) ensureSellerValues(seller);
     saveState("Meta atualizada");
@@ -3404,6 +3538,8 @@ window.addEventListener("popstate", () => {
 
 for (const seller of state.sellers) ensureSellerValues(seller);
 state.customMetrics = normalizeCustomMetrics(state.customMetrics);
+state.metricOrder = normalizeMetricOrder(state, state.customMetrics);
+for (const area of ["Cabo", "Nao Cabo"]) syncCustomMetricSortOrder(area);
 state.branches = normalizeBranches(state.branches, state.sellers);
 state.deflators = normalizeDeflators(state.deflators);
 state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.managerAccess, state._legacyManagers, state.branches);

@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260710-campaign-unfreeze";
+const CACHE_NAME = "comissao-pwa-v20260711-metric-order";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260710-campaign-unfreeze",
-  "/app.js?v=20260710-campaign-unfreeze",
+  "/styles.css?v=20260711-metric-order",
+  "/app.js?v=20260711-metric-order",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

@@ -5540,3 +5540,73 @@ body[data-view="home"] .main > .view > * {
     font-size: 24px;
   }
 }
+
+/* Manual metric ordering in Admin > Metas. */
+#adminView .metric-row.metric-catalog-row {
+  grid-template-columns: minmax(128px, .7fr) repeat(4, minmax(128px, 1fr)) minmax(128px, auto);
+  align-items: end;
+}
+
+.metric-catalog-card {
+  display: grid;
+  gap: 10px;
+}
+
+.metric-order-cell {
+  display: grid;
+  grid-template-columns: 42px 1fr 1fr;
+  gap: 6px;
+  align-items: end;
+}
+
+.metric-order-cell span {
+  display: grid;
+  min-height: 36px;
+  place-items: center;
+  border: 1px solid #f0d7dc;
+  border-radius: 10px;
+  background: #fff7f8;
+  color: var(--red);
+  font-weight: 800;
+}
+
+.metric-order-cell .compact-action {
+  min-height: 36px;
+  padding: 0 8px;
+}
+
+.system-metric-badge {
+  align-self: end;
+  min-height: 36px;
+  padding: 9px 10px;
+  border: 1px solid #eee2e4;
+  border-radius: 10px;
+  background: #faf7f8;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.metric-catalog-row.system input:disabled,
+.metric-catalog-row.system select:disabled {
+  background: #faf7f8;
+  color: #71676b;
+  opacity: 1;
+}
+
+@media (max-width: 1180px) {
+  #adminView .metric-row.metric-catalog-row {
+    grid-template-columns: minmax(160px, 1fr) repeat(2, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  #adminView .metric-row.metric-catalog-row {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-order-cell {
+    grid-template-columns: 48px 1fr 1fr;
+  }
+}
