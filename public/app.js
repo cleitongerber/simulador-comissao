@@ -112,9 +112,7 @@ function seedState() {
   return {
     period: { month: "JUNHO", daysDone: 15, daysTotal: 26 },
     sellers: [
-      { id: makeId(), name: "HENRIQUE", branch: "CURITIBANOS", area: "Nao Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} },
-      { id: makeId(), name: "MAKELLY", branch: "CURITIBANOS", area: "Nao Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} },
-      { id: makeId(), name: "VENDEDOR CABO", branch: "FRAIBURGO", area: "Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} },
+      { id: makeId(), name: "VENDEDOR", branch: "FILIAL", area: "Nao Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} },
     ],
     rules: structuredClone(defaultRules),
     customMetrics: { Cabo: [], "Nao Cabo": [] },
@@ -122,9 +120,9 @@ function seedState() {
       Cabo: areaMetrics.Cabo.map((metric) => metric.id),
       "Nao Cabo": areaMetrics["Nao Cabo"].map((metric) => metric.id),
     },
-    branches: ["CURITIBANOS", "FRAIBURGO"],
+    branches: ["FILIAL"],
     deflators: structuredClone(defaultDeflators),
-    branchPasswords: { CURITIBANOS: "1234", FRAIBURGO: "1234" },
+    branchPasswords: { FILIAL: "1234" },
     settings: defaultSettings(),
     auditLogs: [],
   };
