@@ -590,6 +590,22 @@ function campaignPayloadFrom(source, options = {}) {
   return payload;
 }
 
+function emptyCampaignSource(reference = "Novo periodo") {
+  return {
+    period: { month: reference, daysDone: 0, daysTotal: Number(state?.period?.daysTotal) || 1 },
+    sellers: [],
+    rules: structuredClone(defaultRules),
+    customMetrics: { Cabo: [], "Nao Cabo": [] },
+    metricOrder: {
+      Cabo: areaMetrics.Cabo.map((metric) => metric.id),
+      "Nao Cabo": areaMetrics["Nao Cabo"].map((metric) => metric.id),
+    },
+    branches: [],
+    deflators: structuredClone(defaultDeflators),
+    branchPasswords: {},
+  };
+}
+
 function createCampaignFromSource(source, overrides = {}) {
   const now = new Date().toISOString();
   const payload = campaignPayloadFrom(source, { resetOperational: overrides.resetOperational });
@@ -1195,6 +1211,11 @@ function parseImportedNumber(value) {
   return Number(raw.replace(",", ".")) || 0;
 }
 
+function normalizeAreaName(value) {
+  const key = normalizedKey(value);
+  return key === "cabo" ? "Cabo" : "Nao Cabo";
+}
+
 function metricTypeFromName(name) {
   const key = normalizedKey(name);
   if (key.includes("receita")) return "deviceRevenue";
@@ -1234,6 +1255,7 @@ function findOrCreateMetric(area, metricName, goalValue) {
 function findOrCreateSeller(name, branch, area) {
   const sellerKey = normalizedKey(name);
   const branchKey = normalizedKey(branch);
+  area = normalizeAreaName(area);
   let seller = state.sellers.find((item) => normalizedKey(item.name) === sellerKey && normalizedKey(item.branch) === branchKey);
   if (seller) {
     if (seller.area !== area) {
@@ -1248,19 +1270,35 @@ function findOrCreateSeller(name, branch, area) {
   return seller;
 }
 
+function resetCampaignDataForGoalImport() {
+  state.sellers = [];
+  state.branches = [];
+  state.branchPasswords = {};
+  state.customMetrics = { Cabo: [], "Nao Cabo": [] };
+  state.metricOrder = {
+    Cabo: areaMetrics.Cabo.map((metric) => metric.id),
+    "Nao Cabo": areaMetrics["Nao Cabo"].map((metric) => metric.id),
+  };
+  activeCollaboratorId = "";
+  activeManagerSellerId = "";
+  activeBranchSession = "";
+  sessionStorage.removeItem(COLLAB_SESSION_KEY);
+  sessionStorage.removeItem(BRANCH_SESSION_KEY);
+}
+
 function importGoalTemplateCsv(text) {
   const rows = parseCsv(text);
   const header = rows.shift()?.map((item) => normalizedKey(item.replace(/^\uFEFF/, ""))) || [];
   const index = (name) => header.indexOf(normalizedKey(name));
-  let updated = 0;
-  let createdSellers = 0;
-  let createdBranches = 0;
-  let createdMetrics = 0;
+  for (const required of ["vendedor", "filial", "metrica"]) {
+    if (index(required) < 0) throw new Error(`Coluna obrigatoria ausente no CSV: ${required}.`);
+  }
+  const importRows = [];
   let ignoredRows = 0;
   for (const row of rows) {
     const sellerName = row[index("vendedor")] || "";
     const branch = row[index("filial")] || "";
-    const area = row[index("area")] || "Nao Cabo";
+    const area = normalizeAreaName(row[index("area")] || "Nao Cabo");
     const metricName = row[index("metrica")] || "";
     const goalValue = row[index("meta")];
     const realizedValue = row[index("realizado")];
@@ -1269,7 +1307,15 @@ function importGoalTemplateCsv(text) {
       ignoredRows += 1;
       continue;
     }
-
+    importRows.push({ sellerName, branch, area, metricName, goalValue, realizedValue });
+  }
+  if (!importRows.length) throw new Error("Nenhuma linha valida encontrada para importar.");
+  resetCampaignDataForGoalImport();
+  let updated = 0;
+  let createdSellers = 0;
+  let createdBranches = 0;
+  let createdMetrics = 0;
+  for (const { sellerName, branch, area, metricName, goalValue, realizedValue } of importRows) {
     const branchExists = state.branches.some((item) => normalizedKey(item) === normalizedKey(branch));
     if (!branchExists) {
       state.branches.push(branch.trim());
@@ -1834,11 +1880,13 @@ function renderCampaignAdminPanel() {
 
 function createCampaignFromActive(options = {}) {
   syncActiveCampaignFromRoot();
-  const source = options.source || activeCampaign() || state;
+  const isDuplicate = Boolean(options.source);
+  const reference = options.reference || "Novo periodo";
+  const source = isDuplicate ? options.source : emptyCampaignSource(reference);
   const campaign = createCampaignFromSource(source, {
     name: options.name || "Nova campanha",
-    reference: options.reference || "Novo periodo",
-    resetOperational: true,
+    reference,
+    resetOperational: isDuplicate,
   });
   campaign.period.month = campaign.reference;
   campaign.period.daysDone = 0;
@@ -1854,7 +1902,7 @@ function createCampaignFromActive(options = {}) {
     itemName: campaign.name,
     message: options.source ? `Campanha ${campaign.name} criada a partir de campanha anterior.` : `Campanha ${campaign.name} criada.`,
   });
-  saveState("Campanha criada");
+  saveState(isDuplicate ? "Campanha duplicada" : "Campanha criada vazia");
   renderAll();
 }
 
@@ -4091,6 +4139,11 @@ document.addEventListener("change", (event) => {
     }
     const file = event.target.files?.[0];
     if (!file) return;
+    const hasCampaignData = state.sellers.length || state.branches.length || Object.values(state.customMetrics || {}).some((items) => items?.length);
+    if (hasCampaignData && !confirm("A importacao CSV vai substituir vendedores, filiais e metas customizadas da campanha ativa. Isso evita duplicidade e faz a campanha respeitar o arquivo importado. Deseja continuar?")) {
+      event.target.value = "";
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       try {
@@ -4223,4 +4276,3 @@ if ("serviceWorker" in navigator) {
     });
   });
 }
-
