@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260714-campaign-import";
+const CACHE_NAME = "comissao-pwa-v20260714-delete-campaign";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260714-campaign-import",
-  "/app.js?v=20260714-campaign-import",
+  "/styles.css?v=20260714-delete-campaign",
+  "/app.js?v=20260714-delete-campaign",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

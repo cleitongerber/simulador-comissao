@@ -1823,7 +1823,11 @@ function renderCampaignAdminPanel() {
         : item.status !== CAMPAIGN_STATUS.OFFICIAL_CLOSED
           ? `<button class="ghost-button compact-action" data-download-preview-campaign="${item.id}" type="button">Baixar prévia</button>`
           : "Nao disponivel"}</td>
-      <td><button class="ghost-button compact-action" data-select-campaign="${item.id}" type="button">Visualizar</button><button class="ghost-button compact-action" data-duplicate-campaign="${item.id}" type="button">Duplicar</button></td>
+      <td>
+        <button class="ghost-button compact-action" data-select-campaign="${item.id}" type="button">Visualizar</button>
+        <button class="ghost-button compact-action" data-duplicate-campaign="${item.id}" type="button">Duplicar</button>
+        <button class="danger-button compact-action" data-delete-campaign="${item.id}" type="button" ${item.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "disabled" : ""}>Excluir</button>
+      </td>
     </tr>`;
   }).join("");
   container.innerHTML = `
@@ -1914,6 +1918,57 @@ function duplicateCampaign(campaignId) {
     name: `${source.name} - copia`,
     reference: source.reference || source.period?.month || "Novo periodo",
   });
+}
+
+function deleteCampaign(campaignId) {
+  const campaign = state.campaigns.find((item) => item.id === campaignId);
+  if (!campaign) return;
+  if ((state.campaigns || []).length <= 1) {
+    alert("Nao e possivel excluir a unica campanha do sistema.");
+    return;
+  }
+  if (campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED && !isOwnerUnlocked()) {
+    alert("Campanha fechada oficialmente nao pode ser excluida pelo Admin.");
+    return;
+  }
+  const typed = prompt(`Digite a senha admin para excluir a campanha "${campaign.name}".`);
+  if (typed === null) return;
+  if (typed !== adminPassword()) {
+    logAccess({
+      status: "Falha",
+      profile: "Admin",
+      module: "Campanhas",
+      action: "Tentativa invalida de exclusao de campanha",
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      message: "Senha admin invalida ao tentar excluir campanha.",
+    }, { persist: true });
+    alert("Senha admin invalida. Campanha nao excluida.");
+    return;
+  }
+  if (!confirm(`Confirma a exclusao da campanha "${campaign.name}"? Esta acao remove a campanha da lista e nao deve ser usada para campanhas ja fechadas oficialmente.`)) return;
+  syncActiveCampaignFromRoot();
+  const deletedName = campaign.name;
+  const deletedReference = campaign.reference || campaign.period?.month || "";
+  state.campaigns = state.campaigns.filter((item) => item.id !== campaignId);
+  if (state.activeCampaignId === campaignId) {
+    const nextCampaign = state.campaigns.find((item) => item.status === CAMPAIGN_STATUS.OPEN) || state.campaigns[0];
+    state.activeCampaignId = nextCampaign.id;
+    applyCampaignToState(state, nextCampaign);
+  }
+  logUpdate({
+    action: "Excluiu campanha",
+    module: "Campanhas",
+    campaignId,
+    campaignName: deletedName,
+    itemId: campaignId,
+    itemName: deletedName,
+    previousValue: `${deletedName} - ${deletedReference}`,
+    newValue: "Excluida",
+    message: `Admin excluiu a campanha ${deletedName}.`,
+  });
+  saveState("Campanha excluida");
+  renderAll();
 }
 
 function downloadCampaignOfficialFile(campaign = activeCampaign()) {
@@ -3391,6 +3446,12 @@ document.addEventListener("click", async (event) => {
   const duplicateCampaignButton = event.target.closest("[data-duplicate-campaign]");
   if (duplicateCampaignButton) {
     duplicateCampaign(duplicateCampaignButton.dataset.duplicateCampaign);
+    return;
+  }
+
+  const deleteCampaignButton = event.target.closest("[data-delete-campaign]");
+  if (deleteCampaignButton) {
+    deleteCampaign(deleteCampaignButton.dataset.deleteCampaign);
     return;
   }
 
