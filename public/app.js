@@ -2141,9 +2141,12 @@ function partialRecordTotals(records) {
       acc.projected += record.projectedValue || 0;
       acc.withGoal += 1;
     }
-    acc.sellerIds.add(record.seller.id);
-    acc.branches.add(record.seller.branch || record.item.branch);
-    acc.metrics.add(record.metric?.id || record.item.metricName);
+    const sellerId = record.seller?.id || record.sellerId || "";
+    const branch = record.seller?.branch || record.item?.branch || record.branch || "";
+    const metricKey = record.metric?.id || record.item?.metricName || record.metric?.name || record.metricId || "";
+    if (sellerId) acc.sellerIds.add(sellerId);
+    if (branch) acc.branches.add(branch);
+    if (metricKey) acc.metrics.add(metricKey);
     return acc;
   }, { goal: 0, realized: 0, projected: 0, withGoal: 0, sellerIds: new Set(), branches: new Set(), metrics: new Set() });
   const percent = totals.goal ? totals.realized / totals.goal : null;
