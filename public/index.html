@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260715-dashboard-branch-side" />
+    <link rel="stylesheet" href="./styles.css?v=20260715-dashboard-fluid" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -109,6 +109,8 @@
           <div class="dashboard-modern">
             <div id="dashboardEmptyState" class="dashboard-empty-state"></div>
 
+            <section id="dashboardHero" class="dashboard-hero-card"></section>
+
             <section class="dashboard-card dashboard-filters-card">
               <div class="dashboard-filter-grid">
                 <label>
@@ -157,9 +159,9 @@
               </div>
             </section>
 
-            <section id="dashboardPartialPanel" class="dashboard-card"></section>
-
             <div id="dashboardExecutiveCards" class="dashboard-executive-grid"></div>
+
+            <section id="dashboardPartialPanel" class="dashboard-card dashboard-blocks-panel"></section>
 
             <section class="dashboard-card executive-summary-card">
               <div class="dashboard-card-head">
@@ -171,12 +173,14 @@
               <div id="executiveSummary" class="executive-summary-text"></div>
             </section>
 
+            <section id="dashboardCriticalPanel" class="dashboard-card dashboard-critical-panel"></section>
+
             <div class="dashboard-exec-layout">
               <section class="dashboard-card wide">
                 <div class="dashboard-card-head">
                   <div>
-                    <h3>Detalhes por indicador</h3>
-                    <p>Rede ou filial consolidada no padrÃ£o da tela Filial.</p>
+                    <h3>Atingimento por filial</h3>
+                    <p>Resumo executivo por loja com detalhes sob demanda.</p>
                   </div>
                 </div>
                 <div id="branchAttainmentBars" class="branch-chart-list"></div>
@@ -250,6 +254,8 @@
                 </div>
                 <div id="goalOffenderList" class="critical-table-list"></div>
               </section>
+
+              <section id="dashboardPartialInfo" class="dashboard-card dashboard-partial-info"></section>
             </div>
           </div>
         </section>
@@ -649,6 +655,6 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260715-dashboard-branch-side"></script>
+    <script src="./app.js?v=20260715-dashboard-fluid"></script>
   </body>
 </html>

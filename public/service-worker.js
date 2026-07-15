@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-dashboard-branch-side";
+const CACHE_NAME = "comissao-pwa-v20260715-dashboard-fluid";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-dashboard-branch-side",
-  "/app.js?v=20260715-dashboard-branch-side",
+  "/styles.css?v=20260715-dashboard-fluid",
+  "/app.js?v=20260715-dashboard-fluid",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

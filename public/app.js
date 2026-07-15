@@ -148,6 +148,7 @@ let activeDashboardStatus = "Todos";
 let activeDashboardDeflator = "Todos";
 let activeDashboardPartialId = "latest";
 let activeDashboardSellerDetailId = "";
+let activeDashboardBranchDetail = "";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
 let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 let activeManagerSellerId = "";
@@ -2180,10 +2181,15 @@ function metricGroupHeaderRows(rows, colSpan, rowMarkup) {
 
 function renderDashboardPartialPanel() {
   const container = document.getElementById("dashboardPartialPanel");
-  if (!container) return;
+  const hero = document.getElementById("dashboardHero");
+  const criticalPanel = document.getElementById("dashboardCriticalPanel");
+  const infoPanel = document.getElementById("dashboardPartialInfo");
   const partial = selectedDashboardPartial();
   if (!partial) {
-    container.innerHTML = `<div class="dashboard-card-head"><div><h3>Resultado parcial oficial</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div>`;
+    if (hero) hero.innerHTML = `<div><p class="eyebrow">Dashboard</p><h2>Dashboard</h2><span>Nenhuma parcial publicada para esta campanha.</span></div>`;
+    if (container) container.innerHTML = `<div class="dashboard-card-head"><div><h3>Blocos de metas</h3><p>Publique uma parcial para visualizar a analise por bloco.</p></div></div>`;
+    if (criticalPanel) criticalPanel.innerHTML = `<div class="dashboard-card-head"><div><h3>Indicadores abaixo de 80%</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div>`;
+    if (infoPanel) infoPanel.innerHTML = `<div class="dashboard-card-head"><div><h3>Informacoes da parcial</h3><p>Nenhuma parcial publicada.</p></div></div>`;
     return;
   }
   const records = officialPartialRecords(partial, dashboardBaseSellers(), { metricName: activeDashboardIndicator });
@@ -2200,25 +2206,44 @@ function renderDashboardPartialPanel() {
     || Number(b.totals.projectedPercent ?? -1) - Number(a.totals.projectedPercent ?? -1)
     || a.branch.localeCompare(b.branch)
   ).slice(0, 8);
-  container.innerHTML = `<div class="dashboard-card-head">
-    <div><h3>Resultado parcial oficial</h3><p>Exibindo ${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div>
-    <span class="status ok">${escapeHtml(partial.status)}</span>
+  const campaign = activeCampaign();
+  if (hero) {
+    hero.innerHTML = `<div>
+      <p class="eyebrow">Dashboard executivo</p>
+      <h2>Dashboard</h2>
+      <span>${escapeHtml(campaign?.name || "Campanha atual")} - ${escapeHtml(campaign?.reference || state.month || "")}</span>
+    </div>
+    <div class="dashboard-hero-meta">
+      <span><strong>Parcial</strong>${escapeHtml(partial.name)}</span>
+      <span><strong>Base</strong>${escapeHtml(partial.baseDate || "-")}</span>
+      <span><strong>Status</strong><em class="status ok">${escapeHtml(partial.status)}</em></span>
+      <span><strong>Dias</strong>${state.period?.daysDone || 0} de ${state.period?.daysTotal || 0}</span>
+    </div>`;
+  }
+  if (container) container.innerHTML = `<div class="dashboard-card-head">
+    <div><h3>Blocos de metas</h3><p>Produtos, Servicos Movel e Servicos Residencial.</p></div>
   </div>
-  <div class="partial-meta-line">
-    <strong>Informacoes da parcial</strong>
-    <span>${escapeHtml(partial.name)} | Base ${escapeHtml(partial.baseDate || "-")} | ${totals.sellerIds.size} vendedores | ${totals.branches.size} filiais | ${records.length} linhas</span>
-  </div>
-  <div class="block-summary-grid">
+  <div class="block-summary-grid dashboard-block-grid">
     ${blockRows.map((row) => `<article class="block-summary-card ${row.status.cls}">
       <span>${escapeHtml(metricGroupDisplay(row.key))}</span>
       <strong>${achievementPill(row.metPercent)}</strong>
       <small>${row.metCount}/${row.applicableCount} metas | Proj. ${achievementPill(row.totals.projectedPercent)}</small>
       <small>Gap ${row.totals.gap === null ? "-" : num.format(row.totals.gap)} | Criticos: ${criticalMetricNames(row.items, 3) || "Nenhum"}</small>
     </article>`).join("")}
+  </div>`;
+  if (criticalPanel) criticalPanel.innerHTML = `<div class="dashboard-card-head">
+    <div><h3>Indicadores abaixo de 80%</h3><p>Ordenado do indicador mais critico para o menos critico.</p></div>
   </div>
-  <div class="partial-dashboard-grid">
+  <div class="partial-dashboard-grid dashboard-critical-grid">
     <div><h4>Indicadores abaixo de 80%</h4>${metricRows.map(partialDashboardRowMarkup).join("") || `<p class="muted-note">Nenhum indicador critico abaixo de 80%.</p>`}</div>
     <div><h4>Atingimento por filial</h4><div class="dashboard-branch-ranking-list compact">${branchRows.map((row, index) => branchRankingRowMarkup(row, index)).join("") || `<p class="muted-note">Sem filiais no filtro atual.</p>`}</div></div>
+  </div>`;
+  if (infoPanel) infoPanel.innerHTML = `<div class="dashboard-card-head">
+    <div><h3>Informacoes da parcial</h3><p>Dados operacionais da importacao publicada.</p></div>
+  </div>
+  <div class="partial-meta-line">
+    <strong>${escapeHtml(partial.name)}</strong>
+    <span>Base ${escapeHtml(partial.baseDate || "-")} | ${totals.sellerIds.size} vendedores | ${totals.branches.size} filiais | ${records.length} linhas publicadas</span>
   </div>`;
 }
 
@@ -2228,7 +2253,7 @@ function partialDashboardRowMarkup(row) {
   const cls = achievementClass(Number.isFinite(percent) ? percent : null);
   const label = row.projectedPercent === null || !Number.isFinite(percent) ? "-" : pct.format(percent);
   return `<div class="partial-dashboard-row ${cls}">
-    <strong title="${escapeHtml(row.key)}">${escapeHtml(row.key)}</strong>
+    <strong title="${escapeHtml(row.key)}">${escapeHtml(row.key)}<small>${row.sellerIds?.size || 0} vendedor(es) | ${row.branchIds?.size || 0} filial(is)</small></strong>
     <span class="partial-dashboard-track"><i style="width:${width}%"></i></span>
     <em>${label} proj.</em>
   </div>`;
@@ -2421,20 +2446,34 @@ function renderSellerSummary(sellers) {
   body.innerHTML = rows.map((row) => {
     const status = row.status;
     const detailRows = activeDashboardSellerDetailId === row.seller.id
-      ? `<tr class="dashboard-detail-row"><td colspan="9"><div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta</th><th>Realizado</th><th>Projecao</th><th>% proj.</th><th>Status</th></tr></thead><tbody>${row.records.map((record) => `<tr><td>${escapeHtml(metricGroupDisplay(record.groupMeta))}</td><td>${escapeHtml(record.metric?.name || record.item.metricName)}</td><td>${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</td><td>${formatMetricAmount(record.metric, record.realized)}</td><td>${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</td><td>${achievementPill(record.projectedPercent)}</td><td><span class="status ${record.status.cls}">${record.status.label}</span></td></tr>`).join("")}</tbody></table></div></td></tr>`
+      ? `<tr class="dashboard-detail-row"><td colspan="9">${dashboardSellerDetailMarkup(row.records)}</td></tr>`
       : "";
     return `<tr>
-      <td>${escapeHtml(row.seller.name)}</td>
-      <td>${escapeHtml(row.seller.branch)}</td>
-      <td>${achievementPill(row.metPercent)}<small>${row.metCount}/${row.applicableCount}</small></td>
-      <td>${achievementPill(row.projectedAverage)}</td>
-      <td>${row.criticalCount}</td>
-      <td>${escapeHtml(row.criticalBlock)}</td>
-      <td>${escapeHtml(row.criticalMetric?.metric?.name || row.criticalMetric?.item?.metricName || "-")}</td>
-      <td><span class="status ${status.cls}">${status.label}</span></td>
-      <td><button class="ghost-button compact-action" type="button" data-dashboard-seller-detail="${escapeHtml(row.seller.id)}">${activeDashboardSellerDetailId === row.seller.id ? "Ocultar" : "Detalhes"}</button></td>
+      <td data-label="Vendedor">${escapeHtml(row.seller.name)}</td>
+      <td data-label="Filial">${escapeHtml(row.seller.branch)}</td>
+      <td data-label="% metas">${achievementPill(row.metPercent)}<small>${row.metCount}/${row.applicableCount}</small></td>
+      <td data-label="% projetado">${achievementPill(row.projectedAverage)}</td>
+      <td data-label="Criticos">${row.criticalCount}</td>
+      <td data-label="Bloco critico">${escapeHtml(row.criticalBlock)}</td>
+      <td data-label="Indicador critico">${escapeHtml(row.criticalMetric?.metric?.name || row.criticalMetric?.item?.metricName || "-")}</td>
+      <td data-label="Status"><span class="status ${status.cls}">${status.label}</span></td>
+      <td data-label="Detalhes"><button class="ghost-button compact-action" type="button" data-dashboard-seller-detail="${escapeHtml(row.seller.id)}">${activeDashboardSellerDetailId === row.seller.id ? "Ocultar" : "Detalhes"}</button></td>
     </tr>${detailRows}`;
   }).join("") || `<tr><td colspan="9">Nenhum vendedor na parcial oficial selecionada.</td></tr>`;
+}
+
+function dashboardSellerDetailMarkup(records) {
+  return `<div class="dashboard-detail-card-grid">${records.map((record) => `<article class="dashboard-detail-card ${record.status.cls}">
+    <span>${escapeHtml(metricGroupDisplay(record.groupMeta))}</span>
+    <strong>${escapeHtml(record.metric?.name || record.item.metricName)}</strong>
+    <dl>
+      <div><dt>Meta</dt><dd>${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</dd></div>
+      <div><dt>Realizado</dt><dd>${formatMetricAmount(record.metric, record.realized)}</dd></div>
+      <div><dt>Projecao</dt><dd>${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</dd></div>
+      <div><dt>% proj.</dt><dd>${achievementPill(record.projectedPercent)}</dd></div>
+    </dl>
+    <em class="status ${record.status.cls}">${record.status.label}</em>
+  </article>`).join("")}</div>`;
 }
 
 function chartTone(percent) {
@@ -2446,6 +2485,32 @@ function chartTone(percent) {
 function renderBranchAttainmentBars(records) {
   const container = document.getElementById("branchAttainmentBars");
   if (!container) return;
+  const branchRows = [...groupItems(records, (record) => record.seller.branch || record.item.branch).entries()].map(([branch, items]) => {
+    const stats = goalCompletionStats(items);
+    const totals = partialRecordTotals(items);
+    const critical = criticalMetricList(items, 3);
+    const mainCritical = critical[0];
+    return { branch, items, stats, totals, critical, mainCritical, status: stats.status };
+  }).sort((a, b) =>
+    Number(a.stats.metPercent ?? 999) - Number(b.stats.metPercent ?? 999)
+    || Number(a.totals.projectedPercent ?? 999) - Number(b.totals.projectedPercent ?? 999)
+    || a.branch.localeCompare(b.branch)
+  );
+  container.innerHTML = `<div class="dashboard-branch-table">${branchRows.map((row) => {
+    const isOpen = activeDashboardBranchDetail === row.branch;
+    const criticalText = row.critical.map((item) => item.metric?.name || item.item.metricName).slice(0, 3).join(", ") || "Nenhum";
+    return `<article class="dashboard-branch-row ${row.status.cls}">
+      <div><span>Filial</span><strong>${escapeHtml(row.branch)}</strong></div>
+      <div><span>% metas</span><strong>${achievementPill(row.stats.metPercent)}</strong><small>${row.stats.metCount}/${row.stats.applicableCount}</small></div>
+      <div><span>% projetado</span><strong>${achievementPill(row.totals.projectedPercent)}</strong></div>
+      <div><span>Indicadores &lt;80%</span><strong>${row.critical.length}</strong><small>${escapeHtml(criticalText)}</small></div>
+      <div><span>Principal ofensor</span><strong>${escapeHtml(row.mainCritical?.metric?.name || row.mainCritical?.item?.metricName || "-")}</strong></div>
+      <div><span>Status</span><strong><em class="status ${row.status.cls}">${row.status.label}</em></strong></div>
+      <button class="ghost-button compact-action" type="button" data-dashboard-branch-detail="${escapeHtml(row.branch)}">${isOpen ? "Ocultar" : "Detalhes"}</button>
+      ${isOpen ? `<div class="dashboard-branch-detail">${dashboardBranchDetailMarkup(row.items)}</div>` : ""}
+    </article>`;
+  }).join("") || `<p class="muted-note">Sem filiais no filtro atual.</p>`}</div>`;
+  return;
   const detailScope = activeBranchFilter === "Todas" ? "Rede" : activeBranchFilter;
   const detailRows = [...groupItems(records, (record) => `${record.groupMeta}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, items]) => {
     const [group] = key.split("|");
@@ -2459,6 +2524,29 @@ function renderBranchAttainmentBars(records) {
       <div><h4>Detalhes por indicador</h4><p>${escapeHtml(detailScope)} consolidado por indicador, no mesmo padrão da tela Filial.</p></div>
     </div>
     <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta consolidada</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${detailRows.map((row) => `<tr><td>${escapeHtml(metricGroupDisplay(row.group))}</td><td>${escapeHtml(row.metricName)}</td><td>${row.totals.goal ? formatMetricAmount(row.metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</td><td>${formatMetricAmount(row.metric, row.totals.realized)}</td><td>${achievementPill(row.totals.percent)}</td><td>${formatMetricAmount(row.metric, row.totals.projected)}</td><td>${achievementPill(row.totals.projectedPercent)}</td><td>${row.totals.gap === null ? "-" : formatMetricAmount(row.metric, row.totals.gap)}</td><td>${row.totals.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.totals.paceNeeded)}</td><td><span class="status ${row.totals.status.cls}">${row.totals.status.label}</span></td></tr>`).join("") || `<tr><td colspan="10">Sem dados por indicador no filtro atual.</td></tr>`}</tbody></table></div>`;
+}
+
+function dashboardBranchDetailMarkup(records) {
+  const detailRows = [...groupItems(records, (record) => `${record.groupMeta}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, items]) => {
+    const [group] = key.split("|");
+    const sample = items[0];
+    const totals = partialRecordTotals(items);
+    return { group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals, sample };
+  }).filter((row) => row.totals.projectedPercent !== null)
+    .sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group) || (a.totals.projectedPercent || 0) - (b.totals.projectedPercent || 0));
+  return `<div class="dashboard-detail-card-grid">${detailRows.map((row) => `<article class="dashboard-detail-card ${row.totals.status.cls}">
+    <span>${escapeHtml(metricGroupDisplay(row.group))}</span>
+    <strong>${escapeHtml(row.metricName)}</strong>
+    <dl>
+      <div><dt>Meta</dt><dd>${row.totals.goal ? formatMetricAmount(row.metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</dd></div>
+      <div><dt>Realizado</dt><dd>${formatMetricAmount(row.metric, row.totals.realized)}</dd></div>
+      <div><dt>Projecao</dt><dd>${formatMetricAmount(row.metric, row.totals.projected)}</dd></div>
+      <div><dt>% proj.</dt><dd>${achievementPill(row.totals.projectedPercent)}</dd></div>
+      <div><dt>Gap</dt><dd>${row.totals.gap === null ? "-" : formatMetricAmount(row.metric, row.totals.gap)}</dd></div>
+      <div><dt>Ritmo/dia</dt><dd>${row.totals.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.totals.paceNeeded)}</dd></div>
+    </dl>
+    <em class="status ${row.totals.status.cls}">${row.totals.status.label}</em>
+  </article>`).join("") || `<p class="muted-note">Sem dados por indicador no filtro atual.</p>`}</div>`;
 }
 
 function renderBranchCommissionBars(records) {
@@ -4877,6 +4965,7 @@ document.addEventListener("click", async (event) => {
     activeDashboardStatus = "Todos";
     activeDashboardDeflator = "Todos";
     activeDashboardSellerDetailId = "";
+    activeDashboardBranchDetail = "";
     document.querySelectorAll(".area-filter").forEach((button) => button.classList.toggle("active", button.dataset.area === "Todas"));
     renderDashboard();
     return;
@@ -5162,6 +5251,13 @@ document.addEventListener("click", async (event) => {
   if (dashboardSellerDetail) {
     const id = dashboardSellerDetail.dataset.dashboardSellerDetail || "";
     activeDashboardSellerDetailId = activeDashboardSellerDetailId === id ? "" : id;
+    renderDashboard();
+    return;
+  }
+  const dashboardBranchDetail = event.target.closest("[data-dashboard-branch-detail]");
+  if (dashboardBranchDetail) {
+    const branch = dashboardBranchDetail.dataset.dashboardBranchDetail || "";
+    activeDashboardBranchDetail = activeDashboardBranchDetail === branch ? "" : branch;
     renderDashboard();
     return;
   }
@@ -5601,6 +5697,7 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "dashboardPartialFilter") {
     activeDashboardPartialId = event.target.value || "latest";
     activeDashboardSellerDetailId = "";
+    activeDashboardBranchDetail = "";
     renderDashboard();
     return;
   }
@@ -5703,27 +5800,32 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "branchFilter") {
     activeBranchFilter = event.target.value;
     activeDashboardSellerDetailId = "";
+    activeDashboardBranchDetail = "";
     renderDashboard();
   }
   if (event.target.id === "dashboardAreaFilter") {
     activeAreaFilter = event.target.value;
     activeDashboardSellerDetailId = "";
+    activeDashboardBranchDetail = "";
     document.querySelectorAll(".area-filter").forEach((button) => button.classList.toggle("active", button.dataset.area === activeAreaFilter));
     renderDashboard();
   }
   if (event.target.id === "dashboardIndicatorFilter") {
     activeDashboardIndicator = event.target.value;
     activeDashboardSellerDetailId = "";
+    activeDashboardBranchDetail = "";
     renderDashboard();
   }
   if (event.target.id === "dashboardStatusFilter") {
     activeDashboardStatus = event.target.value;
     activeDashboardSellerDetailId = "";
+    activeDashboardBranchDetail = "";
     renderDashboard();
   }
   if (event.target.id === "dashboardDeflatorFilter") {
     activeDashboardDeflator = event.target.value;
     activeDashboardSellerDetailId = "";
+    activeDashboardBranchDetail = "";
     renderDashboard();
   }
   if (event.target.id === "managerSellerFilter") {
