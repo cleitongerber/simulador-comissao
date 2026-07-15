@@ -2690,6 +2690,82 @@ body[data-view="home"] .sidebar .nav-button.active::after {
   border-radius: 16px;
 }
 
+#gerenteView.manager-login-mode .manager-layout {
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  max-width: 980px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+#gerenteView.manager-login-mode .branch-access-panel {
+  position: static;
+}
+
+.branch-login-card {
+  display: grid;
+  gap: 14px;
+}
+
+.branch-login-title {
+  display: grid;
+  gap: 3px;
+  padding: 4px 2px 2px;
+}
+
+.branch-login-title span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.branch-login-title strong {
+  color: var(--ink);
+  font-size: 22px;
+}
+
+#gerenteView.manager-login-mode .module-campaign-box {
+  grid-template-columns: 1fr;
+  min-width: 0;
+  padding: 12px;
+  box-shadow: none;
+}
+
+#gerenteView.manager-login-mode .campaign-status-badge {
+  justify-self: start;
+}
+
+.branch-login-helper {
+  display: grid;
+  gap: 8px;
+  max-width: 520px;
+  padding: 18px;
+  border: 1px solid #eee2e4;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+  color: var(--muted);
+}
+
+.branch-login-helper strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.branch-login-helper span {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+@media (max-width: 980px) {
+  #gerenteView.manager-login-mode .manager-layout {
+    grid-template-columns: 1fr;
+    max-width: 520px;
+  }
+}
+
 .branch-dashboard-shell {
   min-width: 0;
 }
@@ -5762,6 +5838,84 @@ body[data-view="home"] .main > .view > * {
   margin: 0 0 10px;
   font-size: 14px;
 }
+
+.partial-dashboard-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(120px, 1.8fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid #f0e6e8;
+  border-radius: 12px;
+  background: #fffafa;
+}
+
+.partial-dashboard-row + .partial-dashboard-row {
+  margin-top: 8px;
+}
+
+.partial-dashboard-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.partial-dashboard-track {
+  display: block;
+  min-width: 0;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f0f2f4;
+}
+
+.partial-dashboard-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #e30613;
+}
+
+.partial-dashboard-row.ok .partial-dashboard-track i {
+  background: #16a34a;
+}
+
+.partial-dashboard-row.warn .partial-dashboard-track i {
+  background: #f59e0b;
+}
+
+.partial-dashboard-row.neutral .partial-dashboard-track i {
+  background: #94a3b8;
+}
+
+.partial-dashboard-row em {
+  min-width: 58px;
+  color: var(--teal-2);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.partial-dashboard-row.ok em {
+  color: #15803d;
+}
+
+.partial-dashboard-row.warn em {
+  color: #a16207;
+}
+
+.partial-dashboard-row.neutral em {
+  color: #64748b;
+}
+
 .collab-official-partial-card {
   border-color: rgba(22, 163, 74, 0.22);
 }
@@ -5774,6 +5928,14 @@ body[data-view="home"] .main > .view > * {
   }
   .partial-toolbar > div {
     width: 100%;
+  }
+
+  .partial-dashboard-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .partial-dashboard-track {
+    grid-column: 1 / -1;
   }
 }
 
@@ -5831,4 +5993,4 @@ body[data-view="home"] .main > .view > * {
   .branch-partial-actions .ghost-button {
     width: 100%;
   }
-}\n
+}

@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-partials-review";
+const CACHE_NAME = "comissao-pwa-v20260715-partials-layout-fix";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-partials-review",
-  "/app.js?v=20260715-partials-review",
+  "/styles.css?v=20260715-partials-layout-fix",
+  "/app.js?v=20260715-partials-layout-fix",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

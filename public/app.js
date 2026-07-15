@@ -1264,11 +1264,22 @@ function normalizedKey(value) {
 }
 
 function metricAliasKey(value) {
-  return normalizedKey(value)
-    .replace(/\b(meta|volume|volumes)\b/g, " ")
+  const key = normalizedKey(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\bmeta\b/g, " ")
     .replace(/\bquitados\b/g, "qtde")
+    .replace(/\bqtd(e)?\b/g, "qtde")
     .replace(/\s+/g, " ")
     .trim();
+  if (key === "bl" || key === "banda") return "banda larga";
+  if (key === "gross receita" || key === "receita gross" || key === "gross r" || key === "gross rs") return "gross";
+  if (key === "volume gross") return "gross volume";
+  if (key === "aparelho receita" || key === "receita aparelho" || key === "receita aparelhos") return "aparelhos receita";
+  if (key === "aparelho qtde" || key === "aparelhos qtd" || key === "aparelho qtd") return "aparelhos qtde";
+  if (key === "pelicula") return "peliculas";
+  if (key === "acessorio") return "acessorios";
+  if (key === "fidel") return "fidel aparelho";
+  return key;
 }
 
 function metricComparableKeys(value) {
@@ -1503,6 +1514,16 @@ function findPartialMetric(area, metricName) {
   return metricsFor(area).find((metric) => metricNameMatches(metric, metricName)) || null;
 }
 
+function partialItemMetric(item, seller) {
+  const area = seller?.area || item?.area || "Nao Cabo";
+  const metrics = metricsFor(area);
+  const byName = item?.metricName ? metrics.find((candidate) => metricNameMatches(candidate, item.metricName)) : null;
+  const byId = item?.metricId ? metrics.find((candidate) => candidate.id === item.metricId) : null;
+  if (byName) return byName;
+  if (byId && (!item?.metricName || metricNameMatches(byId, item.metricName))) return byId;
+  return null;
+}
+
 function metricExistsInAnotherArea(area, metricName) {
   const otherAreas = Object.keys(areaMetrics).filter((item) => item !== normalizeAreaName(area));
   return otherAreas.some((item) => findPartialMetric(item, metricName));
@@ -1517,8 +1538,7 @@ function partialMetricGoal(metric, seller) {
 }
 
 function partialMetricContext(item, seller) {
-  const area = seller?.area || item?.area || "Nao Cabo";
-  const metric = metricsFor(area).find((candidate) => candidate.id === item?.metricId || metricNameMatches(candidate, item?.metricName));
+  const metric = partialItemMetric(item, seller);
   const goal = partialMetricGoal(metric, seller);
   const realized = Number(item?.realized) || 0;
   const percent = goal ? realized / goal : null;
@@ -1722,8 +1742,8 @@ function partialItemsForSeller(partial, seller) {
     item.sellerId === seller.id
     || (normalizedKey(item.sellerName) === normalizedKey(seller.name) && normalizedKey(item.branch) === normalizedKey(seller.branch))
   )).sort((a, b) => {
-    const metricA = metricsFor(seller.area).find((metric) => metric.id === a.metricId || metricNameMatches(metric, a.metricName));
-    const metricB = metricsFor(seller.area).find((metric) => metric.id === b.metricId || metricNameMatches(metric, b.metricName));
+    const metricA = partialItemMetric(a, seller);
+    const metricB = partialItemMetric(b, seller);
     return metricOrderIndex(seller.area, metricA?.id || a.metricId) - metricOrderIndex(seller.area, metricB?.id || b.metricId);
   });
 }
@@ -1789,12 +1809,12 @@ function officialPartialRecords(partial, sellers, options = {}) {
     const seller = sellerMap.get(item.sellerId) || sellerKeys.get(`${normalizedKey(item.sellerName)}|${normalizedKey(item.branch)}`) || null;
     if (!seller) continue;
     if (options.sellerId && seller.id !== options.sellerId) continue;
-    if (options.metricName && options.metricName !== "Todos") {
-      const importedMetric = { name: item.metricName, id: item.metricId };
-      if (!metricNameMatches(importedMetric, options.metricName) && !metricNameMatches({ name: options.metricName, id: options.metricName }, item.metricName)) continue;
-    }
     const context = partialMetricContext(item, seller);
     if (!context.metric && options.requireMetric !== false) continue;
+    if (options.metricName && options.metricName !== "Todos") {
+      const recordMetric = context.metric || { name: item.metricName, id: item.metricId };
+      if (!metricNameMatches(recordMetric, options.metricName) && !metricNameMatches({ name: options.metricName, id: options.metricName }, item.metricName)) continue;
+    }
     records.push({ item, seller, ...context });
   }
   return records.sort((a, b) => a.seller.name.localeCompare(b.seller.name) || metricOrderIndex(a.seller.area, a.metric?.id || a.item.metricId) - metricOrderIndex(b.seller.area, b.metric?.id || b.item.metricId));
@@ -1853,8 +1873,20 @@ function renderDashboardPartialPanel() {
     <span>% parcial geral<strong>${achievementPill(totals.percent)}</strong></span>
   </div>
   <div class="partial-dashboard-grid">
-    <div><h4>Parcial por filial</h4>${branchRows.map((row) => `<div class="executive-list-row"><span>${escapeHtml(row.key)}</span><em>${achievementPill(row.percent)}</em></div>`).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
-    <div><h4>Parcial por metrica</h4>${metricRows.map((row) => `<div class="executive-list-row"><span>${escapeHtml(row.key)}</span><em>${achievementPill(row.percent)}</em></div>`).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
+    <div><h4>Parcial por filial</h4>${branchRows.map(partialDashboardRowMarkup).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
+    <div><h4>Parcial por metrica</h4>${metricRows.map(partialDashboardRowMarkup).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
+  </div>`;
+}
+
+function partialDashboardRowMarkup(row) {
+  const percent = Number(row.percent);
+  const width = Number.isFinite(percent) ? Math.min(100, Math.max(3, percent * 100)) : 0;
+  const cls = achievementClass(Number.isFinite(percent) ? percent : null);
+  const label = row.percent === null || !Number.isFinite(percent) ? "-" : pct.format(percent);
+  return `<div class="partial-dashboard-row ${cls}">
+    <strong title="${escapeHtml(row.key)}">${escapeHtml(row.key)}</strong>
+    <span class="partial-dashboard-track"><i style="width:${width}%"></i></span>
+    <em>${label}</em>
   </div>`;
 }
 function dashboardStatusFromPercent(percent) {
@@ -3404,24 +3436,27 @@ function renderManager() {
   if (!activeBranchSession || !state.branches.includes(activeBranchSession)) {
     activeManagerSellerId = "";
     managerView?.classList.remove("manager-authenticated");
+    managerView?.classList.add("manager-login-mode");
     if (topAccess) {
       topAccess.hidden = true;
       topAccess.innerHTML = "";
     }
     const options = state.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("");
-    loginPanel.innerHTML = options ? `
+    loginPanel.innerHTML = options ? `<div class="branch-login-card">
+      <div class="branch-login-title"><span>Área da filial</span><strong>Acesso do gerente</strong></div>
       ${moduleCampaignSelectorMarkup("filial-login")}
       <label>Filial<select id="managerBranchSelect">${options}</select></label>
       <label>Senha<input id="managerPassword" type="password" placeholder="Senha da filial"></label>
       <span id="managerLoginError" class="form-error"></span>
       <button id="managerLogin" class="nav-button active" type="button">Entrar</button>
-    ` : `${moduleCampaignSelectorMarkup("filial-login")}<div class="empty-state">Cadastre uma filial no Admin para liberar esta visao.</div>`;
-    dashboard.innerHTML = `<div class="empty-state">A filial acessa somente o atingimento dos vendedores vinculados a ela.</div>`;
+    </div>` : `<div class="branch-login-card">${moduleCampaignSelectorMarkup("filial-login")}<div class="empty-state">Cadastre uma filial no Admin para liberar esta visao.</div></div>`;
+    dashboard.innerHTML = `<div class="branch-login-helper"><strong>Painel da filial</strong><span>A filial acessa somente a parcial oficial e o atingimento dos vendedores vinculados a ela.</span></div>`;
     return;
   }
   const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === activeBranchSession);
   if (activeManagerSellerId && !sellers.some((seller) => seller.id === activeManagerSellerId)) activeManagerSellerId = "";
   managerView?.classList.add("manager-authenticated");
+  managerView?.classList.remove("manager-login-mode");
   loginPanel.innerHTML = "";
   if (topAccess) {
     topAccess.hidden = document.body.dataset.view !== "gerente";
@@ -4607,10 +4642,11 @@ document.addEventListener("click", async (event) => {
       return;
     }
     for (const item of partialItemsForSeller(partial, seller)) {
-      if (!item.metricId) continue;
+      const context = partialMetricContext(item, seller);
+      if (!context.metric) continue;
       ensureSellerValues(seller);
-      seller.values[item.metricId] = seller.values[item.metricId] || { goal: 0, realized: 0 };
-      seller.values[item.metricId].realized = Number(item.realized) || 0;
+      seller.values[context.metric.id] = seller.values[context.metric.id] || { goal: context.goal || context.metric.goal || 0, realized: 0 };
+      seller.values[context.metric.id].realized = Number(context.realized) || 0;
     }
     logUpdate({
       action: "Usou parcial como base da simulacao",
