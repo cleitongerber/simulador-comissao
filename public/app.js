@@ -4400,12 +4400,26 @@ function collaboratorOfficialPartialMarkup(seller) {
     <td>${row.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.paceNeeded)}</td>
     <td><span class="status ${row.status.cls}">${row.status.label}</span></td>
   </tr>`);
+  const cards = rows.map((row) => `<article class="collab-indicator-card">
+    <div><strong>${escapeHtml(row.metric?.name || row.item.metricName)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div>
+    <small class="metric-block-label">${escapeHtml(metricGroupDisplay(row.groupMeta))}</small>
+    <dl>
+      <dt>Meta</dt><dd>${row.goal ? formatMetricAmount(row.metric, row.goal) : row.participates ? "Meta nao configurada" : "Informativo"}</dd>
+      <dt>Realizado</dt><dd>${formatMetricAmount(row.metric, row.realized)}</dd>
+      <dt>% parcial</dt><dd>${row.percent === null ? "-" : pct.format(row.percent)}</dd>
+      <dt>Projecao</dt><dd>${row.projectedValue === null ? "-" : formatMetricAmount(row.metric, row.projectedValue)}</dd>
+      <dt>% projetado</dt><dd>${row.projectedPercent === null ? "-" : pct.format(row.projectedPercent)}</dd>
+      <dt>Falta</dt><dd>${row.gap === null ? "-" : formatMetricAmount(row.metric, row.gap)}</dd>
+      <dt>Ritmo/dia</dt><dd>${row.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.paceNeeded)}</dd>
+    </dl>
+  </article>`).join("");
   const hasInformative = rows.some((row) => !row.participates);
   return `<section class="collab-card collab-official-partial-card">
     <div class="collab-card-head"><div><h3>Detalhes da parcial</h3><p>Tabela completa por blocos com projecao, gap e ritmo necessario.</p></div><span class="status ok">${escapeHtml(partial.status)}</span></div>
     <div class="collab-month-grid"><span>Campanha<strong>${escapeHtml(partial.campaignName || activeCampaign()?.name || "-")}</strong></span><span>Parcial<strong>${escapeHtml(partial.name)}</strong></span><span>Data base<strong>${escapeHtml(partial.baseDate || "-")}</strong></span><span>Importado em<strong>${partial.importedAt ? dateTime.format(new Date(partial.importedAt)) : "-"}</strong></span></div>
     ${hasInformative ? `<p class="metric-info-note">Receita de aparelhos e indicadores informativos nao compoem o atingimento de metas. Apenas o volume de aparelhos entra no calculo.</p>` : ""}
     <div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Bloco</th><th>Meta</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="collab-indicator-cards collab-detail-cards">${cards}</div>
   </section>`;
 }
 
