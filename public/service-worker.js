@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-gross-volume-fix";
+const CACHE_NAME = "comissao-pwa-v20260715-partial-analytics";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-gross-volume-fix",
-  "/app.js?v=20260715-gross-volume-fix",
+  "/styles.css?v=20260715-partial-analytics",
+  "/app.js?v=20260715-partial-analytics",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
