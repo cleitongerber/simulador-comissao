@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260714-delete-campaign" />
+    <link rel="stylesheet" href="./styles.css?v=20260714-partials" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -117,6 +117,10 @@
                   <span class="campaign-status-badge" data-campaign-status="dashboard">Aberta</span>
                 </label>
                 <label>
+                  Parcial
+                  <select id="dashboardPartialFilter"><option value="latest">Ultima publicada</option></select>
+                </label>
+                <label>
                   Filial
                   <select id="branchFilter"></select>
                 </label>
@@ -152,6 +156,8 @@
                 <button id="clearDashboardFilters" class="ghost-button" type="button">Limpar filtros</button>
               </div>
             </section>
+
+            <section id="dashboardPartialPanel" class="dashboard-card"></section>
 
             <div id="dashboardExecutiveCards" class="dashboard-executive-grid"></div>
 
@@ -280,7 +286,7 @@
               <button class="admin-tab" data-admin-tab="metas" type="button">Metas</button>
               <button class="admin-tab" data-admin-tab="regras" type="button">Regras e Deflatores</button>
               <button class="admin-tab" data-admin-tab="estornos" type="button">Estornos</button>
-              <button class="admin-tab" data-admin-tab="fechamento" type="button">Fechamento</button>
+              <button class="admin-tab" data-admin-tab="fechamento" type="button">Parciais e Fechamento</button>
               <button class="admin-tab" data-admin-tab="importacao" type="button">Importacao / Backup</button>
               <button class="admin-tab" data-admin-tab="identidade" type="button">Identidade</button>
               <button class="admin-tab" data-admin-tab="seguranca" type="button">Seguranca</button>
@@ -421,6 +427,9 @@
               </section>
 
               <section class="admin-tab-panel" data-admin-panel="fechamento">
+                <section class="admin-section-card">
+                  <div id="adminPartialsPanel"></div>
+                </section>
                 <section class="admin-section-card">
                   <div id="adminClosingPanel"></div>
                 </section>
@@ -652,7 +661,6 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260714-delete-campaign"></script>
+    <script src="./app.js?v=20260714-partials"></script>
   </body>
 </html>
-

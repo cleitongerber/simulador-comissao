@@ -5727,3 +5727,49 @@ body[data-view="home"] .main > .view > * {
     grid-template-columns: 44px 38px 38px;
   }
 }
+
+/* Official partial results */
+.partial-preview,
+.partial-dashboard-grid {
+  display: grid;
+  gap: 16px;
+}
+.partial-toolbar {
+  align-items: center;
+  justify-content: space-between;
+}
+.partial-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.partial-preview-table tr.ok td {
+  background: rgba(22, 163, 74, 0.03);
+}
+.partial-preview-table tr.warn td {
+  background: rgba(245, 158, 11, 0.06);
+}
+.partial-preview-table tr.bad td {
+  background: rgba(220, 38, 38, 0.06);
+}
+.partial-dashboard-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.partial-dashboard-grid h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.collab-official-partial-card {
+  border-color: rgba(22, 163, 74, 0.22);
+}
+@media (max-width: 800px) {
+  .partial-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .partial-toolbar {
+    align-items: stretch;
+  }
+  .partial-toolbar > div {
+    width: 100%;
+  }
+}

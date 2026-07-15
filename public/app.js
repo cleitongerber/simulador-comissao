@@ -16,6 +16,13 @@ const CAMPAIGN_STATUS = {
   ADMIN_CLOSING: "Em fechamento administrativo",
   OFFICIAL_CLOSED: "Fechada oficial",
 };
+const PARTIAL_STATUS = {
+  DRAFT: "Rascunho",
+  REVIEW: "Em conferencia",
+  PUBLISHED: "Publicada",
+  REPLACED: "Substituida",
+  CANCELED: "Cancelada",
+};
 
 function makeId() {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -134,6 +141,7 @@ let activeBranchFilter = "Todas";
 let activeDashboardIndicator = "Todos";
 let activeDashboardStatus = "Todos";
 let activeDashboardDeflator = "Todos";
+let activeDashboardPartialId = "latest";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
 let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 let activeManagerSellerId = "";
@@ -141,6 +149,8 @@ let activeAdminTab = "campanha";
 let pendingAccessView = "dashboard";
 let activeAuditLogId = "";
 let lastAccessLogKey = "";
+let pendingPartialImport = null;
+let partialPreviewFilter = "Todos";
 
 function activeCampaign() {
   return state?.campaigns?.find((campaign) => campaign.id === state.activeCampaignId) || state?.campaigns?.[0] || null;
@@ -440,6 +450,44 @@ function normalizeCustomMetric(metric) {
   };
 }
 
+function normalizePartialItem(item) {
+  return {
+    id: item?.id || makeId(),
+    lineNumber: Number(item?.lineNumber) || 0,
+    sellerName: String(item?.sellerName || "").trim(),
+    sellerId: item?.sellerId || "",
+    branch: String(item?.branch || "").trim(),
+    branchId: item?.branchId || "",
+    area: normalizeAreaName(item?.area || "Nao Cabo"),
+    metricName: String(item?.metricName || "").trim(),
+    metricId: item?.metricId || "",
+    realized: Number(item?.realized) || 0,
+    status: item?.status || "OK",
+    message: item?.message || "",
+  };
+}
+
+function normalizePartials(source) {
+  return Array.isArray(source) ? source.map((partial, index) => ({
+    id: partial?.id || makeId(),
+    campaignId: partial?.campaignId || "",
+    campaignName: partial?.campaignName || "",
+    number: Number(partial?.number) || index + 1,
+    name: partial?.name || `Parcial ${String(Number(partial?.number) || index + 1).padStart(2, "0")}`,
+    baseDate: partial?.baseDate || "",
+    importedAt: partial?.importedAt || new Date().toISOString(),
+    publishedAt: partial?.publishedAt || "",
+    responsible: partial?.responsible || "Admin",
+    status: Object.values(PARTIAL_STATUS).includes(partial?.status) ? partial.status : PARTIAL_STATUS.DRAFT,
+    totalRows: Number(partial?.totalRows) || 0,
+    validRows: Number(partial?.validRows) || 0,
+    warningRows: Number(partial?.warningRows) || 0,
+    errorRows: Number(partial?.errorRows) || 0,
+    summary: partial?.summary || {},
+    items: Array.isArray(partial?.items) ? partial.items.map(normalizePartialItem) : [],
+  })) : [];
+}
+
 function metricIdsForArea(area, customMetrics = state?.customMetrics) {
   return [
     ...(areaMetrics[area] || []).map((metric) => metric.id),
@@ -623,6 +671,7 @@ function createCampaignFromSource(source, overrides = {}) {
     officialFileName: overrides.officialFileName || "",
     officialFileCsv: overrides.officialFileCsv || "",
     snapshot: overrides.snapshot || null,
+    partials: normalizePartials(overrides.partials || []),
     ...payload,
   };
 }
@@ -649,6 +698,7 @@ function normalizeCampaign(campaign, fallback) {
   normalized.deflators = normalizeDeflators(normalized.deflators);
   normalized.branches = normalizeBranches(normalized.branches, normalized.sellers);
   normalized.branchPasswords = normalizeBranchPasswords(normalized.branchPasswords, normalized.managerAccess, normalized._legacyManagers, normalized.branches);
+  normalized.partials = normalizePartials(normalized.partials);
   for (const area of ["Cabo", "Nao Cabo"]) {
     normalized.rules[area] = normalized.rules[area] || {};
     for (const metric of metricsFor(area, normalized)) normalized.rules[area][metric.id] = normalized.rules[area][metric.id] || [];
@@ -1195,6 +1245,15 @@ function parseCsv(text) {
   return text.trim().split(/\r?\n/).map((line) => line.split(separator).map((cell) => cell.trim().replace(/^"|"$/g, "").replace(/""/g, '"')));
 }
 
+async function readCsvFileText(file) {
+  const buffer = await file.arrayBuffer();
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch (error) {
+    return new TextDecoder("windows-1252").decode(buffer);
+  }
+}
+
 function normalizedKey(value) {
   return String(value || "")
     .normalize("NFD")
@@ -1209,6 +1268,13 @@ function parseImportedNumber(value) {
   if (raw.includes(",")) return Number(raw.replace(/\./g, "").replace(",", ".")) || 0;
   if (/^-?\d{1,3}(\.\d{3})+$/.test(raw)) return Number(raw.replace(/\./g, "")) || 0;
   return Number(raw.replace(",", ".")) || 0;
+}
+
+function isValidImportedNumber(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return false;
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw.replace(",", ".");
+  return /^-?\d+(\.\d+)?$/.test(normalized);
 }
 
 function normalizeAreaName(value) {
@@ -1346,6 +1412,266 @@ function importGoalTemplateCsv(text) {
   saveState(`${updated} linhas importadas (${createdSellers} vendedores, ${createdBranches} filiais, ${createdMetrics} metas novas, ${ignoredRows} ignoradas)`);
   renderAll();
 }
+
+function partialsForCampaign(campaign = activeCampaign()) {
+  if (!campaign) return [];
+  campaign.partials = normalizePartials(campaign.partials);
+  return campaign.partials;
+}
+
+function partialById(partialId, campaign = activeCampaign()) {
+  return partialsForCampaign(campaign).find((partial) => partial.id === partialId) || null;
+}
+
+function latestPublishedPartial(campaign = activeCampaign()) {
+  return partialsForCampaign(campaign)
+    .filter((partial) => partial.status === PARTIAL_STATUS.PUBLISHED)
+    .sort((a, b) => String(b.publishedAt || b.importedAt || b.baseDate).localeCompare(String(a.publishedAt || a.importedAt || a.baseDate)))[0] || null;
+}
+
+function selectedDashboardPartial() {
+  const campaign = activeCampaign();
+  if (!campaign) return null;
+  if (activeDashboardPartialId && activeDashboardPartialId !== "latest") return partialById(activeDashboardPartialId, campaign) || latestPublishedPartial(campaign);
+  return latestPublishedPartial(campaign);
+}
+
+function partialStatusClass(status) {
+  if (status === PARTIAL_STATUS.PUBLISHED) return "ok";
+  if (status === PARTIAL_STATUS.REVIEW) return "warn";
+  if (status === PARTIAL_STATUS.CANCELED || status === PARTIAL_STATUS.REPLACED) return "neutral";
+  return "";
+}
+
+function partialLineClass(status) {
+  if (status === "Erro") return "bad";
+  if (status === "Alerta") return "warn";
+  return "ok";
+}
+
+function partialSummary(items, totalRows = items.length) {
+  const errorRows = items.filter((item) => item.status === "Erro").length;
+  const warningRows = items.filter((item) => item.status === "Alerta").length;
+  const validRows = items.length - errorRows;
+  const sellers = new Set(items.filter((item) => item.status !== "Erro").map((item) => item.sellerId || normalizedKey(item.sellerName)));
+  const branches = new Set(items.filter((item) => item.status !== "Erro").map((item) => normalizedKey(item.branch)));
+  const metrics = new Set(items.filter((item) => item.status !== "Erro").map((item) => item.metricId || normalizedKey(item.metricName)));
+  return {
+    totalRows,
+    validRows,
+    warningRows,
+    errorRows,
+    sellers: sellers.size,
+    branches: branches.size,
+    metrics: metrics.size,
+    totalRealized: items.filter((item) => item.status !== "Erro").reduce((sum, item) => sum + (Number(item.realized) || 0), 0),
+  };
+}
+
+function findPartialMetric(area, metricName) {
+  const key = normalizedKey(metricName);
+  return metricsFor(area).find((metric) => normalizedKey(metric.name) === key || normalizedKey(metric.id) === key) || null;
+}
+
+function validatePartialCsv(text, meta = {}) {
+  const campaign = activeCampaign();
+  if (!campaign) throw new Error("Nenhuma campanha selecionada.");
+  const rows = parseCsv(text).filter((row) => row.some((cell) => String(cell || "").trim()));
+  const header = rows.shift()?.map((item) => normalizedKey(item.replace(/^\uFEFF/, ""))) || [];
+  const index = (name) => header.indexOf(normalizedKey(name));
+  for (const required of ["vendedor", "filial", "area", "metrica", "realizado"]) {
+    if (index(required) < 0) throw new Error(`Coluna obrigatoria ausente no CSV: ${required}.`);
+  }
+  if (!rows.length) throw new Error("Arquivo sem dados validos para importacao.");
+  const duplicateKeys = new Set();
+  const items = rows.map((row, rowIndex) => {
+    const sellerName = String(row[index("vendedor")] || "").trim();
+    const branch = String(row[index("filial")] || "").trim();
+    const area = normalizeAreaName(row[index("area")] || "Nao Cabo");
+    const metricName = String(row[index("metrica")] || "").trim();
+    const realizedRaw = row[index("realizado")];
+    const errors = [];
+    const warnings = [];
+    if (!sellerName) errors.push("Vendedor vazio.");
+    if (!branch) errors.push("Filial vazia.");
+    if (!metricName) errors.push("Metrica vazia.");
+    const rawNumber = String(realizedRaw ?? "").trim();
+    const realized = parseImportedNumber(rawNumber);
+    if (!isValidImportedNumber(rawNumber) || !Number.isFinite(realized)) errors.push("Realizado invalido.");
+
+    const branchExists = state.branches.some((item) => normalizedKey(item) === normalizedKey(branch));
+    if (branch && !branchExists) errors.push("Filial inexistente na campanha.");
+
+    const sellerCandidates = state.sellers.filter((seller) => normalizedKey(seller.name) === normalizedKey(sellerName));
+    const seller = sellerCandidates.find((item) => normalizedKey(item.branch) === normalizedKey(branch)) || sellerCandidates[0] || null;
+    if (!seller && sellerName) errors.push("Vendedor inexistente na campanha.");
+    if (seller) {
+      if (normalizedKey(seller.name) !== normalizedKey(sellerName) || seller.name !== sellerName) warnings.push("Vendedor localizado por normalizacao de nome.");
+      if (normalizedKey(seller.branch) !== normalizedKey(branch)) warnings.push(`Filial divergente do cadastro (${seller.branch}).`);
+      if (normalizeAreaName(seller.area) !== area) warnings.push(`Area divergente do cadastro (${seller.area}).`);
+    }
+
+    const metricArea = seller?.area || area;
+    const metric = metricName ? findPartialMetric(metricArea, metricName) : null;
+    if (!metric && metricName) errors.push("Metrica inexistente na campanha.");
+    if (metric && metric.name !== metricName) warnings.push("Metrica localizada por normalizacao de nome.");
+
+    const duplicateKey = `${seller?.id || normalizedKey(sellerName)}:${metric?.id || normalizedKey(metricName)}`;
+    if (sellerName && metricName) {
+      if (duplicateKeys.has(duplicateKey)) errors.push("Linha duplicada para vendedor + metrica.");
+      duplicateKeys.add(duplicateKey);
+    }
+    const status = errors.length ? "Erro" : warnings.length ? "Alerta" : "OK";
+    return {
+      id: makeId(),
+      lineNumber: rowIndex + 2,
+      sellerName,
+      sellerId: seller?.id || "",
+      branch,
+      branchId: branchExists ? branch : "",
+      area,
+      metricName,
+      metricId: metric?.id || "",
+      realized,
+      status,
+      message: [...errors, ...warnings].join(" "),
+    };
+  });
+  const summary = partialSummary(items, rows.length);
+  const number = Number(meta.number) || (partialsForCampaign(campaign).length + 1);
+  return {
+    id: makeId(),
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    number,
+    name: meta.name || `Parcial ${String(number).padStart(2, "0")}`,
+    baseDate: meta.baseDate || new Date().toISOString().slice(0, 10),
+    importedAt: new Date().toISOString(),
+    publishedAt: "",
+    responsible: currentAuditProfile() || "Admin",
+    status: PARTIAL_STATUS.REVIEW,
+    totalRows: summary.totalRows,
+    validRows: summary.validRows,
+    warningRows: summary.warningRows,
+    errorRows: summary.errorRows,
+    summary,
+    items,
+  };
+}
+
+function savePendingPartial(status) {
+  const campaign = activeCampaign();
+  if (!campaign || !pendingPartialImport) return;
+  if (pendingPartialImport._readOnly) return;
+  if (campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
+    alert("Esta campanha nao permite salvar nova parcial neste status.");
+    return;
+  }
+  if (pendingPartialImport.errorRows > 0) {
+    alert("Corrija os erros antes de salvar ou publicar esta parcial.");
+    return;
+  }
+  const partial = normalizePartials([{ ...pendingPartialImport, status }])[0];
+  partial.publishedAt = status === PARTIAL_STATUS.PUBLISHED ? new Date().toISOString() : "";
+  partialsForCampaign(campaign).push(partial);
+  pendingPartialImport = null;
+  logUpdate({
+    action: status === PARTIAL_STATUS.PUBLISHED ? "Publicou parcial" : "Salvou parcial como rascunho",
+    module: "Parciais",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: partial.id,
+    itemName: partial.name,
+    newValue: partial.status,
+    message: `${partial.name} da campanha ${campaign.name} ${status === PARTIAL_STATUS.PUBLISHED ? "publicada" : "salva como rascunho"}.`,
+  });
+  saveState(status === PARTIAL_STATUS.PUBLISHED ? "Parcial publicada" : "Parcial salva como rascunho");
+  renderAll();
+}
+
+function publishPartial(partialId) {
+  const campaign = activeCampaign();
+  const partial = partialById(partialId, campaign);
+  if (!campaign || !partial) return;
+  if (campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
+    alert("Esta campanha nao permite publicar parcial neste status.");
+    return;
+  }
+  if (partial.errorRows > 0) {
+    alert("Corrija os erros antes de publicar esta parcial.");
+    return;
+  }
+  if (!confirm("Voce esta publicando esta parcial para consulta dos vendedores, filiais e dashboard. A simulacao dos vendedores continuara separada e nao sera alterada. Deseja continuar?")) return;
+  partial.status = PARTIAL_STATUS.PUBLISHED;
+  partial.publishedAt = new Date().toISOString();
+  logUpdate({
+    action: "Publicou parcial",
+    module: "Parciais",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: partial.id,
+    itemName: partial.name,
+    newValue: partial.status,
+    message: `${partial.name} publicada para consulta.`,
+  });
+  saveState("Parcial publicada");
+  renderAll();
+}
+
+function updatePartialStatus(partialId, status) {
+  const campaign = activeCampaign();
+  const partial = partialById(partialId, campaign);
+  if (!campaign || !partial) return;
+  partial.status = status;
+  logUpdate({
+    action: `Atualizou parcial para ${status}`,
+    module: "Parciais",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: partial.id,
+    itemName: partial.name,
+    newValue: status,
+    message: `${partial.name} atualizada para ${status}.`,
+  });
+  saveState("Parcial atualizada");
+  renderAll();
+}
+
+function deleteDraftPartial(partialId) {
+  const campaign = activeCampaign();
+  const partial = partialById(partialId, campaign);
+  if (!campaign || !partial) return;
+  if (partial.status !== PARTIAL_STATUS.DRAFT) {
+    alert("Somente parciais em rascunho podem ser excluidas.");
+    return;
+  }
+  if (!confirm(`Excluir o rascunho ${partial.name}?`)) return;
+  campaign.partials = partialsForCampaign(campaign).filter((item) => item.id !== partialId);
+  logUpdate({
+    action: "Excluiu rascunho de parcial",
+    module: "Parciais",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: partial.id,
+    itemName: partial.name,
+    message: `${partial.name} excluida.`,
+  });
+  saveState("Parcial excluida");
+  renderAll();
+}
+
+function partialItemsForSeller(partial, seller) {
+  if (!partial || !seller) return [];
+  return partial.items.filter((item) => item.status !== "Erro" && (
+    item.sellerId === seller.id
+    || (normalizedKey(item.sellerName) === normalizedKey(seller.name) && normalizedKey(item.branch) === normalizedKey(seller.branch))
+  )).sort((a, b) => metricOrderIndex(seller.area, a.metricId) - metricOrderIndex(seller.area, b.metricId));
+}
+
+function partialItemsForBranch(partial, branch) {
+  if (!partial || !branch) return [];
+  return partial.items.filter((item) => item.status !== "Erro" && normalizedKey(item.branch) === normalizedKey(branch));
+}
 function renderBranchFilter() {
   const select = document.getElementById("branchFilter");
   if (!select) return;
@@ -1360,9 +1686,17 @@ function renderDashboardFilterControls(baseSellers) {
   const indicatorSelect = document.getElementById("dashboardIndicatorFilter");
   const statusSelect = document.getElementById("dashboardStatusFilter");
   const deflatorSelect = document.getElementById("dashboardDeflatorFilter");
+  const partialSelect = document.getElementById("dashboardPartialFilter");
   if (areaSelect) areaSelect.value = activeAreaFilter;
   if (statusSelect) statusSelect.value = activeDashboardStatus;
   if (deflatorSelect) deflatorSelect.value = activeDashboardDeflator;
+  if (partialSelect) {
+    const published = partialsForCampaign().filter((partial) => partial.status === PARTIAL_STATUS.PUBLISHED);
+    const options = [`<option value="latest">Ultima publicada</option>`, ...published.map((partial) => `<option value="${escapeHtml(partial.id)}">${escapeHtml(partial.name)} - ${escapeHtml(partial.baseDate || "")}</option>`)];
+    partialSelect.innerHTML = options.join("");
+    if (activeDashboardPartialId !== "latest" && !published.some((partial) => partial.id === activeDashboardPartialId)) activeDashboardPartialId = "latest";
+    partialSelect.value = activeDashboardPartialId;
+  }
   if (indicatorSelect) {
     const names = [];
     for (const seller of baseSellers) {
@@ -1383,6 +1717,44 @@ function dashboardBaseSellers() {
     const branchOk = activeBranchFilter === "Todas" || seller.branch === activeBranchFilter;
     return areaOk && branchOk;
   });
+}
+
+function renderDashboardPartialPanel() {
+  const container = document.getElementById("dashboardPartialPanel");
+  if (!container) return;
+  const partial = selectedDashboardPartial();
+  if (!partial) {
+    container.innerHTML = `<div class="dashboard-card-head"><div><h3>Resultado parcial oficial</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div>`;
+    return;
+  }
+  const sellers = dashboardSellers();
+  const sellerIds = new Set(sellers.map((seller) => seller.id));
+  const items = partial.items.filter((item) => item.status !== "Erro" && sellerIds.has(item.sellerId));
+  const branchTotals = new Map();
+  const sellerTotals = new Map();
+  const metricTotals = new Map();
+  for (const item of items) {
+    branchTotals.set(item.branch, (branchTotals.get(item.branch) || 0) + item.realized);
+    sellerTotals.set(item.sellerName, (sellerTotals.get(item.sellerName) || 0) + item.realized);
+    metricTotals.set(item.metricName, (metricTotals.get(item.metricName) || 0) + item.realized);
+  }
+  const branchRows = [...branchTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const metricRows = [...metricTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  container.innerHTML = `<div class="dashboard-card-head">
+    <div><h3>Resultado parcial oficial</h3><p>Exibindo ${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div>
+    <span class="status ok">${escapeHtml(partial.status)}</span>
+  </div>
+  <div class="campaign-kpi-strip compact-strip">
+    <span>Linhas publicadas<strong>${items.length}</strong></span>
+    <span>Vendedores<strong>${new Set(items.map((item) => item.sellerId || item.sellerName)).size}</strong></span>
+    <span>Filiais<strong>${branchTotals.size}</strong></span>
+    <span>Metricas<strong>${metricTotals.size}</strong></span>
+    <span>Total realizado<strong>${num.format(items.reduce((sum, item) => sum + item.realized, 0))}</strong></span>
+  </div>
+  <div class="partial-dashboard-grid">
+    <div><h4>Parcial por filial</h4>${branchRows.map(([branch, value]) => `<div class="executive-list-row"><span>${escapeHtml(branch)}</span><em>${num.format(value)}</em></div>`).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
+    <div><h4>Parcial por metrica</h4>${metricRows.map(([metric, value]) => `<div class="executive-list-row"><span>${escapeHtml(metric)}</span><em>${num.format(value)}</em></div>`).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
+  </div>`;
 }
 
 function dashboardStatusFromPercent(percent) {
@@ -1503,6 +1875,7 @@ function renderDashboard() {
   const baseSellers = dashboardBaseSellers();
   renderDashboardFilterControls(baseSellers);
   const sellers = dashboardSellers();
+  renderDashboardPartialPanel();
   const empty = document.getElementById("dashboardEmptyState");
   const hasData = state.sellers.length > 0 && sellers.length > 0;
   if (empty) {
@@ -2138,6 +2511,109 @@ function renderAdminEstornosPanel() {
   `;
 }
 
+function nextPartialNumber() {
+  const numbers = partialsForCampaign().map((partial) => Number(partial.number) || 0);
+  return Math.max(0, ...numbers) + 1;
+}
+
+function partialPreviewMarkup(partial, options = {}) {
+  if (!partial) return `<p class="muted-note">Nenhuma pre-visualizacao carregada.</p>`;
+  const filter = partialPreviewFilter;
+  const visibleItems = partial.items.filter((item) => filter === "Todos" || item.status === filter);
+  const canSave = !options.readOnly && partial.errorRows === 0;
+  const summary = partial.summary || partialSummary(partial.items, partial.totalRows);
+  const filters = ["Todos", "OK", "Alerta", "Erro"].map((item) => `<button class="ghost-button compact-action ${filter === item ? "active" : ""}" data-partial-preview-filter="${item}" type="button">${item}</button>`).join("");
+  return `<div class="partial-preview">
+    <div class="campaign-kpi-strip compact-strip">
+      <span>Linhas lidas<strong>${summary.totalRows}</strong></span>
+      <span>Validas<strong>${summary.validRows}</strong></span>
+      <span>Alertas<strong>${summary.warningRows}</strong></span>
+      <span>Erros<strong>${summary.errorRows}</strong></span>
+      <span>Vendedores<strong>${summary.sellers}</strong></span>
+      <span>Metricas<strong>${summary.metrics}</strong></span>
+    </div>
+    <div class="admin-toolbar partial-toolbar">
+      <div>${filters}</div>
+      ${options.readOnly ? "" : `<div><button id="cancelPartialPreview" class="ghost-button" type="button">Cancelar</button><button id="savePartialDraft" class="ghost-button" type="button" ${canSave ? "" : "disabled"}>Salvar como rascunho</button><button id="publishPendingPartial" class="primary-button" type="button" ${canSave ? "" : "disabled"}>Publicar parcial</button></div>`}
+    </div>
+    ${partial.errorRows ? `<p class="admin-inline-note warning">Corrija os erros antes de salvar ou publicar esta parcial.</p>` : `<p class="admin-inline-note">Previa validada. A publicacao nao altera a simulacao dos vendedores.</p>`}
+    <div class="table-wrap partial-preview-table"><table>
+      <thead><tr><th>Linha</th><th>Vendedor</th><th>Filial</th><th>Area</th><th>Metrica</th><th>Realizado</th><th>Status</th><th>Mensagem</th></tr></thead>
+      <tbody>${visibleItems.map((item) => `<tr class="${partialLineClass(item.status)}"><td>${item.lineNumber}</td><td>${escapeHtml(item.sellerName)}</td><td>${escapeHtml(item.branch)}</td><td>${escapeHtml(item.area)}</td><td>${escapeHtml(item.metricName)}</td><td>${num.format(item.realized)}</td><td><span class="status ${partialLineClass(item.status)}">${item.status}</span></td><td>${escapeHtml(item.message || "-")}</td></tr>`).join("") || `<tr><td colspan="8">Nenhuma linha para este filtro.</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function renderAdminPartialsPanel() {
+  const container = document.getElementById("adminPartialsPanel");
+  if (!container) return;
+  const campaign = activeCampaign();
+  if (!campaign) {
+    container.innerHTML = `<div class="section-title"><h3>Parciais de resultado</h3><p>Nenhuma campanha selecionada.</p></div>`;
+    return;
+  }
+  const locked = campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED;
+  const partials = partialsForCampaign(campaign).sort((a, b) => Number(b.number) - Number(a.number) || String(b.importedAt).localeCompare(String(a.importedAt)));
+  const rows = partials.map((partial) => {
+    const summary = partial.summary || partialSummary(partial.items, partial.totalRows);
+    return `<tr>
+      <td>${escapeHtml(campaign.name)}</td>
+      <td>${partial.number}</td>
+      <td><strong>${escapeHtml(partial.name)}</strong><small>${escapeHtml(partial.baseDate || "-")}</small></td>
+      <td>${partial.importedAt ? dateTime.format(new Date(partial.importedAt)) : "-"}</td>
+      <td>${escapeHtml(partial.responsible || "Admin")}</td>
+      <td><span class="status ${partialStatusClass(partial.status)}">${escapeHtml(partial.status)}</span></td>
+      <td>${summary.sellers}</td>
+      <td>${summary.metrics}</td>
+      <td>${summary.totalRows}</td>
+      <td>
+        <button class="ghost-button compact-action" data-view-partial="${partial.id}" type="button">Visualizar</button>
+        <button class="ghost-button compact-action" data-publish-partial="${partial.id}" type="button" ${partial.errorRows || partial.status === PARTIAL_STATUS.PUBLISHED ? "disabled" : ""}>Publicar</button>
+        <button class="ghost-button compact-action" data-cancel-partial="${partial.id}" type="button" ${partial.status === PARTIAL_STATUS.CANCELED ? "disabled" : ""}>Cancelar</button>
+        <button class="ghost-button compact-action" data-replace-partial="${partial.id}" type="button" ${partial.status !== PARTIAL_STATUS.PUBLISHED ? "disabled" : ""}>Substituida</button>
+        <button class="danger-button compact-action" data-delete-draft-partial="${partial.id}" type="button" ${partial.status !== PARTIAL_STATUS.DRAFT ? "disabled" : ""}>Excluir</button>
+      </td>
+    </tr>`;
+  }).join("");
+  container.innerHTML = `
+    <div class="section-title inline-title">
+      <div>
+        <h3>Parciais de resultado</h3>
+        <p>Importe resultados oficiais parciais sem alterar a simulacao dos vendedores.</p>
+      </div>
+      <span class="campaign-status-badge ${campaignStatusClass(campaign.status)}">${escapeHtml(campaign.status)}</span>
+    </div>
+    <div class="admin-section-grid single">
+      <section class="admin-section-card">
+        <div class="section-title">
+          <h3>Importar parcial</h3>
+          <p>Formato aceito: vendedor;filial;area;metrica;realizado</p>
+        </div>
+        <div class="period-admin-grid">
+          <label>Campanha<input value="${escapeHtml(campaign.name)}" disabled></label>
+          <label>Tipo<input value="Parcial" disabled></label>
+          <label>Numero da parcial<input id="partialNumber" type="number" min="1" value="${nextPartialNumber()}"></label>
+          <label>Nome da parcial<input id="partialName" placeholder="Parcial ${String(nextPartialNumber()).padStart(2, "0")}"></label>
+          <label>Data base<input id="partialBaseDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
+        </div>
+        <div class="csv-import-layout">
+          <div class="csv-dropzone" id="partialCsvDropzone"><strong>Selecionar CSV de parcial</strong><span>O arquivo sera validado antes de salvar.</span></div>
+          <div class="csv-actions"><button id="selectPartialCsv" class="primary-button" type="button" ${locked ? "disabled" : ""}>Importar parcial</button><input id="partialCsvFile" type="file" accept=".csv,text/csv" hidden /></div>
+        </div>
+        ${locked ? `<p class="admin-inline-note warning">Esta campanha nao permite novas parciais neste status.</p>` : `<p class="admin-inline-note">A parcial publicada sera exibida para Dashboard, Filial e Vendedor; a simulacao permanece separada.</p>`}
+      </section>
+      <section class="admin-section-card">
+        <div class="section-title"><h3>Previa da importacao</h3><p>Confira erros e alertas antes de publicar.</p></div>
+        <div id="partialPreviewPanel">${partialPreviewMarkup(pendingPartialImport, { readOnly: Boolean(pendingPartialImport?._readOnly) })}</div>
+      </section>
+      <section class="admin-section-card">
+        <div class="section-title"><h3>Parciais importadas</h3><p>Historico da campanha selecionada.</p></div>
+        <div class="table-wrap"><table><thead><tr><th>Campanha</th><th>N.</th><th>Parcial</th><th>Importacao</th><th>Responsavel</th><th>Status</th><th>Vendedores</th><th>Metricas</th><th>Linhas</th><th>Acoes</th></tr></thead><tbody>${rows || `<tr><td colspan="10">Nenhuma parcial importada para esta campanha.</td></tr>`}</tbody></table></div>
+      </section>
+    </div>
+  `;
+}
+
 function renderAdminClosingPanel() {
   const container = document.getElementById("adminClosingPanel");
   if (!container) return;
@@ -2389,6 +2865,7 @@ function renderAdmin() {
   renderCampaignAdminPanel();
   renderAdminSummary();
   renderAdminEstornosPanel();
+  renderAdminPartialsPanel();
   renderAdminClosingPanel();
   renderAdminFilters();
   const adminPeriodMonth = document.getElementById("adminPeriodMonth");
@@ -2785,11 +3262,27 @@ function branchDeflatorSummary(sellers) {
   return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resumo dos deflatores</h3><p>${rows.length} vendedor${rows.length === 1 ? "" : "es"} com deflator aplicado ou previsto. Impacto financeiro total: ${money.format(totalImpact)}. Principal motivo: ${escapeHtml(mainReason)}.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Deflator</th><th>Motivo</th><th>Impacto</th><th>Status</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${escapeHtml(row.seller.name)}</td><td>-${pct.format(row.preview.rate)}</td><td>${escapeHtml(row.preview.triggered[0]?.metric?.name || "-")} abaixo do minimo</td><td>${money.format(row.preview.ignored ? 0 : row.summary.deflator)}</td><td><span class="status ${row.preview.ignored ? "neutral" : "bad"}">${row.preview.ignored ? "Ignorado por experiencia" : "Aplicado"}</span></td></tr>`).join("") || `<tr><td colspan="5">Nenhum deflator aplicado no momento.</td></tr>`}</tbody></table></div></section>`;
 }
 
+function branchOfficialPartialCard(branch, sellers) {
+  const partial = latestPublishedPartial();
+  if (!partial) return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial da filial</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div></section>`;
+  const sellerIds = new Set(sellers.map((seller) => seller.id));
+  const items = partialItemsForBranch(partial, branch).filter((item) => !item.sellerId || sellerIds.has(item.sellerId));
+  const rows = items.sort((a, b) => a.sellerName.localeCompare(b.sellerName) || metricOrderIndex(a.area, a.metricId) - metricOrderIndex(b.area, b.metricId)).map((item) => {
+    const seller = sellers.find((candidate) => candidate.id === item.sellerId || normalizedKey(candidate.name) === normalizedKey(item.sellerName));
+    const metric = seller ? metricsFor(seller.area).find((candidate) => candidate.id === item.metricId) : null;
+    const goal = Number(seller?.values?.[item.metricId]?.goal ?? metric?.goal ?? 0) || 0;
+    const percent = goal ? item.realized / goal : null;
+    const status = branchStatusFromPercent(percent || 0);
+    return `<tr><td>${escapeHtml(item.sellerName)}</td><td>${escapeHtml(item.metricName)}</td><td>${num.format(item.realized)}</td><td>${goal ? num.format(goal) : "-"}</td><td>${achievementPill(percent)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
+  }).join("");
+  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial da filial</h3><p>${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div><span class="status ok">${escapeHtml(partial.status)}</span></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Metrica</th><th>Realizado parcial</th><th>Meta</th><th>% parcial</th><th>Status</th></tr></thead><tbody>${rows || `<tr><td colspan="6">Nenhum dado parcial para esta filial.</td></tr>`}</tbody></table></div></section>`;
+}
+
 function branchDashboardMarkup(branch, sellers) {
   const totals = branchTotals(sellers);
   const selectedSeller = sellers.find((seller) => seller.id === activeManagerSellerId) || null;
   if (!sellers.length) return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
-  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchKpiCards(branch, sellers, totals)}${branchAlerts(sellers, totals)}${branchSellerFilter(sellers)}<div class="branch-main-grid"><div>${branchTeamTable(sellers)}${sellerDetailPanel(selectedSeller)}${branchIndicatorAchievementCard(sellers)}${branchDeflatorSummary(sellers)}</div><aside>${branchAttentionPoints(sellers)}${branchRankingCard(sellers)}</aside></div></div>`;
+  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchKpiCards(branch, sellers, totals)}${branchAlerts(sellers, totals)}${branchSellerFilter(sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchTeamTable(sellers)}${sellerDetailPanel(selectedSeller)}${branchIndicatorAchievementCard(sellers)}${branchDeflatorSummary(sellers)}</div><aside>${branchAttentionPoints(sellers)}${branchRankingCard(sellers)}</aside></div></div>`;
 }
 
 function renderManager() {
@@ -3018,15 +3511,35 @@ function collaboratorEstornosMarkup(seller) {
   return `<section class="collab-card collab-estornos-card"><div class="collab-card-head"><h3>Estornos</h3><span class="status warn">Desconto</span></div><dl class="estorno-breakdown">${estornos.items.map((item) => `<dt>${escapeHtml(item.label)}</dt><dd>${discountMoney(item.value)}</dd>`).join("")}<dt>Total de estornos</dt><dd><strong>${discountMoney(estornos.total)}</strong></dd><dt>Comissao final</dt><dd><strong>${money.format(summary.final)}</strong></dd></dl></section>`;
 }
 
+function collaboratorOfficialPartialMarkup(seller) {
+  const partial = latestPublishedPartial();
+  if (!partial) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">Indisponivel</span></div><p>Resultado parcial oficial ainda nao disponivel para esta campanha.</p></section>`;
+  const items = partialItemsForSeller(partial, seller);
+  if (!items.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Nao ha resultado parcial publicado para este vendedor.</p></section>`;
+  const rows = items.map((item) => {
+    const metric = metricsFor(seller.area).find((candidate) => candidate.id === item.metricId);
+    const goal = Number(seller.values?.[item.metricId]?.goal ?? metric?.goal ?? 0) || 0;
+    const percent = goal ? item.realized / goal : null;
+    const status = branchStatusFromPercent(percent || 0);
+    return `<tr><td>${escapeHtml(item.metricName)}</td><td>${goal ? num.format(goal) : "-"}</td><td>${num.format(item.realized)}</td><td>${achievementPill(percent)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
+  }).join("");
+  return `<section class="collab-card collab-official-partial-card">
+    <div class="collab-card-head"><div><h3>Resultado parcial oficial</h3><p>Este e o resultado parcial oficial importado pela empresa.</p></div><span class="status ok">${escapeHtml(partial.status)}</span></div>
+    <div class="collab-month-grid"><span>Campanha<strong>${escapeHtml(partial.campaignName || activeCampaign()?.name || "-")}</strong></span><span>Parcial<strong>${escapeHtml(partial.name)}</strong></span><span>Data base<strong>${escapeHtml(partial.baseDate || "-")}</strong></span><span>Importado em<strong>${partial.importedAt ? dateTime.format(new Date(partial.importedAt)) : "-"}</strong></span></div>
+    <div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado oficial</th><th>% parcial</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <button class="ghost-button compact-action" data-use-partial-simulation="${partial.id}" type="button" ${isCampaignOperationLocked() ? "disabled" : ""}>Usar parcial como base da simulacao</button>
+  </section>`;
+}
+
 function collaboratorIndicatorTable(seller) {
   const { rows, totals } = collaboratorMetricRows(seller);
   const locked = isCampaignOperationLocked();
   const disabled = locked ? "disabled" : "";
   const body = rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></td><td>${achievementPill(row.currentPercent)}</td><td>${num.format(row.missing)}</td><td>${num.format(row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.deflator)}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td></tr>`).join("");
   const cards = rows.map((row) => `<article class="collab-indicator-card"><div><strong>${escapeHtml(row.metric.name)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div><dl><dt>Meta</dt><dd>${num.format(row.goal)}</dd><dt>Realizado</dt><dd><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></dd><dt>% atual</dt><dd>${pct.format(row.currentPercent || 0)}</dd><dt>Falta</dt><dd>${num.format(row.missing)}</dd><dt>Projetado</dt><dd>${num.format(row.projectedValue)}</dd><dt>% projetado</dt><dd>${pct.format(row.projectedPercent || 0)}</dd><dt>Comissão</dt><dd>${money.format(row.commission)}</dd><dt>Deflator</dt><dd>${escapeHtml(row.deflator)}</dd></dl></article>`).join("");
-  const helper = locked ? "Esta campanha esta encerrada e nao permite novas alteracoes." : "Atualize os realizados para simular novos cenarios.";
+  const helper = locked ? "Esta campanha esta encerrada e nao permite novas alteracoes." : "Use esta area para simular cenarios. A simulacao nao altera o resultado parcial oficial.";
   const note = locked ? `<p class="admin-inline-note warning">Esta campanha esta encerrada e nao permite novas alteracoes.</p>` : "";
-  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Resultado por indicador</h3><p>${helper}</p></div>${note}<div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${num.format(totals.goal)}</td><td>${num.format(totals.realized)}</td><td>${achievementPill(totals.currentPercent)}</td><td>${num.format(totals.missing)}</td><td>${num.format(totals.projected)}</td><td>${achievementPill(totals.projectedPercent)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.status.cls}">${totals.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
+  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Minha simulacao</h3><p>${helper}</p></div>${note}<div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${num.format(totals.goal)}</td><td>${num.format(totals.realized)}</td><td>${achievementPill(totals.currentPercent)}</td><td>${num.format(totals.missing)}</td><td>${num.format(totals.projected)}</td><td>${achievementPill(totals.projectedPercent)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.status.cls}">${totals.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
 }
 
 function collaboratorGuidanceMarkup(seller) {
@@ -3196,6 +3709,7 @@ function renderCollaborator() {
   dashboard.innerHTML = `
     <div class="collab-top-grid">${collaboratorKpiMarkup(seller)}${collaboratorGuidanceMarkup(seller)}</div>
     <div class="collab-mid-grid">${collaboratorMonthMarkup()}${collaboratorDeflatorMarkup(seller)}${collaboratorEstornosMarkup(seller)}</div>
+    ${collaboratorOfficialPartialMarkup(seller)}
     ${collaboratorIndicatorTable(seller)}
     <div class="collab-bottom-grid">${collaboratorOpportunityMarkup(seller)}${collaboratorScenarioMarkup(seller)}</div>
   `;
@@ -3609,6 +4123,70 @@ document.addEventListener("click", async (event) => {
     document.getElementById("goalSheetFile").click();
   }
 
+  if (event.target.id === "selectPartialCsv" || event.target.closest("#partialCsvDropzone")) {
+    document.getElementById("partialCsvFile")?.click();
+    return;
+  }
+
+  const partialPreviewFilterButton = event.target.closest("[data-partial-preview-filter]");
+  if (partialPreviewFilterButton) {
+    partialPreviewFilter = partialPreviewFilterButton.dataset.partialPreviewFilter;
+    renderAdminPartialsPanel();
+    return;
+  }
+
+  if (event.target.id === "cancelPartialPreview") {
+    pendingPartialImport = null;
+    partialPreviewFilter = "Todos";
+    renderAdminPartialsPanel();
+    return;
+  }
+
+  if (event.target.id === "savePartialDraft") {
+    savePendingPartial(PARTIAL_STATUS.DRAFT);
+    return;
+  }
+
+  if (event.target.id === "publishPendingPartial") {
+    if (!confirm("Voce esta publicando esta parcial para consulta dos vendedores, filiais e dashboard. A simulacao dos vendedores continuara separada e nao sera alterada. Deseja continuar?")) return;
+    savePendingPartial(PARTIAL_STATUS.PUBLISHED);
+    return;
+  }
+
+  const viewPartialButton = event.target.closest("[data-view-partial]");
+  if (viewPartialButton) {
+    const partial = partialById(viewPartialButton.dataset.viewPartial);
+    if (!partial) return;
+    pendingPartialImport = { ...partial, _readOnly: true };
+    partialPreviewFilter = "Todos";
+    renderAdminPartialsPanel();
+    return;
+  }
+
+  const publishPartialButton = event.target.closest("[data-publish-partial]");
+  if (publishPartialButton) {
+    publishPartial(publishPartialButton.dataset.publishPartial);
+    return;
+  }
+
+  const cancelPartialButton = event.target.closest("[data-cancel-partial]");
+  if (cancelPartialButton) {
+    updatePartialStatus(cancelPartialButton.dataset.cancelPartial, PARTIAL_STATUS.CANCELED);
+    return;
+  }
+
+  const replacePartialButton = event.target.closest("[data-replace-partial]");
+  if (replacePartialButton) {
+    updatePartialStatus(replacePartialButton.dataset.replacePartial, PARTIAL_STATUS.REPLACED);
+    return;
+  }
+
+  const deleteDraftPartialButton = event.target.closest("[data-delete-draft-partial]");
+  if (deleteDraftPartialButton) {
+    deleteDraftPartial(deleteDraftPartialButton.dataset.deleteDraftPartial);
+    return;
+  }
+
   if (event.target.id === "adminImportBackup") {
     document.getElementById("importData")?.click();
   }
@@ -3902,6 +4480,35 @@ document.addEventListener("click", async (event) => {
     renderAll();
   }
 
+  const usePartialSimulationButton = event.target.closest("[data-use-partial-simulation]");
+  if (usePartialSimulationButton) {
+    const seller = selectedCollabSeller();
+    const partial = partialById(usePartialSimulationButton.dataset.usePartialSimulation);
+    if (!seller || activeCollaboratorId !== seller.id || !partial) return;
+    if (isCampaignOperationLocked()) {
+      alert("Esta campanha esta encerrada e nao permite novas alteracoes.");
+      return;
+    }
+    for (const item of partialItemsForSeller(partial, seller)) {
+      if (!item.metricId) continue;
+      ensureSellerValues(seller);
+      seller.values[item.metricId] = seller.values[item.metricId] || { goal: 0, realized: 0 };
+      seller.values[item.metricId].realized = Number(item.realized) || 0;
+    }
+    logUpdate({
+      action: "Usou parcial como base da simulacao",
+      module: "Colaborador",
+      campaignId: activeCampaign()?.id || "",
+      campaignName: activeCampaign()?.name || "",
+      itemId: partial.id,
+      itemName: partial.name,
+      sellerName: seller.name,
+      message: `${seller.name} usou ${partial.name} como base da simulacao.`,
+    });
+    saveState("Simulacao atualizada pela parcial");
+    renderAll();
+  }
+
   if (event.target.id === "globalLogout") {
     activeCollaboratorId = "";
     activeBranchSession = "";
@@ -4192,6 +4799,12 @@ document.addEventListener("change", (event) => {
     return;
   }
 
+  if (event.target.id === "dashboardPartialFilter") {
+    activeDashboardPartialId = event.target.value || "latest";
+    renderDashboard();
+    return;
+  }
+
   if (event.target.id === "goalSheetFile") {
     if (!canEditCampaignData()) {
       alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
@@ -4217,6 +4830,41 @@ document.addEventListener("change", (event) => {
     };
     reader.readAsText(file);
   }
+
+  if (event.target.id === "partialCsvFile") {
+    const campaign = activeCampaign();
+    if (!campaign || campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
+      alert("Esta campanha nao permite importar nova parcial neste status.");
+      event.target.value = "";
+      return;
+    }
+    const file = event.target.files?.[0];
+    if (!file) return;
+    readCsvFileText(file).then((text) => {
+      const meta = {
+        number: document.getElementById("partialNumber")?.value,
+        name: document.getElementById("partialName")?.value,
+        baseDate: document.getElementById("partialBaseDate")?.value,
+      };
+      pendingPartialImport = validatePartialCsv(text, meta);
+      partialPreviewFilter = pendingPartialImport.errorRows ? "Erro" : "Todos";
+      logUpdate({
+        action: "Validou previa de parcial",
+        module: "Parciais",
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        itemName: pendingPartialImport.name,
+        newValue: `${pendingPartialImport.validRows} validas; ${pendingPartialImport.warningRows} alertas; ${pendingPartialImport.errorRows} erros`,
+        message: `Previa da ${pendingPartialImport.name} validada.`,
+      });
+      renderAdminPartialsPanel();
+    }).catch((error) => {
+      alert(error.message || "Nao foi possivel importar a parcial.");
+    }).finally(() => {
+      event.target.value = "";
+    });
+  }
+
   if (event.target.id === "importDataFile") {
     if (!canEditCampaignData()) {
       alert("Esta campanha esta fechada oficialmente e nao permite importacao de backup.");
