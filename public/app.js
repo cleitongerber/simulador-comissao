@@ -2342,7 +2342,6 @@ function renderDashboard() {
   renderBranchAttainmentBars(records);
   renderBranchCommissionBars(records);
   renderRanking(sellers);
-  renderTopSellers(sellers);
   renderCriticalGoals(sellers);
   renderAttentionPoints(sellers, branchRows, totalCurrentPercent, totalProjectedPercent);
 }
@@ -2424,13 +2423,38 @@ function chartTone(percent) {
 function renderBranchAttainmentBars(records) {
   const container = document.getElementById("branchAttainmentBars");
   if (!container) return;
-  const rows = [...groupItems(records, (record) => `${record.seller.branch}|${record.groupMeta}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, items]) => {
-    const [branch, group] = key.split("|");
+  const branchRows = [...groupItems(records, (record) => record.seller.branch || record.item.branch).entries()].map(([branch, items]) => {
+    const stats = goalCompletionStats(items);
+    const totals = partialRecordTotals(items);
+    const critical = criticalMetricList(items, 3);
+    return { branch, items, stats, totals, critical };
+  }).sort((a, b) =>
+    Number(b.stats.metPercent ?? -1) - Number(a.stats.metPercent ?? -1)
+    || Number(b.totals.projectedPercent ?? -1) - Number(a.totals.projectedPercent ?? -1)
+    || a.branch.localeCompare(b.branch)
+  );
+  const detailScope = activeBranchFilter === "Todas" ? "Rede" : activeBranchFilter;
+  const detailRows = [...groupItems(records, (record) => `${record.groupMeta}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, items]) => {
+    const [group] = key.split("|");
     const sample = items[0];
     const totals = partialRecordTotals(items);
-    return { branch, group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals };
-  }).filter((row) => row.totals.projectedPercent !== null).sort((a, b) => a.branch.localeCompare(b.branch) || (a.totals.projectedPercent || 0) - (b.totals.projectedPercent || 0)).slice(0, 20);
-  container.innerHTML = `<div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Filial</th><th>Bloco</th><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Gap</th><th>Status</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${escapeHtml(row.branch)}</td><td>${escapeHtml(metricGroupDisplay(row.group))}</td><td>${escapeHtml(row.metricName)}</td><td>${formatMetricAmount(row.metric, row.totals.goal)}</td><td>${formatMetricAmount(row.metric, row.totals.realized)}</td><td>${achievementPill(row.totals.percent)}</td><td>${formatMetricAmount(row.metric, row.totals.projected)}</td><td>${achievementPill(row.totals.projectedPercent)}</td><td>${row.totals.gap === null ? "-" : formatMetricAmount(row.metric, row.totals.gap)}</td><td><span class="status ${row.totals.status.cls}">${row.totals.status.label}</span></td></tr>`).join("") || `<tr><td colspan="10">Sem dados por filial no filtro atual.</td></tr>`}</tbody></table></div>`;
+    return { group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals, sample };
+  }).filter((row) => row.totals.projectedPercent !== null)
+    .sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group) || (a.totals.projectedPercent || 0) - (b.totals.projectedPercent || 0));
+  container.innerHTML = `
+    <div class="dashboard-branch-achievement-grid">
+      ${branchRows.map((row) => `<article class="dashboard-branch-achievement-card ${row.stats.status.cls}">
+        <div><span>Filial</span><strong>${escapeHtml(row.branch)}</strong></div>
+        <strong>${achievementPill(row.stats.metPercent)}</strong>
+        <span class="dashboard-branch-achievement-track"><i style="width:${Math.min(100, Math.max(2, Number(row.stats.metPercent || 0) * 100))}%"></i></span>
+        <small>${row.stats.metCount}/${row.stats.applicableCount} metas atingidas | Proj. ${achievementPill(row.totals.projectedPercent)}</small>
+        <small>Criticos: ${row.critical.map((item) => `${item.metric?.name || item.item.metricName} ${pct.format(item.projectedPercent)}`).join(", ") || "Nenhum"}</small>
+      </article>`).join("") || `<p class="muted-note">Sem filiais no filtro atual.</p>`}
+    </div>
+    <div class="dashboard-detail-table-head">
+      <div><h4>Detalhes por indicador</h4><p>${escapeHtml(detailScope)} consolidado por indicador, no mesmo padrão da tela Filial.</p></div>
+    </div>
+    <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta consolidada</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${detailRows.map((row) => `<tr><td>${escapeHtml(metricGroupDisplay(row.group))}</td><td>${escapeHtml(row.metricName)}</td><td>${row.totals.goal ? formatMetricAmount(row.metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</td><td>${formatMetricAmount(row.metric, row.totals.realized)}</td><td>${achievementPill(row.totals.percent)}</td><td>${formatMetricAmount(row.metric, row.totals.projected)}</td><td>${achievementPill(row.totals.projectedPercent)}</td><td>${row.totals.gap === null ? "-" : formatMetricAmount(row.metric, row.totals.gap)}</td><td>${row.totals.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.totals.paceNeeded)}</td><td><span class="status ${row.totals.status.cls}">${row.totals.status.label}</span></td></tr>`).join("") || `<tr><td colspan="10">Sem dados por indicador no filtro atual.</td></tr>`}</tbody></table></div>`;
 }
 
 function renderBranchCommissionBars(records) {

@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-goal-analytics";
+const CACHE_NAME = "comissao-pwa-v20260715-branch-achievement";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-goal-analytics",
-  "/app.js?v=20260715-goal-analytics",
+  "/styles.css?v=20260715-branch-achievement",
+  "/app.js?v=20260715-branch-achievement",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
