@@ -556,61 +556,107 @@ td select {
   margin: 0;
 }
 
-.dashboard-branch-achievement-grid {
+.dashboard-branch-ranking-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
-.dashboard-branch-achievement-card {
-  display: grid;
+.dashboard-branch-ranking-list.compact {
   gap: 8px;
-  min-width: 0;
-  padding: 14px;
+}
+
+.dashboard-branch-ranking-row {
+  display: grid;
+  grid-template-columns: 34px minmax(150px, 1.2fr) minmax(160px, 2fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
 }
 
-.dashboard-branch-achievement-card > div {
+.dashboard-branch-ranking-list.compact .dashboard-branch-ranking-row {
+  grid-template-columns: 28px minmax(120px, 1fr) minmax(110px, 1.2fr) auto;
+  gap: 8px;
+  padding: 10px;
+}
+
+.dashboard-branch-ranking-row > strong {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: var(--red);
+  font-size: 13px;
+}
+
+.dashboard-branch-ranking-name {
   display: grid;
-  gap: 2px;
+  gap: 3px;
+  color: var(--ink);
+  font-weight: 900;
 }
 
-.dashboard-branch-achievement-card span,
-.dashboard-branch-achievement-card small {
+.dashboard-branch-ranking-name small,
+.dashboard-branch-ranking-critical {
   color: var(--muted);
   font-size: 11px;
   font-weight: 800;
-  text-transform: uppercase;
 }
 
-.dashboard-branch-achievement-card strong {
-  overflow-wrap: anywhere;
-}
-
-.dashboard-branch-achievement-track {
-  width: 100%;
-  height: 10px;
+.dashboard-branch-ranking-track {
+  height: 12px;
   overflow: hidden;
   border-radius: 999px;
   background: #eef2f4;
 }
 
-.dashboard-branch-achievement-track i {
+.dashboard-branch-ranking-track i {
   display: block;
   height: 100%;
   border-radius: inherit;
   background: var(--red);
 }
 
-.dashboard-branch-achievement-card.ok .dashboard-branch-achievement-track i {
+.dashboard-branch-ranking-row.ok .dashboard-branch-ranking-track i {
   background: var(--green);
 }
 
-.dashboard-branch-achievement-card.warn .dashboard-branch-achievement-track i {
+.dashboard-branch-ranking-row.warn .dashboard-branch-ranking-track i {
   background: var(--amber);
+}
+
+.dashboard-branch-ranking-row em {
+  color: var(--red);
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.dashboard-branch-ranking-row.ok em {
+  color: var(--green);
+}
+
+.dashboard-branch-ranking-row.warn em {
+  color: var(--amber);
+}
+
+.dashboard-branch-ranking-critical {
+  grid-column: 2 / -1;
+}
+
+@media (max-width: 760px) {
+  .dashboard-branch-ranking-row {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .dashboard-branch-ranking-track,
+  .dashboard-branch-ranking-critical {
+    grid-column: 2 / -1;
+  }
 }
 
 .dashboard-detail-table-head {

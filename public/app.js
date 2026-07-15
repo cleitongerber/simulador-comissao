@@ -2190,6 +2190,16 @@ function renderDashboardPartialPanel() {
   const totals = partialRecordTotals(records);
   const blockRows = goalCompletionBlocksFromRecords(records);
   const metricRows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName).filter((row) => row.projectedPercent !== null && row.projectedPercent < 0.8).sort((a, b) => (a.projectedPercent ?? 999) - (b.projectedPercent ?? 999)).slice(0, 8);
+  const branchRows = [...groupItems(records, (record) => record.seller.branch || record.item.branch).entries()].map(([branch, items]) => {
+    const stats = goalCompletionStats(items);
+    const branchTotals = partialRecordTotals(items);
+    const critical = criticalMetricList(items, 2);
+    return { branch, stats, totals: branchTotals, critical };
+  }).sort((a, b) =>
+    Number(b.stats.metPercent ?? -1) - Number(a.stats.metPercent ?? -1)
+    || Number(b.totals.projectedPercent ?? -1) - Number(a.totals.projectedPercent ?? -1)
+    || a.branch.localeCompare(b.branch)
+  ).slice(0, 8);
   container.innerHTML = `<div class="dashboard-card-head">
     <div><h3>Resultado parcial oficial</h3><p>Exibindo ${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div>
     <span class="status ok">${escapeHtml(partial.status)}</span>
@@ -2208,7 +2218,7 @@ function renderDashboardPartialPanel() {
   </div>
   <div class="partial-dashboard-grid">
     <div><h4>Indicadores abaixo de 80%</h4>${metricRows.map(partialDashboardRowMarkup).join("") || `<p class="muted-note">Nenhum indicador critico abaixo de 80%.</p>`}</div>
-    <div><h4>Informacoes da parcial</h4><p class="muted-note">${totals.sellerIds.size} vendedores, ${totals.branches.size} filiais e ${records.length} linhas publicadas.</p></div>
+    <div><h4>Atingimento por filial</h4><div class="dashboard-branch-ranking-list compact">${branchRows.map((row, index) => branchRankingRowMarkup(row, index)).join("") || `<p class="muted-note">Sem filiais no filtro atual.</p>`}</div></div>
   </div>`;
 }
 
@@ -2221,6 +2231,19 @@ function partialDashboardRowMarkup(row) {
     <strong title="${escapeHtml(row.key)}">${escapeHtml(row.key)}</strong>
     <span class="partial-dashboard-track"><i style="width:${width}%"></i></span>
     <em>${label} proj.</em>
+  </div>`;
+}
+
+function branchRankingRowMarkup(row, index) {
+  const percent = Number(row.stats.metPercent);
+  const width = Number.isFinite(percent) ? Math.min(100, Math.max(2, percent * 100)) : 0;
+  const critical = row.critical.map((item) => `${item.metric?.name || item.item.metricName}: ${pct.format(item.projectedPercent)}`).join(", ") || "Nenhum";
+  return `<div class="dashboard-branch-ranking-row ${achievementClass(percent)}">
+    <strong>${index + 1}</strong>
+    <span class="dashboard-branch-ranking-name">${escapeHtml(row.branch)}<small>${row.stats.metCount}/${row.stats.applicableCount} metas | Proj. ${row.totals.projectedPercent === null ? "-" : pct.format(row.totals.projectedPercent)}</small></span>
+    <span class="dashboard-branch-ranking-track"><i style="width:${width}%"></i></span>
+    <em>${row.stats.metPercent === null ? "-" : pct.format(row.stats.metPercent)}</em>
+    <small class="dashboard-branch-ranking-critical">Críticos: ${escapeHtml(critical)}</small>
   </div>`;
 }
 function dashboardStatusFromPercent(percent) {
@@ -2423,16 +2446,6 @@ function chartTone(percent) {
 function renderBranchAttainmentBars(records) {
   const container = document.getElementById("branchAttainmentBars");
   if (!container) return;
-  const branchRows = [...groupItems(records, (record) => record.seller.branch || record.item.branch).entries()].map(([branch, items]) => {
-    const stats = goalCompletionStats(items);
-    const totals = partialRecordTotals(items);
-    const critical = criticalMetricList(items, 3);
-    return { branch, items, stats, totals, critical };
-  }).sort((a, b) =>
-    Number(b.stats.metPercent ?? -1) - Number(a.stats.metPercent ?? -1)
-    || Number(b.totals.projectedPercent ?? -1) - Number(a.totals.projectedPercent ?? -1)
-    || a.branch.localeCompare(b.branch)
-  );
   const detailScope = activeBranchFilter === "Todas" ? "Rede" : activeBranchFilter;
   const detailRows = [...groupItems(records, (record) => `${record.groupMeta}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, items]) => {
     const [group] = key.split("|");
@@ -2442,15 +2455,6 @@ function renderBranchAttainmentBars(records) {
   }).filter((row) => row.totals.projectedPercent !== null)
     .sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group) || (a.totals.projectedPercent || 0) - (b.totals.projectedPercent || 0));
   container.innerHTML = `
-    <div class="dashboard-branch-achievement-grid">
-      ${branchRows.map((row) => `<article class="dashboard-branch-achievement-card ${row.stats.status.cls}">
-        <div><span>Filial</span><strong>${escapeHtml(row.branch)}</strong></div>
-        <strong>${achievementPill(row.stats.metPercent)}</strong>
-        <span class="dashboard-branch-achievement-track"><i style="width:${Math.min(100, Math.max(2, Number(row.stats.metPercent || 0) * 100))}%"></i></span>
-        <small>${row.stats.metCount}/${row.stats.applicableCount} metas atingidas | Proj. ${achievementPill(row.totals.projectedPercent)}</small>
-        <small>Criticos: ${row.critical.map((item) => `${item.metric?.name || item.item.metricName} ${pct.format(item.projectedPercent)}`).join(", ") || "Nenhum"}</small>
-      </article>`).join("") || `<p class="muted-note">Sem filiais no filtro atual.</p>`}
-    </div>
     <div class="dashboard-detail-table-head">
       <div><h4>Detalhes por indicador</h4><p>${escapeHtml(detailScope)} consolidado por indicador, no mesmo padrão da tela Filial.</p></div>
     </div>
