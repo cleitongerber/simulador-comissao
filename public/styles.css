@@ -547,6 +547,15 @@ td select {
   grid-column: 1 / -1;
 }
 
+.dashboard-detail-row td {
+  background: #fff8f9;
+  padding: 10px;
+}
+
+.dashboard-detail-row table {
+  margin: 0;
+}
+
 .critical-count {
   border-radius: 999px;
   padding: 4px 10px;

@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-partial-analytics";
+const CACHE_NAME = "comissao-pwa-v20260715-goal-analytics";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-partial-analytics",
-  "/app.js?v=20260715-partial-analytics",
+  "/styles.css?v=20260715-goal-analytics",
+  "/app.js?v=20260715-goal-analytics",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

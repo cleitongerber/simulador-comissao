@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260715-partial-analytics" />
+    <link rel="stylesheet" href="./styles.css?v=20260715-goal-analytics" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -176,7 +176,7 @@
                 <div class="dashboard-card-head">
                   <div>
                     <h3>Atingimento por filial</h3>
-                    <p>Percentual atual consolidado por loja.</p>
+                    <p>Consolidado por filial, bloco e indicador.</p>
                   </div>
                 </div>
                 <div id="branchAttainmentBars" class="branch-chart-list"></div>
@@ -185,8 +185,8 @@
               <section class="dashboard-card">
                 <div class="dashboard-card-head">
                   <div>
-                    <h3>Comissão projetada por filial</h3>
-                    <p>Ordenado por maior valor projetado.</p>
+                    <h3>Prioridades da semana</h3>
+                    <p>Blocos que exigem atuação imediata.</p>
                   </div>
                 </div>
                 <div id="branchCommissionBars" class="branch-chart-list"></div>
@@ -206,15 +206,13 @@
                       <tr>
                         <th>Vendedor</th>
                         <th>Filial</th>
-                        <th>Área</th>
-                        <th>Atual</th>
-                        <th>% atual</th>
-                        <th>Comissão bruta</th>
-                        <th>% proj.</th>
-                        <th>Deflator</th>
-                        <th>Estornos</th>
-                        <th>Comissão final</th>
+                        <th>% metas atingidas</th>
+                        <th>% projetado</th>
+                        <th>Indicadores &lt;80%</th>
+                        <th>Bloco crítico</th>
+                        <th>Indicador crítico</th>
                         <th>Status</th>
+                        <th>Detalhes</th>
                       </tr>
                     </thead>
                     <tbody id="sellerSummaryBody"></tbody>
@@ -235,8 +233,8 @@
               <section class="dashboard-card">
                 <div class="dashboard-card-head">
                   <div>
-                    <h3>Ranking de ganho potencial</h3>
-                    <p>Maiores oportunidades de ganho projetado.</p>
+                    <h3>Ranking interno</h3>
+                    <p>Consistência por metas atingidas.</p>
                   </div>
                   <button id="exportCriticalGoalsXls" class="ghost-button compact-action" type="button">Exportar metas</button>
                 </div>
@@ -247,7 +245,7 @@
                 <div class="dashboard-card-head">
                   <div>
                     <h3>Top vendedores</h3>
-                    <p>Ranking por atingimento atual.</p>
+                    <p>Ranking por percentual de metas atingidas.</p>
                   </div>
                 </div>
                 <div id="topSellersList" class="executive-list"></div>
@@ -661,6 +659,6 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260715-partial-analytics"></script>
+    <script src="./app.js?v=20260715-goal-analytics"></script>
   </body>
 </html>
