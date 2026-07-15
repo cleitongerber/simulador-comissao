@@ -5998,6 +5998,18 @@ body[data-view="home"] .main > .view > * {
   margin-top: 12px;
 }
 
+.collab-block-summary {
+  margin: 10px 0 14px;
+}
+
+.collab-main-kpi .block-summary-card {
+  padding: 10px;
+}
+
+.collab-main-kpi .block-summary-card strong {
+  margin: 5px 0;
+}
+
 @media (max-width: 900px) {
   .block-summary-grid {
     grid-template-columns: 1fr;

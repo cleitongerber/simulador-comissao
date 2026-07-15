@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-metric-blocks";
+const CACHE_NAME = "comissao-pwa-v20260715-gross-volume-fix";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-metric-blocks",
-  "/app.js?v=20260715-metric-blocks",
+  "/styles.css?v=20260715-gross-volume-fix",
+  "/app.js?v=20260715-gross-volume-fix",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

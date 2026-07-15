@@ -848,7 +848,10 @@ function metricClassification(metric) {
   if (alias === "acessorios" || alias === "peliculas") {
     return { groupMeta: "Produtos", tipoIndicador: "volume", participaAtingimento: true };
   }
-  if (["gross", "delta", "fidel aparelho", "seguros"].includes(alias)) {
+  if (alias === "gross") {
+    return { groupMeta: "Servicos Movel", tipoIndicador: "receita", participaAtingimento: true };
+  }
+  if (["gross volume", "delta", "fidel aparelho", "seguros"].includes(alias)) {
     return { groupMeta: "Servicos Movel", tipoIndicador: "volume", participaAtingimento: true };
   }
   if (["banda larga", "tv", "combo"].includes(alias)) {
@@ -1346,7 +1349,7 @@ function metricAliasKey(value) {
     .trim();
   if (key === "bl" || key === "banda" || key === "banda larga") return "banda larga";
   if (key === "gross receita" || key === "receita gross" || key === "gross r" || key === "gross rs") return "gross";
-  if (key === "gross volume" || key === "volume gross") return "gross";
+  if (key === "gross volume" || key === "volume gross" || key === "volume de gross") return "gross volume";
   if (key === "aparelho receita" || key === "aparelhos receita" || key === "receita aparelho" || key === "receita aparelhos" || key === "valor aparelhos" || key === "valor aparelho" || key === "faturamento aparelhos" || key === "faturamento aparelho" || key === "receita") return "aparelhos receita";
   if (key === "aparelho" || key === "aparelhos" || key === "aparelho qtde" || key === "aparelhos qtde" || key === "aparelho qtd" || key === "aparelhos qtd" || key === "volume aparelho" || key === "volume aparelhos" || key === "aparelho volume" || key === "aparelhos volume" || key === "quantidade aparelho" || key === "quantidade aparelhos") return "aparelhos qtde";
   if (key === "pelicula") return "peliculas";
@@ -1368,6 +1371,16 @@ function metricNameMatches(metric, metricName) {
   const importedKeys = metricComparableKeys(metricName);
   for (const key of importedKeys) if (metricKeys.has(key)) return true;
   return false;
+}
+
+function findMetricByImportedName(area, metricName) {
+  const metrics = metricsFor(area);
+  const importedFull = normalizedKey(metricName).replace(/\s+/g, " ").trim();
+  const importedAlias = metricAliasKey(metricName);
+  return metrics.find((metric) => normalizedKey(metric.name).replace(/\s+/g, " ").trim() === importedFull)
+    || metrics.find((metric) => metricAliasKey(metric.name || metric.id) === importedAlias)
+    || metrics.find((metric) => metricNameMatches(metric, metricName))
+    || null;
 }
 
 function parseImportedNumber(value) {
@@ -1394,6 +1407,7 @@ function metricTypeFromName(name) {
   const key = metricAliasKey(name);
   if (key === "aparelhos receita") return "deviceRevenue";
   if (key === "aparelhos qtde") return "deviceQty";
+  if (key === "gross volume") return "unit100";
   if (["gross", "peliculas", "acessorios", "delta", "fidel aparelho"].includes(key)) return "revenue";
   return "unit100";
 }
@@ -1405,8 +1419,7 @@ function shouldIgnoreImportedMetric(area, metricName) {
 }
 function findOrCreateMetric(area, metricName, goalValue) {
   state.customMetrics = normalizeCustomMetrics(state.customMetrics);
-  const key = normalizedKey(metricName);
-  let metric = metricsFor(area).find((item) => metricNameMatches(item, metricName));
+  let metric = findMetricByImportedName(area, metricName);
   if (metric) return metric;
   const id = `custom_${makeId()}`;
   metric = {
@@ -1586,13 +1599,13 @@ function partialSummary(items, totalRows = items.length) {
 }
 
 function findPartialMetric(area, metricName) {
-  return metricsFor(area).find((metric) => metricNameMatches(metric, metricName)) || null;
+  return findMetricByImportedName(area, metricName);
 }
 
 function partialItemMetric(item, seller) {
   const area = seller?.area || item?.area || "Nao Cabo";
   const metrics = metricsFor(area);
-  const byName = item?.metricName ? metrics.find((candidate) => metricNameMatches(candidate, item.metricName)) : null;
+  const byName = item?.metricName ? findMetricByImportedName(area, item.metricName) : null;
   const byId = item?.metricId ? metrics.find((candidate) => candidate.id === item.metricId) : null;
   if (byName) return byName;
   if (byId && (!item?.metricName || metricNameMatches(byId, item.metricName))) return byId;
@@ -1962,6 +1975,27 @@ function partialBlockRows(records) {
       metricIds: new Set(),
       percent: null,
       status: { label: "Sem dados", cls: "neutral" },
+    };
+  });
+}
+
+function metricRowsBlockSummary(rows) {
+  return PRIMARY_METRIC_GROUPS.map((group) => {
+    const groupRows = rows.filter((row) => row.groupMeta === group && row.participates);
+    const goal = groupRows.reduce((sum, row) => sum + (Number(row.goal) || 0), 0);
+    const realized = groupRows.reduce((sum, row) => sum + (Number(row.realized) || 0), 0);
+    const projectedValue = groupRows.reduce((sum, row) => sum + (Number(row.projectedValue) || 0), 0);
+    const currentPercent = goal ? realized / goal : null;
+    const projectedPercent = goal ? projectedValue / goal : null;
+    return {
+      key: group,
+      count: groupRows.length,
+      goal,
+      realized,
+      projectedValue,
+      currentPercent,
+      projectedPercent,
+      status: goal ? branchStatusFromPercent(currentPercent || 0) : { label: "Sem dados", cls: "neutral" },
     };
   });
 }
@@ -3823,7 +3857,23 @@ function collaboratorOpportunity(seller) {
 function collaboratorKpiMarkup(seller) {
   const summary = collaboratorSummary(seller);
   const progress = Math.max(0, Math.min(100, summary.currentPercent * 100));
-  return `<section class="collab-card collab-main-kpi"><div class="collab-card-head"><h3>Minha comissao estimada</h3><span class="status ${summary.status.cls}">${summary.status.label}</span></div><strong class="collab-money">${money.format(summary.final)}</strong><div class="collab-kpi-line"><span>Atingimento atual: <b>${pct.format(summary.currentPercent)}</b></span><span>Atingimento projetado: <b>${pct.format(summary.projectedPercent)}</b></span></div><div class="collab-commission-breakdown"><span>Comissao bruta <strong>${money.format(summary.gross)}</strong></span><span>Deflatores <strong>${money.format(summary.result.projectedDeflator)}</strong></span><span>Estornos <strong>${discountMoney(summary.estornos)}</strong></span><span>Comissao final <strong>${money.format(summary.final)}</strong></span></div><div class="collab-progress"><span style="width:${progress}%"></span></div><div class="collab-progress-meta"><small>${pct.format(summary.currentPercent)} atual</small><small>Meta 100%</small></div></section>`;
+  const blockRows = metricRowsBlockSummary(summary.metrics.rows);
+  const blockSummary = `<div class="block-summary-grid collab-block-summary">
+    ${blockRows.map((row) => `<article class="block-summary-card ${row.status.cls}">
+      <span>${escapeHtml(metricGroupDisplay(row.key))}</span>
+      <strong>${achievementPill(row.currentPercent)}</strong>
+      <small>${row.count} indicador${row.count === 1 ? "" : "es"}</small>
+    </article>`).join("")}
+  </div>`;
+  return `<section class="collab-card collab-main-kpi">
+    <div class="collab-card-head"><h3>Minha comissao estimada</h3><span class="status ${summary.status.cls}">${summary.status.label}</span></div>
+    <strong class="collab-money">${money.format(summary.final)}</strong>
+    <div class="collab-kpi-line"><span>Atingimento atual: <b>${pct.format(summary.currentPercent)}</b></span><span>Atingimento projetado: <b>${pct.format(summary.projectedPercent)}</b></span></div>
+    ${blockSummary}
+    <div class="collab-commission-breakdown"><span>Comissao bruta <strong>${money.format(summary.gross)}</strong></span><span>Deflatores <strong>${money.format(summary.result.projectedDeflator)}</strong></span><span>Estornos <strong>${discountMoney(summary.estornos)}</strong></span><span>Comissao final <strong>${money.format(summary.final)}</strong></span></div>
+    <div class="collab-progress"><span style="width:${progress}%"></span></div>
+    <div class="collab-progress-meta"><small>${pct.format(summary.currentPercent)} atual</small><small>Meta 100%</small></div>
+  </section>`;
 }
 
 function collaboratorMonthMarkup() {
