@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-dashboard-fluid";
+const CACHE_NAME = "comissao-pwa-v20260715-vendedor-session";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-dashboard-fluid",
-  "/app.js?v=20260715-dashboard-fluid",
+  "/styles.css?v=20260715-vendedor-session",
+  "/app.js?v=20260715-vendedor-session",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

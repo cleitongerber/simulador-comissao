@@ -4,6 +4,7 @@ const ADMIN_SESSION_KEY = "commission-admin-session";
 const DASHBOARD_SESSION_KEY = "commission-dashboard-session";
 const OWNER_SESSION_KEY = "commission-owner-session";
 const COLLAB_SESSION_KEY = "commission-collaborator-session";
+const COLLAB_SESSION_META_KEY = `${COLLAB_SESSION_KEY}-meta`;
 const BRANCH_SESSION_KEY = "commission-branch-session";
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -207,6 +208,61 @@ function findMatchingSeller(previousSeller) {
     || null;
 }
 
+function collaboratorSessionMeta(seller) {
+  if (!seller) return null;
+  return {
+    id: seller.id,
+    name: seller.name || "",
+    branch: seller.branch || "",
+    area: seller.area || "",
+  };
+}
+
+function setCollaboratorSession(seller) {
+  if (!seller) {
+    clearCollaboratorSession();
+    return;
+  }
+  activeCollaboratorId = seller.id;
+  sessionStorage.setItem(COLLAB_SESSION_KEY, seller.id);
+  sessionStorage.setItem(COLLAB_SESSION_META_KEY, JSON.stringify(collaboratorSessionMeta(seller)));
+}
+
+function clearCollaboratorSession() {
+  activeCollaboratorId = "";
+  sessionStorage.removeItem(COLLAB_SESSION_KEY);
+  sessionStorage.removeItem(COLLAB_SESSION_META_KEY);
+}
+
+function storedCollaboratorSessionMeta() {
+  try {
+    return JSON.parse(sessionStorage.getItem(COLLAB_SESSION_META_KEY) || "null");
+  } catch (error) {
+    return null;
+  }
+}
+
+function resolveAuthenticatedCollaborator() {
+  if (!activeCollaboratorId) return null;
+  const direct = state.sellers.find((seller) => seller.id === activeCollaboratorId);
+  if (direct) {
+    sessionStorage.setItem(COLLAB_SESSION_META_KEY, JSON.stringify(collaboratorSessionMeta(direct)));
+    return direct;
+  }
+  const meta = storedCollaboratorSessionMeta();
+  const matched = meta ? state.sellers.find((seller) => (
+    normalizedIdentity(seller.name) === normalizedIdentity(meta.name)
+    && normalizedIdentity(seller.branch) === normalizedIdentity(meta.branch)
+    && normalizedIdentity(seller.area) === normalizedIdentity(meta.area)
+  )) : null;
+  if (matched) {
+    setCollaboratorSession(matched);
+    return matched;
+  }
+  clearCollaboratorSession();
+  return null;
+}
+
 function setActiveCampaign(campaignId) {
   if (!state.campaigns?.some((campaign) => campaign.id === campaignId)) return;
   const previousCollaborator = state.sellers.find((seller) => seller.id === activeCollaboratorId) || null;
@@ -217,11 +273,9 @@ function setActiveCampaign(campaignId) {
   applyCampaignToState(state, activeCampaign());
   const matchingCollaborator = findMatchingSeller(previousCollaborator);
   if (matchingCollaborator) {
-    activeCollaboratorId = matchingCollaborator.id;
-    sessionStorage.setItem(COLLAB_SESSION_KEY, matchingCollaborator.id);
+    setCollaboratorSession(matchingCollaborator);
   } else if (activeCollaboratorId) {
-    activeCollaboratorId = "";
-    sessionStorage.removeItem(COLLAB_SESSION_KEY);
+    clearCollaboratorSession();
   }
   const matchingBranch = previousBranch ? branches().find((branch) => normalizedIdentity(branch) === normalizedIdentity(previousBranch)) : "";
   if (matchingBranch) {
@@ -1595,10 +1649,9 @@ function resetCampaignDataForGoalImport() {
     Cabo: areaMetrics.Cabo.map((metric) => metric.id),
     "Nao Cabo": areaMetrics["Nao Cabo"].map((metric) => metric.id),
   };
-  activeCollaboratorId = "";
+  clearCollaboratorSession();
   activeManagerSellerId = "";
   activeBranchSession = "";
-  sessionStorage.removeItem(COLLAB_SESSION_KEY);
   sessionStorage.removeItem(BRANCH_SESSION_KEY);
 }
 
@@ -2987,14 +3040,15 @@ function officialCloseActiveCampaign() {
 }
 
 function renderSelectors() {
+  const authenticatedCollaborator = resolveAuthenticatedCollaborator();
   const adminSelected = document.getElementById("adminSellerSelect")?.value;
-  const collabSelected = activeCollaboratorId || document.getElementById("collabSellerSelect")?.value;
+  const collabSelected = authenticatedCollaborator?.id || document.getElementById("collabSellerSelect")?.value;
   const options = state.sellers.map((seller) => `<option value="${seller.id}">${seller.name} - ${seller.branch} - ${seller.area}</option>`).join("");
   const adminSelect = document.getElementById("adminSellerSelect");
   const collabSelect = document.getElementById("collabSellerSelect");
   adminSelect.innerHTML = options;
   collabSelect.innerHTML = options;
-  collabSelect.disabled = Boolean(activeCollaboratorId);
+  collabSelect.disabled = Boolean(authenticatedCollaborator);
   if (state.sellers.some((seller) => seller.id === adminSelected)) adminSelect.value = adminSelected;
   if (state.sellers.some((seller) => seller.id === collabSelected)) collabSelect.value = collabSelected;
 }
@@ -4034,7 +4088,8 @@ function renderManager() {
 }
 
 function selectedCollabSeller() {
-  const id = activeCollaboratorId || document.getElementById("collabSellerSelect").value || state.sellers[0]?.id;
+  const authenticatedCollaborator = resolveAuthenticatedCollaborator();
+  const id = authenticatedCollaborator?.id || document.getElementById("collabSellerSelect")?.value || state.sellers[0]?.id;
   return state.sellers.find((seller) => seller.id === id) || state.sellers[0];
 }
 
@@ -4548,9 +4603,11 @@ function renderCollaborator() {
   const seller = selectedCollabSeller();
   const dashboard = document.getElementById("collabDashboard");
   const accessCard = document.getElementById("collabAccessCard");
+  const authenticatedSeller = resolveAuthenticatedCollaborator();
+  const isAuthenticated = Boolean(seller && authenticatedSeller?.id === seller.id);
   if (!seller || !dashboard) return;
-  accessCard?.classList.toggle("is-authenticated", activeCollaboratorId === seller.id);
-  if (activeCollaboratorId !== seller.id) {
+  accessCard?.classList.toggle("is-authenticated", isAuthenticated);
+  if (!isAuthenticated) {
     document.getElementById("collabHero").innerHTML = collaboratorLoginMarkup(seller);
     dashboard.innerHTML = `<section class="collab-empty-state">Selecione um vendedor e informe a senha para visualizar seu desempenho.</section>`;
     return;
@@ -4558,14 +4615,22 @@ function renderCollaborator() {
   ensureSellerValues(seller);
   document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Vendedor</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button compact-action" type="button">Trocar</button>`;
   if (!["resumo", "detalhes", "simulador"].includes(activeCollaboratorTab)) activeCollaboratorTab = "resumo";
-  const tabContent = {
-    resumo: `<div class="collab-tab-panel">${collaboratorOfficialSummaryMarkup(seller)}${collaboratorMonthMarkup()}</div>`,
-    detalhes: `<div class="collab-tab-panel">${collaboratorOfficialPartialMarkup(seller)}</div>`,
-    simulador: collaboratorSimulatorMarkup(seller),
-  };
+  let activeTabContent = "";
+  try {
+    if (activeCollaboratorTab === "detalhes") {
+      activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialPartialMarkup(seller)}</div>`;
+    } else if (activeCollaboratorTab === "simulador") {
+      activeTabContent = collaboratorSimulatorMarkup(seller);
+    } else {
+      activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialSummaryMarkup(seller)}${collaboratorMonthMarkup()}</div>`;
+    }
+  } catch (error) {
+    console.error("Erro ao montar painel do vendedor", error);
+    activeTabContent = `<section class="collab-empty-state">Nao foi possivel carregar o painel deste vendedor. Tente atualizar a tela ou trocar o vendedor.</section>`;
+  }
   dashboard.innerHTML = `
     ${collaboratorTabsMarkup()}
-    ${tabContent[activeCollaboratorTab]}
+    ${activeTabContent}
   `;
 }
 
@@ -5293,8 +5358,7 @@ document.addEventListener("click", async (event) => {
     if (!confirm(`Excluir o vendedor ${seller.name}?`)) return;
     state.sellers = state.sellers.filter((item) => item.id !== sellerId);
     if (activeCollaboratorId === sellerId) {
-      activeCollaboratorId = "";
-      sessionStorage.removeItem(COLLAB_SESSION_KEY);
+      clearCollaboratorSession();
     }
     logUpdate({
       action: "Excluiu vendedor",
@@ -5354,9 +5418,8 @@ document.addEventListener("click", async (event) => {
     const seller = selectedCollabSeller();
     const typed = document.getElementById("collabPassword").value;
     if (seller && typed === String(seller.password || "1234")) {
-      activeCollaboratorId = seller.id;
+      setCollaboratorSession(seller);
       activeCollaboratorTab = "resumo";
-      sessionStorage.setItem(COLLAB_SESSION_KEY, seller.id);
       renderAll();
     } else {
       document.getElementById("collabLoginError").textContent = "Senha inválida ou acesso não autorizado.";
@@ -5364,9 +5427,8 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "collabLogout") {
-    activeCollaboratorId = "";
+    clearCollaboratorSession();
     activeCollaboratorTab = "resumo";
-    sessionStorage.removeItem(COLLAB_SESSION_KEY);
     renderAll();
   }
 
@@ -5401,11 +5463,10 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "globalLogout") {
-    activeCollaboratorId = "";
+    clearCollaboratorSession();
     activeCollaboratorTab = "resumo";
     activeBranchSession = "";
     activeManagerSellerId = "";
-    sessionStorage.removeItem(COLLAB_SESSION_KEY);
     sessionStorage.removeItem(BRANCH_SESSION_KEY);
     sessionStorage.removeItem(DASHBOARD_SESSION_KEY);
     sessionStorage.removeItem(ADMIN_SESSION_KEY);
