@@ -151,6 +151,7 @@ let activeAuditLogId = "";
 let lastAccessLogKey = "";
 let pendingPartialImport = null;
 let partialPreviewFilter = "Todos";
+let showBranchPartialDetails = false;
 
 function activeCampaign() {
   return state?.campaigns?.find((campaign) => campaign.id === state.activeCampaignId) || state?.campaigns?.[0] || null;
@@ -1262,6 +1263,28 @@ function normalizedKey(value) {
     .toLowerCase();
 }
 
+function metricAliasKey(value) {
+  return normalizedKey(value)
+    .replace(/\b(meta|volume|volumes)\b/g, " ")
+    .replace(/\bquitados\b/g, "qtde")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function metricComparableKeys(value) {
+  const full = normalizedKey(value).replace(/\s+/g, " ").trim();
+  const alias = metricAliasKey(value);
+  const compact = full.replace(/\s+/g, "");
+  return new Set([full, alias, compact].filter(Boolean));
+}
+
+function metricNameMatches(metric, metricName) {
+  const metricKeys = metricComparableKeys(metric?.name || metric?.id || "");
+  const importedKeys = metricComparableKeys(metricName);
+  for (const key of importedKeys) if (metricKeys.has(key)) return true;
+  return false;
+}
+
 function parseImportedNumber(value) {
   const raw = String(value ?? "").trim();
   if (!raw) return 0;
@@ -1298,7 +1321,7 @@ function shouldIgnoreImportedMetric(area, metricName) {
 function findOrCreateMetric(area, metricName, goalValue) {
   state.customMetrics = normalizeCustomMetrics(state.customMetrics);
   const key = normalizedKey(metricName);
-  let metric = metricsFor(area).find((item) => normalizedKey(item.name) === key || normalizedKey(item.id) === key);
+  let metric = metricsFor(area).find((item) => metricNameMatches(item, metricName));
   if (metric) return metric;
   const id = `custom_${makeId()}`;
   metric = {
@@ -1394,7 +1417,7 @@ function importGoalTemplateCsv(text) {
     const seller = findOrCreateSeller(sellerName, branch, area);
     if (!sellerExists) createdSellers += 1;
 
-    const metricExists = metricsFor(seller.area).some((item) => normalizedKey(item.name) === normalizedKey(metricName) || normalizedKey(item.id) === normalizedKey(metricName));
+    const metricExists = metricsFor(seller.area).some((item) => metricNameMatches(item, metricName));
     const metric = findOrCreateMetric(seller.area, metricName, goalValue);
     if (!metricExists) createdMetrics += 1;
     ensureSellerValues(seller);
@@ -1477,13 +1500,30 @@ function partialSummary(items, totalRows = items.length) {
 }
 
 function findPartialMetric(area, metricName) {
-  const key = normalizedKey(metricName);
-  return metricsFor(area).find((metric) => normalizedKey(metric.name) === key || normalizedKey(metric.id) === key) || null;
+  return metricsFor(area).find((metric) => metricNameMatches(metric, metricName)) || null;
 }
 
 function metricExistsInAnotherArea(area, metricName) {
   const otherAreas = Object.keys(areaMetrics).filter((item) => item !== normalizeAreaName(area));
   return otherAreas.some((item) => findPartialMetric(item, metricName));
+}
+
+function partialMetricGoal(metric, seller) {
+  if (!metric) return null;
+  const valueGoal = seller?.values?.[metric.id]?.goal;
+  const rawGoal = valueGoal !== undefined && valueGoal !== "" ? valueGoal : metric.goal;
+  const goal = Number(rawGoal);
+  return Number.isFinite(goal) && goal > 0 ? goal : null;
+}
+
+function partialMetricContext(item, seller) {
+  const area = seller?.area || item?.area || "Nao Cabo";
+  const metric = metricsFor(area).find((candidate) => candidate.id === item?.metricId || metricNameMatches(candidate, item?.metricName));
+  const goal = partialMetricGoal(metric, seller);
+  const realized = Number(item?.realized) || 0;
+  const percent = goal ? realized / goal : null;
+  const status = goal ? branchStatusFromPercent(percent || 0) : { label: "Meta nao configurada", cls: "neutral" };
+  return { metric, goal, realized, percent, status };
 }
 
 function validatePartialCsv(text, meta = {}) {
@@ -1530,6 +1570,7 @@ function validatePartialCsv(text, meta = {}) {
     if (!metric && metricName && !ignoredBySegment) errors.push("Metrica inexistente na campanha.");
     if (ignoredBySegment) warnings.push("Metrica nao configurada para este segmento; linha ignorada.");
     if (metric && metric.name !== metricName) warnings.push("Metrica localizada por normalizacao de nome.");
+    if (metric && !partialMetricGoal(metric, seller)) warnings.push("Meta nao configurada para esta metrica.");
 
     const duplicateKey = `${seller?.id || normalizedKey(sellerName)}:${metric?.id || normalizedKey(metricName)}`;
     if (sellerName && metricName && !ignoredBySegment) {
@@ -1680,7 +1721,11 @@ function partialItemsForSeller(partial, seller) {
   return partial.items.filter((item) => isPartialUsableItem(item) && (
     item.sellerId === seller.id
     || (normalizedKey(item.sellerName) === normalizedKey(seller.name) && normalizedKey(item.branch) === normalizedKey(seller.branch))
-  )).sort((a, b) => metricOrderIndex(seller.area, a.metricId) - metricOrderIndex(seller.area, b.metricId));
+  )).sort((a, b) => {
+    const metricA = metricsFor(seller.area).find((metric) => metric.id === a.metricId || metricNameMatches(metric, a.metricName));
+    const metricB = metricsFor(seller.area).find((metric) => metric.id === b.metricId || metricNameMatches(metric, b.metricName));
+    return metricOrderIndex(seller.area, metricA?.id || a.metricId) - metricOrderIndex(seller.area, metricB?.id || b.metricId);
+  });
 }
 
 function partialItemsForBranch(partial, branch) {
@@ -1734,6 +1779,56 @@ function dashboardBaseSellers() {
   });
 }
 
+function officialPartialRecords(partial, sellers, options = {}) {
+  if (!partial) return [];
+  const sellerMap = new Map(sellers.map((seller) => [seller.id, seller]));
+  const sellerKeys = new Map(sellers.map((seller) => [`${normalizedKey(seller.name)}|${normalizedKey(seller.branch)}`, seller]));
+  const records = [];
+  for (const item of partial.items || []) {
+    if (!isPartialUsableItem(item)) continue;
+    const seller = sellerMap.get(item.sellerId) || sellerKeys.get(`${normalizedKey(item.sellerName)}|${normalizedKey(item.branch)}`) || null;
+    if (!seller) continue;
+    if (options.sellerId && seller.id !== options.sellerId) continue;
+    if (options.metricName && options.metricName !== "Todos") {
+      const importedMetric = { name: item.metricName, id: item.metricId };
+      if (!metricNameMatches(importedMetric, options.metricName) && !metricNameMatches({ name: options.metricName, id: options.metricName }, item.metricName)) continue;
+    }
+    const context = partialMetricContext(item, seller);
+    if (!context.metric && options.requireMetric !== false) continue;
+    records.push({ item, seller, ...context });
+  }
+  return records.sort((a, b) => a.seller.name.localeCompare(b.seller.name) || metricOrderIndex(a.seller.area, a.metric?.id || a.item.metricId) - metricOrderIndex(b.seller.area, b.metric?.id || b.item.metricId));
+}
+
+function partialRecordTotals(records) {
+  const totals = records.reduce((acc, record) => {
+    acc.goal += record.goal || 0;
+    acc.realized += record.realized || 0;
+    acc.withGoal += record.goal ? 1 : 0;
+    acc.sellerIds.add(record.seller.id);
+    acc.branches.add(record.seller.branch || record.item.branch);
+    acc.metrics.add(record.metric?.id || record.item.metricName);
+    return acc;
+  }, { goal: 0, realized: 0, withGoal: 0, sellerIds: new Set(), branches: new Set(), metrics: new Set() });
+  const percent = totals.goal ? totals.realized / totals.goal : null;
+  return { ...totals, percent, status: percent === null ? { label: "Meta nao configurada", cls: "neutral" } : dashboardStatusFromPercent(percent) };
+}
+
+function groupedPartialRows(records, keyFn) {
+  const map = new Map();
+  for (const record of records) {
+    const key = keyFn(record);
+    const row = map.get(key) || { key, goal: 0, realized: 0, count: 0, sellerIds: new Set(), metricIds: new Set() };
+    row.goal += record.goal || 0;
+    row.realized += record.realized || 0;
+    row.count += 1;
+    row.sellerIds.add(record.seller.id);
+    row.metricIds.add(record.metric?.id || record.item.metricName);
+    map.set(key, row);
+  }
+  return [...map.values()].map((row) => ({ ...row, percent: row.goal ? row.realized / row.goal : null, status: row.goal ? dashboardStatusFromPercent(row.realized / row.goal) : { label: "Meta nao configurada", cls: "neutral" } }));
+}
+
 function renderDashboardPartialPanel() {
   const container = document.getElementById("dashboardPartialPanel");
   if (!container) return;
@@ -1742,36 +1837,26 @@ function renderDashboardPartialPanel() {
     container.innerHTML = `<div class="dashboard-card-head"><div><h3>Resultado parcial oficial</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div>`;
     return;
   }
-  const sellers = dashboardSellers();
-  const sellerIds = new Set(sellers.map((seller) => seller.id));
-  const items = partial.items.filter((item) => isPartialUsableItem(item) && sellerIds.has(item.sellerId));
-  const branchTotals = new Map();
-  const sellerTotals = new Map();
-  const metricTotals = new Map();
-  for (const item of items) {
-    branchTotals.set(item.branch, (branchTotals.get(item.branch) || 0) + item.realized);
-    sellerTotals.set(item.sellerName, (sellerTotals.get(item.sellerName) || 0) + item.realized);
-    metricTotals.set(item.metricName, (metricTotals.get(item.metricName) || 0) + item.realized);
-  }
-  const branchRows = [...branchTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const metricRows = [...metricTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const records = officialPartialRecords(partial, dashboardBaseSellers(), { metricName: activeDashboardIndicator });
+  const totals = partialRecordTotals(records);
+  const branchRows = groupedPartialRows(records, (record) => record.seller.branch || record.item.branch).sort((a, b) => (b.percent || 0) - (a.percent || 0)).slice(0, 8);
+  const metricRows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName).sort((a, b) => (b.percent || 0) - (a.percent || 0)).slice(0, 8);
   container.innerHTML = `<div class="dashboard-card-head">
     <div><h3>Resultado parcial oficial</h3><p>Exibindo ${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div>
     <span class="status ok">${escapeHtml(partial.status)}</span>
   </div>
   <div class="campaign-kpi-strip compact-strip">
-    <span>Linhas publicadas<strong>${items.length}</strong></span>
-    <span>Vendedores<strong>${new Set(items.map((item) => item.sellerId || item.sellerName)).size}</strong></span>
-    <span>Filiais<strong>${branchTotals.size}</strong></span>
-    <span>Metricas<strong>${metricTotals.size}</strong></span>
-    <span>Total realizado<strong>${num.format(items.reduce((sum, item) => sum + item.realized, 0))}</strong></span>
+    <span>Linhas publicadas<strong>${records.length}</strong></span>
+    <span>Vendedores<strong>${totals.sellerIds.size}</strong></span>
+    <span>Filiais<strong>${totals.branches.size}</strong></span>
+    <span>Metricas<strong>${totals.metrics.size}</strong></span>
+    <span>% parcial geral<strong>${achievementPill(totals.percent)}</strong></span>
   </div>
   <div class="partial-dashboard-grid">
-    <div><h4>Parcial por filial</h4>${branchRows.map(([branch, value]) => `<div class="executive-list-row"><span>${escapeHtml(branch)}</span><em>${num.format(value)}</em></div>`).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
-    <div><h4>Parcial por metrica</h4>${metricRows.map(([metric, value]) => `<div class="executive-list-row"><span>${escapeHtml(metric)}</span><em>${num.format(value)}</em></div>`).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
+    <div><h4>Parcial por filial</h4>${branchRows.map((row) => `<div class="executive-list-row"><span>${escapeHtml(row.key)}</span><em>${achievementPill(row.percent)}</em></div>`).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
+    <div><h4>Parcial por metrica</h4>${metricRows.map((row) => `<div class="executive-list-row"><span>${escapeHtml(row.key)}</span><em>${achievementPill(row.percent)}</em></div>`).join("") || `<p class="muted-note">Sem dados.</p>`}</div>
   </div>`;
 }
-
 function dashboardStatusFromPercent(percent) {
   if (percent >= 1) return { label: "Acima da meta", cls: "ok", action: "Acompanhamento" };
   if (percent >= 0.7) return { label: "Em atenção", cls: "warn", action: "Plano de ação" };
@@ -1822,93 +1907,64 @@ function dashboardSellerSummaryResult(seller) {
 
 function dashboardSellers() {
   return dashboardBaseSellers().filter((seller) => {
-    const indicatorOk = activeDashboardIndicator === "Todos" || metricsFor(seller.area).some((metric) => metric.name === activeDashboardIndicator);
-    const statusOk = activeDashboardStatus === "Todos" || sellerDashboardStatus(seller).label === activeDashboardStatus;
-    const hasDeflator = sellerHasProjectedDeflator(seller);
-    const deflatorOk =
-      activeDashboardDeflator === "Todos" ||
-      (activeDashboardDeflator === "Com deflator" && hasDeflator) ||
-      (activeDashboardDeflator === "Sem deflator" && !hasDeflator);
-    return indicatorOk && statusOk && deflatorOk;
+    const partial = selectedDashboardPartial();
+    const records = partial ? officialPartialRecords(partial, [seller], { metricName: activeDashboardIndicator }) : [];
+    const hasPartial = records.length > 0;
+    const statusOk = activeDashboardStatus === "Todos" || (hasPartial && partialRecordTotals(records).status.label === activeDashboardStatus);
+    const deflatorOk = true;
+    return hasPartial && statusOk && deflatorOk;
   });
 }
 
 function branchDashboardRows(sellers) {
-  const byBranch = new Map();
-  for (const seller of sellers) {
-    ensureSellerValues(seller);
-    const branch = seller.branch || "Sem filial";
-    const current = byBranch.get(branch) || { branch, sellers: new Set(), goal: 0, realized: 0, projectedValue: 0, commissionProjected: 0 };
-    current.sellers.add(seller.id);
-    current.commissionProjected += dashboardSellerSummaryResult(seller).finalProjected;
-    for (const metric of metricsFor(seller.area).filter((item) => item.type !== "deviceRevenue")) {
-      if (activeDashboardIndicator !== "Todos" && metric.name !== activeDashboardIndicator) continue;
-      const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
-      current.goal += Number(value.goal) || 0;
-      current.realized += Number(value.realized) || 0;
-      current.projectedValue += projected(value.realized);
-    }
-    byBranch.set(branch, current);
-  }
-  return [...byBranch.values()].map((row) => ({
-    ...row,
-    currentPercent: row.goal ? row.realized / row.goal : 0,
-    projectedPercent: row.goal ? row.projectedValue / row.goal : 0,
-    status: dashboardStatusFromPercent(row.goal ? row.realized / row.goal : 0),
+  const partial = selectedDashboardPartial();
+  const records = officialPartialRecords(partial, sellers, { metricName: activeDashboardIndicator });
+  return groupedPartialRows(records, (record) => record.seller.branch || record.item.branch).map((row) => ({
+    branch: row.key,
+    sellers: row.sellerIds,
+    goal: row.goal,
+    realized: row.realized,
+    projectedValue: row.realized,
+    commissionProjected: row.realized,
+    currentPercent: row.percent || 0,
+    projectedPercent: row.percent || 0,
+    status: row.status,
   }));
 }
 
 function dashboardTotals(sellers) {
-  return sellers.reduce((acc, seller) => {
-    const result = dashboardSellerSummaryResult(seller);
-    acc.current += result.current;
-    acc.gross += result.projectedNoDeflator;
-    acc.projected += result.finalProjected;
-    acc.gain += result.finalProjected - result.current;
-    acc.deflator += result.deflator;
-    acc.estornos += result.estornos || 0;
-    return acc;
-  }, { current: 0, gross: 0, projected: 0, gain: 0, deflator: 0, estornos: 0 });
+  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
+  const totals = partialRecordTotals(records);
+  return { current: totals.realized, gross: totals.realized, projected: totals.realized, gain: 0, deflator: 0, estornos: 0, partial: totals };
 }
 
 function dashboardAttainmentForSellers(sellers, mode) {
-  if (activeDashboardIndicator === "Todos") return totalAttainmentForSellers(sellers, mode);
-  const totals = sellers.reduce((acc, seller) => {
-    const metric = selectedDashboardMetric(seller);
-    if (!metric) return acc;
-    const value = seller.values?.[metric.id] || { goal: metric.goal, realized: 0 };
-    const goal = Number(value.goal) || 0;
-    acc.goal += goal;
-    acc.value += mode === "projected" ? projected(value.realized) : Number(value.realized) || 0;
-    return acc;
-  }, { goal: 0, value: 0 });
-  return totals.goal ? totals.value / totals.goal : 0;
+  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
+  return partialRecordTotals(records).percent || 0;
 }
 
 function renderDashboard() {
   renderBranchFilter();
   const baseSellers = dashboardBaseSellers();
   renderDashboardFilterControls(baseSellers);
-  const sellers = dashboardSellers();
   renderDashboardPartialPanel();
+  const sellers = dashboardSellers();
   const empty = document.getElementById("dashboardEmptyState");
-  const hasData = state.sellers.length > 0 && sellers.length > 0;
+  const hasData = sellers.length > 0;
   if (empty) {
     empty.classList.toggle("active", !hasData);
-    empty.innerHTML = !hasData ? `<strong>Nenhum dado disponivel para o periodo selecionado.</strong><span>Configure metas e realizados no Admin para visualizar o Dashboard.</span>` : "";
+    empty.innerHTML = !hasData ? `<strong>Nenhum dado disponivel para a parcial oficial selecionada.</strong><span>Publique uma parcial no Admin para visualizar o Dashboard.</span>` : "";
   }
 
   const totals = dashboardTotals(sellers);
   const totalCurrentPercent = dashboardAttainmentForSellers(sellers, "current");
-  const totalProjectedPercent = dashboardAttainmentForSellers(sellers, "projected");
+  const totalProjectedPercent = totalCurrentPercent;
   const branchRows = branchDashboardRows(sellers);
   const riskBranches = branchRows.filter((row) => row.currentPercent < 0.7).length;
-  const highlightSellers = sellers.filter((seller) => dashboardSellerSummaryResult(seller).currentPercent >= 1.2).length;
-  const deflatorCounts = sellers.reduce((acc, seller) => {
-    if (sellerHasProjectedDeflator(seller)) acc.withDeflator += 1;
-    else acc.withoutDeflator += 1;
-    return acc;
-  }, { withDeflator: 0, withoutDeflator: 0 });
+  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
+  const sellerRows = groupedPartialRows(records, (record) => record.seller.id);
+  const highlightSellers = sellerRows.filter((row) => (row.percent || 0) >= 1.2).length;
+  const deflatorCounts = { withDeflator: 0, withoutDeflator: sellerRows.length };
 
   renderDashboardExecutiveCards(totals, totalCurrentPercent, totalProjectedPercent, riskBranches, highlightSellers, deflatorCounts);
   renderExecutiveSummary(sellers, branchRows, totalCurrentPercent, totalProjectedPercent, riskBranches);
@@ -1925,20 +1981,20 @@ function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent,
   const container = document.getElementById("dashboardExecutiveCards");
   if (!container) return;
   const cards = [
-    ["Comissão final", money.format(totals.projected), "Após deflatores e estornos", "money", null],
-    ["% atual geral", pct.format(currentPercent), "Atingimento atual", "percent", currentPercent],
-    ["% projetado geral", pct.format(projectedPercent), "Projeção da meta", "trend", projectedPercent],
-    ["Risco / destaque", `${riskBranches}/${highlightSellers}`, "Filiais em risco / vendedores destaque", "alert", riskBranches ? 0 : highlightSellers ? 1 : null],
+    ["Resultado parcial", num.format(totals.current), "Realizado oficial importado", "money", currentPercent],
+    ["% atual geral", pct.format(currentPercent), "Atingimento parcial", "percent", currentPercent],
+    ["Filiais em risco", String(riskBranches), "Abaixo de 70%", "alert", riskBranches ? 0 : 1],
+    ["Vendedores em destaque", String(highlightSellers), "Acima de 120%", "trend", highlightSellers ? 1 : null],
   ];
   const financialComposition = `<article class="dashboard-kpi dashboard-finance-composition">
     <span aria-hidden="true"></span>
     <div>
-      <small>Composição da comissão</small>
+      <small>Parcial oficial</small>
       <div class="finance-mini-grid">
-        <strong><b>Bruta</b>${money.format(totals.gross)}</strong>
-        <strong><b>Deflatores</b>${discountMoney(totals.deflator)}</strong>
-        <strong><b>Estornos</b>${discountMoney(totals.estornos)}</strong>
-        <strong><b>Com / sem deflator</b>${deflatorCounts.withDeflator}/${deflatorCounts.withoutDeflator}</strong>
+        <strong><b>Realizado</b>${num.format(totals.current)}</strong>
+        <strong><b>% parcial</b>${pct.format(currentPercent)}</strong>
+        <strong><b>Com deflator</b>-</strong>
+        <strong><b>Simulacao</b>Nao exibida</strong>
       </div>
     </div>
   </article>`;
@@ -1952,40 +2008,41 @@ function renderExecutiveSummary(sellers, branchRows, currentPercent, projectedPe
   const container = document.getElementById("executiveSummary");
   if (!container) return;
   if (!sellers.length) {
-    container.textContent = "Ainda nao ha dados suficientes para gerar um resumo executivo.";
+    container.textContent = "Ainda nao ha dados suficientes para gerar um resumo executivo da parcial oficial.";
     return;
   }
   const bestBranch = [...branchRows].sort((a, b) => b.currentPercent - a.currentPercent)[0];
-  const lowSellers = sellers.filter((seller) => dashboardSellerSummaryResult(seller).currentPercent < 0.7).length;
-  const health = projectedPercent >= 1 ? "acima da meta projetada" : "abaixo da meta projetada";
-  const branchText = bestBranch ? `${bestBranch.branch} lidera com ${pct.format(bestBranch.currentPercent)} de atingimento atual.` : "";
-  const branchRiskText = `${riskBranches} ${riskBranches === 1 ? "filial em risco" : "filiais em risco"}`;
-  const sellerRiskText = `${lowSellers} ${lowSellers === 1 ? "vendedor" : "vendedores"} abaixo de 70%`;
-  container.innerHTML = `A operação está com <strong>${pct.format(currentPercent)}</strong> de atingimento atual e projeção de <strong>${pct.format(projectedPercent)}</strong>, ficando ${health}. ${branchText} ${branchRiskText} e ${sellerRiskText} exigem atenção.`;
+  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
+  const lowSellers = groupedPartialRows(records, (record) => record.seller.id).filter((row) => (row.percent || 0) < 0.7).length;
+  const health = currentPercent >= 1 ? "acima da meta" : "abaixo da meta";
+  const branchText = bestBranch ? `${bestBranch.branch} lidera com ${pct.format(bestBranch.currentPercent)} de atingimento parcial.` : "";
+  container.innerHTML = `A parcial oficial esta com <strong>${pct.format(currentPercent)}</strong> de atingimento geral, ficando ${health}. ${branchText} ${riskBranches} filial(is) em risco e ${lowSellers} vendedor(es) abaixo de 70% exigem atencao.`;
 }
 
 function renderSellerSummary(sellers) {
   const body = document.getElementById("sellerSummaryBody");
   if (!body) return;
-  body.innerHTML = sellers.map((seller) => {
-    const result = dashboardSellerSummaryResult(seller);
-    const currentPercent = result.currentPercent;
-    const projectedPercent = result.projectedPercent;
-    const status = dashboardStatusFromPercent(currentPercent);
+  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
+  const rows = groupedPartialRows(records, (record) => record.seller.id).map((row) => {
+    const first = records.find((record) => record.seller.id === row.key);
+    return { ...row, seller: first?.seller };
+  }).filter((row) => row.seller).sort((a, b) => (b.percent || 0) - (a.percent || 0));
+  body.innerHTML = rows.map((row) => {
+    const status = row.status;
     return `<tr>
-      <td>${escapeHtml(seller.name)}</td>
-      <td>${escapeHtml(seller.branch)}</td>
-      <td>${escapeHtml(seller.area)}</td>
-      <td>${money.format(result.current)}</td>
-      <td>${achievementPill(currentPercent)}</td>
-      <td>${money.format(result.projectedNoDeflator)}</td>
-      <td>${achievementPill(projectedPercent)}</td>
-      <td>${money.format(result.deflator)}</td>
-      <td>${discountMoney(result.estornos)}</td>
-      <td>${money.format(result.finalProjected)}</td>
+      <td>${escapeHtml(row.seller.name)}</td>
+      <td>${escapeHtml(row.seller.branch)}</td>
+      <td>${escapeHtml(row.seller.area)}</td>
+      <td>${num.format(row.realized)}</td>
+      <td>${achievementPill(row.percent)}</td>
+      <td>-</td>
+      <td>${achievementPill(row.percent)}</td>
+      <td>-</td>
+      <td>-</td>
+      <td>${num.format(row.realized)}</td>
       <td><span class="status ${status.cls}">${status.label}</span></td>
     </tr>`;
-  }).join("") || `<tr><td colspan="11">Nenhum vendedor no filtro atual.</td></tr>`;
+  }).join("") || `<tr><td colspan="11">Nenhum vendedor na parcial oficial selecionada.</td></tr>`;
 }
 
 function chartTone(percent) {
@@ -2007,45 +2064,42 @@ function renderBranchAttainmentBars(rows) {
 function renderBranchCommissionBars(rows) {
   const container = document.getElementById("branchCommissionBars");
   if (!container) return;
-  const sorted = [...rows].sort((a, b) => b.commissionProjected - a.commissionProjected);
-  const max = Math.max(1, ...sorted.map((row) => Math.abs(row.commissionProjected)));
+  const sorted = [...rows].sort((a, b) => b.realized - a.realized);
+  const max = Math.max(1, ...sorted.map((row) => Math.abs(row.realized)));
   container.innerHTML = sorted.map((row) => `<div class="branch-chart-row money">
-    <div class="branch-chart-label"><strong>${escapeHtml(row.branch)}</strong><span>${money.format(row.commissionProjected)}</span></div>
-    <div class="branch-chart-track"><i style="width:${Math.max(2, Math.abs(row.commissionProjected) / max * 100)}%"></i></div>
-  </div>`).join("") || `<p class="muted-note">Sem comissão no filtro atual.</p>`;
+    <div class="branch-chart-label"><strong>${escapeHtml(row.branch)}</strong><span>${num.format(row.realized)}</span></div>
+    <div class="branch-chart-track"><i style="width:${Math.max(2, Math.abs(row.realized) / max * 100)}%"></i></div>
+  </div>`).join("") || `<p class="muted-note">Sem parcial oficial no filtro atual.</p>`;
 }
 
 function renderRanking(sellers) {
-  const ranked = [...sellers].sort((a, b) => (dashboardSellerSummaryResult(b).finalProjected - dashboardSellerSummaryResult(b).current) - (dashboardSellerSummaryResult(a).finalProjected - dashboardSellerSummaryResult(a).current)).slice(0, 5);
   const container = document.getElementById("rankingList");
   if (!container) return;
-  container.innerHTML = ranked.map((seller, index) => {
-    const result = dashboardSellerSummaryResult(seller);
-    return `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(seller.name)}<small>${escapeHtml(seller.branch)}</small></span><em>${money.format(result.finalProjected - result.current)}</em></div>`;
-  }).join("") || `<p class="muted-note">Sem dados suficientes para ranking.</p>`;
+  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
+  const ranked = groupedPartialRows(records, (record) => record.seller.id).map((row) => ({ ...row, seller: records.find((record) => record.seller.id === row.key)?.seller })).filter((row) => row.seller).sort((a, b) => b.realized - a.realized).slice(0, 5);
+  container.innerHTML = ranked.map((row, index) => `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(row.seller.name)}<small>${escapeHtml(row.seller.branch)}</small></span><em>${num.format(row.realized)}</em></div>`).join("") || `<p class="muted-note">Sem dados suficientes para ranking.</p>`;
 }
 
 function renderTopSellers(sellers) {
   const container = document.getElementById("topSellersList");
   if (!container) return;
-  const ranked = [...sellers].sort((a, b) => dashboardSellerSummaryResult(b).currentPercent - dashboardSellerSummaryResult(a).currentPercent).slice(0, 5);
-  container.innerHTML = ranked.map((seller, index) => {
-    const currentPercent = dashboardSellerSummaryResult(seller).currentPercent;
-    return `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(seller.name)}<small>${escapeHtml(seller.branch)}</small></span><em class="${achievementClass(currentPercent)}">${pct.format(currentPercent)}</em></div>`;
-  }).join("") || `<p class="muted-note">Sem dados suficientes para top vendedores.</p>`;
+  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
+  const ranked = groupedPartialRows(records, (record) => record.seller.id).map((row) => ({ ...row, seller: records.find((record) => record.seller.id === row.key)?.seller })).filter((row) => row.seller).sort((a, b) => (b.percent || 0) - (a.percent || 0)).slice(0, 5);
+  container.innerHTML = ranked.map((row, index) => `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(row.seller.name)}<small>${escapeHtml(row.seller.branch)}</small></span><em class="${achievementClass(row.percent)}">${achievementPill(row.percent)}</em></div>`).join("") || `<p class="muted-note">Sem dados suficientes para top vendedores.</p>`;
 }
 
 function renderCriticalGoals(sellers) {
   const container = document.getElementById("goalOffenderList");
   if (!container) return;
-  const rows = criticalGoalRows(sellers).slice(0, 8);
+  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
+  const rows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName).filter((row) => row.percent !== null && row.percent < 1).sort((a, b) => (a.percent || 0) - (b.percent || 0)).slice(0, 8);
   container.innerHTML = rows.map((row) => {
-    const status = dashboardStatusFromPercent(row.percent);
+    const status = dashboardStatusFromPercent(row.percent || 0);
     return `<div class="critical-row">
-      <strong>${escapeHtml(row.metricName)}</strong>
-      <span>${escapeHtml(row.area)}</span>
-      <span>${row.sellerCount} vendedor${row.sellerCount === 1 ? "" : "es"}</span>
-      <span>${pct.format(row.percent)}</span>
+      <strong>${escapeHtml(row.key)}</strong>
+      <span>Parcial oficial</span>
+      <span>${row.sellerIds.size} vendedor${row.sellerIds.size === 1 ? "" : "es"}</span>
+      <span>${achievementPill(row.percent)}</span>
       <em class="status ${status.cls}">${status.label}</em>
       <small>${status.action}</small>
     </div>`;
@@ -2055,15 +2109,16 @@ function renderCriticalGoals(sellers) {
 function renderAttentionPoints(sellers, branchRows, currentPercent, projectedPercent) {
   const container = document.getElementById("attentionPointsList");
   if (!container) return;
+  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
   const riskBranches = branchRows.filter((row) => row.currentPercent < 0.7).length;
-  const lowSellers = sellers.filter((seller) => dashboardSellerSummaryResult(seller).currentPercent < 0.7).length;
-  const criticalGoals = criticalGoalRows(sellers).slice(0, 1)[0];
+  const lowSellers = groupedPartialRows(records, (record) => record.seller.id).filter((row) => (row.percent || 0) < 0.7).length;
+  const criticalMetric = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName).filter((row) => row.percent !== null).sort((a, b) => (a.percent || 0) - (b.percent || 0))[0];
   const points = [];
-  if (riskBranches) points.push({ cls: "bad", title: `${riskBranches} ${riskBranches === 1 ? "filial abaixo de 70%" : "filiais abaixo de 70%"}`, detail: "Priorizar plano de ação por loja." });
-  if (lowSellers) points.push({ cls: "bad", title: `${lowSellers} vendedor${lowSellers === 1 ? "" : "es"} abaixo de 70%`, detail: "Acompanhar gaps individuais." });
-  if (projectedPercent < 1) points.push({ cls: "warn", title: "Projeção abaixo de 100%", detail: `Atingimento projetado em ${pct.format(projectedPercent)}.` });
-  if (criticalGoals) points.push({ cls: "warn", title: `${criticalGoals.metricName} abaixo da meta`, detail: `${criticalGoals.sellerCount} vendedor${criticalGoals.sellerCount === 1 ? "" : "es"} impactando o indicador.` });
-  if (!points.length && sellers.length) points.push({ cls: "ok", title: "Nenhum ponto critico identificado", detail: `Operacao com ${pct.format(currentPercent)} de atingimento atual.` });
+  if (riskBranches) points.push({ cls: "bad", title: `${riskBranches} filial(is) abaixo de 70%`, detail: "Priorizar plano de acao por loja." });
+  if (lowSellers) points.push({ cls: "bad", title: `${lowSellers} vendedor(es) abaixo de 70%`, detail: "Acompanhar gaps individuais da parcial oficial." });
+  if (currentPercent < 1) points.push({ cls: "warn", title: "Parcial abaixo de 100%", detail: `Atingimento parcial em ${pct.format(currentPercent)}.` });
+  if (criticalMetric) points.push({ cls: "warn", title: `${criticalMetric.key} abaixo da meta`, detail: `${criticalMetric.sellerIds.size} vendedor(es) impactando o indicador.` });
+  if (!points.length && sellers.length) points.push({ cls: "ok", title: "Nenhum ponto critico identificado", detail: `Parcial oficial com ${pct.format(currentPercent)} de atingimento.` });
   container.innerHTML = points.map((point) => `<div class="attention-row ${point.cls}"><strong>${escapeHtml(point.title)}</strong><span>${escapeHtml(point.detail)}</span></div>`).join("") || `<p class="muted-note">Nenhum dado disponivel.</p>`;
 }
 function branchOptions(selected) {
@@ -3278,29 +3333,66 @@ function branchDeflatorSummary(sellers) {
   return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resumo dos deflatores</h3><p>${rows.length} vendedor${rows.length === 1 ? "" : "es"} com deflator aplicado ou previsto. Impacto financeiro total: ${money.format(totalImpact)}. Principal motivo: ${escapeHtml(mainReason)}.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Deflator</th><th>Motivo</th><th>Impacto</th><th>Status</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${escapeHtml(row.seller.name)}</td><td>-${pct.format(row.preview.rate)}</td><td>${escapeHtml(row.preview.triggered[0]?.metric?.name || "-")} abaixo do minimo</td><td>${money.format(row.preview.ignored ? 0 : row.summary.deflator)}</td><td><span class="status ${row.preview.ignored ? "neutral" : "bad"}">${row.preview.ignored ? "Ignorado por experiencia" : "Aplicado"}</span></td></tr>`).join("") || `<tr><td colspan="5">Nenhum deflator aplicado no momento.</td></tr>`}</tbody></table></div></section>`;
 }
 
+function branchPartialRecords(partial, branch, sellers, sellerId = "") {
+  if (!partial) return [];
+  const branchSellers = sellerId ? sellers.filter((seller) => seller.id === sellerId) : sellers;
+  return officialPartialRecords(partial, branchSellers).filter((record) => normalizedKey(record.seller.branch || record.item.branch) === normalizedKey(branch));
+}
+
+function branchPartialSellerRows(records) {
+  return groupedPartialRows(records, (record) => record.seller.id)
+    .map((row) => ({ ...row, seller: records.find((record) => record.seller.id === row.key)?.seller }))
+    .filter((row) => row.seller)
+    .sort((a, b) => (b.percent || 0) - (a.percent || 0));
+}
+
 function branchOfficialPartialCard(branch, sellers) {
   const partial = latestPublishedPartial();
-  if (!partial) return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial da filial</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div></section>`;
-  const sellerIds = new Set(sellers.map((seller) => seller.id));
-  const items = partialItemsForBranch(partial, branch).filter((item) => !item.sellerId || sellerIds.has(item.sellerId));
-  const rows = items.sort((a, b) => a.sellerName.localeCompare(b.sellerName) || metricOrderIndex(a.area, a.metricId) - metricOrderIndex(b.area, b.metricId)).map((item) => {
-    const seller = sellers.find((candidate) => candidate.id === item.sellerId || normalizedKey(candidate.name) === normalizedKey(item.sellerName));
-    const metric = seller ? metricsFor(seller.area).find((candidate) => candidate.id === item.metricId) : null;
-    const goal = Number(seller?.values?.[item.metricId]?.goal ?? metric?.goal ?? 0) || 0;
-    const percent = goal ? item.realized / goal : null;
-    const status = branchStatusFromPercent(percent || 0);
-    return `<tr><td>${escapeHtml(item.sellerName)}</td><td>${escapeHtml(item.metricName)}</td><td>${num.format(item.realized)}</td><td>${goal ? num.format(goal) : "-"}</td><td>${achievementPill(percent)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
-  }).join("");
-  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial da filial</h3><p>${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div><span class="status ok">${escapeHtml(partial.status)}</span></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Metrica</th><th>Realizado parcial</th><th>Meta</th><th>% parcial</th><th>Status</th></tr></thead><tbody>${rows || `<tr><td colspan="6">Nenhum dado parcial para esta filial.</td></tr>`}</tbody></table></div></section>`;
+  if (!partial) return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial oficial</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div></section>`;
+  const records = branchPartialRecords(partial, branch, sellers, showBranchPartialDetails ? activeManagerSellerId : "");
+  const totals = partialRecordTotals(records);
+  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial oficial</h3><p>${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div><span class="status ok">${escapeHtml(partial.status)}</span></div>
+    <div class="branch-partial-summary">
+      <article><span>Filial</span><strong>${escapeHtml(branch)}</strong><small>Parcial publicada</small></article>
+      <article><span>Vendedores com parcial</span><strong>${totals.sellerIds.size}</strong><small>Somente esta filial</small></article>
+      <article><span>Indicadores acompanhados</span><strong>${totals.metrics.size}</strong><small>Metas reconhecidas</small></article>
+      <article><span>% parcial geral</span><strong>${totals.percent === null ? "-" : pct.format(totals.percent)}</strong><small>Realizado / meta</small></article>
+    </div>
+    <div class="branch-partial-actions"><button class="ghost-button" data-toggle-branch-partial-details type="button">${showBranchPartialDetails ? "Ocultar detalhes" : "Detalhes"}</button></div>
+  </section>`;
+}
+
+function branchPartialTeamSummary(branch, sellers) {
+  const partial = latestPublishedPartial();
+  const records = branchPartialRecords(partial, branch, sellers, showBranchPartialDetails ? activeManagerSellerId : "");
+  const rows = branchPartialSellerRows(records).slice(0, 8);
+  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Resumo da parcial oficial por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Area</th><th>Realizado parcial</th><th>Meta parcial</th><th>% parcial</th><th>Status</th><th>Acoes</th></tr></thead><tbody>${rows.map((row) => `<tr><td><strong>${escapeHtml(row.seller.name)}</strong></td><td>${escapeHtml(row.seller.area)}</td><td>${num.format(row.realized)}</td><td>${row.goal ? num.format(row.goal) : "Meta nao configurada"}</td><td>${achievementPill(row.percent)}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td><td><button class="ghost-button compact-action" data-branch-partial-detail="${row.seller.id}" type="button">Ver detalhes</button></td></tr>`).join("") || `<tr><td colspan="7">Nenhum resultado parcial para esta filial.</td></tr>`}</tbody></table></div></section>`;
+}
+
+function branchPartialDetails(branch, sellers) {
+  if (!showBranchPartialDetails) return "";
+  const partial = latestPublishedPartial();
+  const records = branchPartialRecords(partial, branch, sellers, activeManagerSellerId);
+  const rows = records.map((record) => `<tr><td>${escapeHtml(record.seller.name)}</td><td>${escapeHtml(record.metric?.name || record.item.metricName)}</td><td>${record.goal ? num.format(record.goal) : "Meta nao configurada"}</td><td>${num.format(record.realized)}</td><td>${achievementPill(record.percent)}</td><td><span class="status ${record.status.cls}">${record.status.label}</span></td></tr>`).join("");
+  return `${branchSellerFilter(sellers)}<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes da parcial oficial</h3><p>Metricas por vendedor da ultima parcial publicada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Metrica</th><th>Meta</th><th>Realizado parcial</th><th>% parcial</th><th>Status</th></tr></thead><tbody>${rows || `<tr><td colspan="6">Nenhum dado parcial para o filtro selecionado.</td></tr>`}</tbody></table></div></section>`;
+}
+
+function branchPartialAttention(branch, sellers) {
+  const records = branchPartialRecords(latestPublishedPartial(), branch, sellers);
+  const rows = branchPartialSellerRows(records).filter((row) => (row.percent || 0) < 1).slice(0, 8);
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Pontos de atencao</h3><p>Vendedores que exigem acompanhamento na parcial oficial.</p></div></div><div class="branch-attention-list">${rows.map((row) => `<div class="attention-row ${row.percent < 0.7 ? "bad" : "warn"}"><strong>${escapeHtml(row.seller.name)} - ${row.percent === null ? "Meta nao configurada" : pct.format(row.percent)} da meta</strong><span>${row.status.label}</span></div>`).join("") || `<p class="muted-note">Nenhum ponto critico identificado no momento.</p>`}</div></section>`;
+}
+
+function branchPartialRanking(branch, sellers) {
+  const records = branchPartialRecords(latestPublishedPartial(), branch, sellers);
+  const ranked = branchPartialSellerRows(records).slice(0, 8);
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Ranking interno</h3><p>Ranking por atingimento parcial oficial.</p></div></div><div class="executive-list">${ranked.map((row, index) => `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(row.seller.name)}<small>${achievementPill(row.percent)}</small></span><em>${num.format(row.realized)}</em></div>`).join("") || `<p class="muted-note">Nenhum vendedor para ranking.</p>`}</div></section>`;
 }
 
 function branchDashboardMarkup(branch, sellers) {
-  const totals = branchTotals(sellers);
-  const selectedSeller = sellers.find((seller) => seller.id === activeManagerSellerId) || null;
   if (!sellers.length) return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
-  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchKpiCards(branch, sellers, totals)}${branchAlerts(sellers, totals)}${branchSellerFilter(sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchTeamTable(sellers)}${sellerDetailPanel(selectedSeller)}${branchIndicatorAchievementCard(sellers)}${branchDeflatorSummary(sellers)}</div><aside>${branchAttentionPoints(sellers)}${branchRankingCard(sellers)}</aside></div></div>`;
+  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}${branchPartialDetails(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}</aside></div></div>`;
 }
-
 function renderManager() {
   const loginPanel = document.getElementById("managerLoginPanel");
   const dashboard = document.getElementById("managerDashboard");
@@ -3533,11 +3625,8 @@ function collaboratorOfficialPartialMarkup(seller) {
   const items = partialItemsForSeller(partial, seller);
   if (!items.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Nao ha resultado parcial publicado para este vendedor.</p></section>`;
   const rows = items.map((item) => {
-    const metric = metricsFor(seller.area).find((candidate) => candidate.id === item.metricId);
-    const goal = Number(seller.values?.[item.metricId]?.goal ?? metric?.goal ?? 0) || 0;
-    const percent = goal ? item.realized / goal : null;
-    const status = branchStatusFromPercent(percent || 0);
-    return `<tr><td>${escapeHtml(item.metricName)}</td><td>${goal ? num.format(goal) : "-"}</td><td>${num.format(item.realized)}</td><td>${achievementPill(percent)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
+    const context = partialMetricContext(item, seller);
+    return `<tr><td>${escapeHtml(context.metric?.name || item.metricName)}</td><td>${context.goal ? num.format(context.goal) : "Meta nao configurada"}</td><td>${num.format(context.realized)}</td><td>${achievementPill(context.percent)}</td><td><span class="status ${context.status.cls}">${context.status.label}</span></td></tr>`;
   }).join("");
   return `<section class="collab-card collab-official-partial-card">
     <div class="collab-card-head"><div><h3>Resultado parcial oficial</h3><p>Este e o resultado parcial oficial importado pela empresa.</p></div><span class="status ok">${escapeHtml(partial.status)}</span></div>
@@ -4392,6 +4481,18 @@ document.addEventListener("click", async (event) => {
   const managerSellerDetail = event.target.closest("[data-manager-seller-detail]");
   if (managerSellerDetail) {
     activeManagerSellerId = managerSellerDetail.dataset.managerSellerDetail || "";
+    showBranchPartialDetails = true;
+    renderManager();
+  }
+  const branchPartialToggle = event.target.closest("[data-toggle-branch-partial-details]");
+  if (branchPartialToggle) {
+    showBranchPartialDetails = !showBranchPartialDetails;
+    renderManager();
+  }
+  const branchPartialDetail = event.target.closest("[data-branch-partial-detail]");
+  if (branchPartialDetail) {
+    activeManagerSellerId = branchPartialDetail.dataset.branchPartialDetail || "";
+    showBranchPartialDetails = true;
     renderManager();
   }
   if (event.target.id === "addSeller") {
@@ -4939,6 +5040,7 @@ document.addEventListener("change", (event) => {
   }
   if (event.target.id === "managerSellerFilter") {
     activeManagerSellerId = event.target.value;
+    showBranchPartialDetails = true;
     renderManager();
   }
 });

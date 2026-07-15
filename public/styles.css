@@ -5776,3 +5776,59 @@ body[data-view="home"] .main > .view > * {
     width: 100%;
   }
 }
+
+/* Official partial views */
+.branch-partial-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.branch-partial-summary article {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.branch-partial-summary span,
+.branch-partial-summary small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.branch-partial-summary strong {
+  display: block;
+  margin: 6px 0 2px;
+  color: var(--ink);
+  font-size: clamp(18px, 2vw, 26px);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.branch-partial-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+@media (max-width: 980px) {
+  .branch-partial-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .branch-partial-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .branch-partial-actions .ghost-button {
+    width: 100%;
+  }
+}\n
