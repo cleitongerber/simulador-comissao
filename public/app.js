@@ -1446,31 +1446,44 @@ function partialStatusClass(status) {
 function partialLineClass(status) {
   if (status === "Erro") return "bad";
   if (status === "Alerta") return "warn";
+  if (status === "Ignorado") return "neutral";
   return "ok";
+}
+
+function isPartialUsableItem(item) {
+  return item?.status !== "Erro" && item?.status !== "Ignorado" && Boolean(item?.metricId);
 }
 
 function partialSummary(items, totalRows = items.length) {
   const errorRows = items.filter((item) => item.status === "Erro").length;
   const warningRows = items.filter((item) => item.status === "Alerta").length;
-  const validRows = items.length - errorRows;
-  const sellers = new Set(items.filter((item) => item.status !== "Erro").map((item) => item.sellerId || normalizedKey(item.sellerName)));
-  const branches = new Set(items.filter((item) => item.status !== "Erro").map((item) => normalizedKey(item.branch)));
-  const metrics = new Set(items.filter((item) => item.status !== "Erro").map((item) => item.metricId || normalizedKey(item.metricName)));
+  const ignoredRows = items.filter((item) => item.status === "Ignorado").length;
+  const usableItems = items.filter(isPartialUsableItem);
+  const validRows = usableItems.length;
+  const sellers = new Set(usableItems.map((item) => item.sellerId || normalizedKey(item.sellerName)));
+  const branches = new Set(usableItems.map((item) => normalizedKey(item.branch)));
+  const metrics = new Set(usableItems.map((item) => item.metricId || normalizedKey(item.metricName)));
   return {
     totalRows,
     validRows,
     warningRows,
     errorRows,
+    ignoredRows,
     sellers: sellers.size,
     branches: branches.size,
     metrics: metrics.size,
-    totalRealized: items.filter((item) => item.status !== "Erro").reduce((sum, item) => sum + (Number(item.realized) || 0), 0),
+    totalRealized: usableItems.reduce((sum, item) => sum + (Number(item.realized) || 0), 0),
   };
 }
 
 function findPartialMetric(area, metricName) {
   const key = normalizedKey(metricName);
   return metricsFor(area).find((metric) => normalizedKey(metric.name) === key || normalizedKey(metric.id) === key) || null;
+}
+
+function metricExistsInAnotherArea(area, metricName) {
+  const otherAreas = Object.keys(areaMetrics).filter((item) => item !== normalizeAreaName(area));
+  return otherAreas.some((item) => findPartialMetric(item, metricName));
 }
 
 function validatePartialCsv(text, meta = {}) {
@@ -1513,15 +1526,17 @@ function validatePartialCsv(text, meta = {}) {
 
     const metricArea = seller?.area || area;
     const metric = metricName ? findPartialMetric(metricArea, metricName) : null;
-    if (!metric && metricName) errors.push("Metrica inexistente na campanha.");
+    const ignoredBySegment = !metric && metricName && !errors.length && (shouldIgnoreImportedMetric(metricArea, metricName) || metricExistsInAnotherArea(metricArea, metricName));
+    if (!metric && metricName && !ignoredBySegment) errors.push("Metrica inexistente na campanha.");
+    if (ignoredBySegment) warnings.push("Metrica nao configurada para este segmento; linha ignorada.");
     if (metric && metric.name !== metricName) warnings.push("Metrica localizada por normalizacao de nome.");
 
     const duplicateKey = `${seller?.id || normalizedKey(sellerName)}:${metric?.id || normalizedKey(metricName)}`;
-    if (sellerName && metricName) {
+    if (sellerName && metricName && !ignoredBySegment) {
       if (duplicateKeys.has(duplicateKey)) errors.push("Linha duplicada para vendedor + metrica.");
       duplicateKeys.add(duplicateKey);
     }
-    const status = errors.length ? "Erro" : warnings.length ? "Alerta" : "OK";
+    const status = ignoredBySegment ? "Ignorado" : errors.length ? "Erro" : warnings.length ? "Alerta" : "OK";
     return {
       id: makeId(),
       lineNumber: rowIndex + 2,
@@ -1662,7 +1677,7 @@ function deleteDraftPartial(partialId) {
 
 function partialItemsForSeller(partial, seller) {
   if (!partial || !seller) return [];
-  return partial.items.filter((item) => item.status !== "Erro" && (
+  return partial.items.filter((item) => isPartialUsableItem(item) && (
     item.sellerId === seller.id
     || (normalizedKey(item.sellerName) === normalizedKey(seller.name) && normalizedKey(item.branch) === normalizedKey(seller.branch))
   )).sort((a, b) => metricOrderIndex(seller.area, a.metricId) - metricOrderIndex(seller.area, b.metricId));
@@ -1670,7 +1685,7 @@ function partialItemsForSeller(partial, seller) {
 
 function partialItemsForBranch(partial, branch) {
   if (!partial || !branch) return [];
-  return partial.items.filter((item) => item.status !== "Erro" && normalizedKey(item.branch) === normalizedKey(branch));
+  return partial.items.filter((item) => isPartialUsableItem(item) && normalizedKey(item.branch) === normalizedKey(branch));
 }
 function renderBranchFilter() {
   const select = document.getElementById("branchFilter");
@@ -1729,7 +1744,7 @@ function renderDashboardPartialPanel() {
   }
   const sellers = dashboardSellers();
   const sellerIds = new Set(sellers.map((seller) => seller.id));
-  const items = partial.items.filter((item) => item.status !== "Erro" && sellerIds.has(item.sellerId));
+  const items = partial.items.filter((item) => isPartialUsableItem(item) && sellerIds.has(item.sellerId));
   const branchTotals = new Map();
   const sellerTotals = new Map();
   const metricTotals = new Map();
@@ -2522,12 +2537,13 @@ function partialPreviewMarkup(partial, options = {}) {
   const visibleItems = partial.items.filter((item) => filter === "Todos" || item.status === filter);
   const canSave = !options.readOnly && partial.errorRows === 0;
   const summary = partial.summary || partialSummary(partial.items, partial.totalRows);
-  const filters = ["Todos", "OK", "Alerta", "Erro"].map((item) => `<button class="ghost-button compact-action ${filter === item ? "active" : ""}" data-partial-preview-filter="${item}" type="button">${item}</button>`).join("");
+  const filters = ["Todos", "OK", "Alerta", "Ignorado", "Erro"].map((item) => `<button class="ghost-button compact-action ${filter === item ? "active" : ""}" data-partial-preview-filter="${item}" type="button">${item}</button>`).join("");
   return `<div class="partial-preview">
     <div class="campaign-kpi-strip compact-strip">
       <span>Linhas lidas<strong>${summary.totalRows}</strong></span>
       <span>Validas<strong>${summary.validRows}</strong></span>
       <span>Alertas<strong>${summary.warningRows}</strong></span>
+      <span>Ignoradas<strong>${summary.ignoredRows || 0}</strong></span>
       <span>Erros<strong>${summary.errorRows}</strong></span>
       <span>Vendedores<strong>${summary.sellers}</strong></span>
       <span>Metricas<strong>${summary.metrics}</strong></span>
@@ -4818,17 +4834,17 @@ document.addEventListener("change", (event) => {
       event.target.value = "";
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
+    readCsvFileText(file).then((text) => {
       try {
-        importGoalTemplateCsv(reader.result);
+        importGoalTemplateCsv(text);
       } catch (error) {
         alert(error.message || "Nao foi possivel importar a planilha de metas.");
-      } finally {
-        event.target.value = "";
       }
-    };
-    reader.readAsText(file);
+    }).catch((error) => {
+      alert(error.message || "Nao foi possivel importar a planilha de metas.");
+    }).finally(() => {
+      event.target.value = "";
+    });
   }
 
   if (event.target.id === "partialCsvFile") {

@@ -5752,6 +5752,9 @@ body[data-view="home"] .main > .view > * {
 .partial-preview-table tr.bad td {
   background: rgba(220, 38, 38, 0.06);
 }
+.partial-preview-table tr.neutral td {
+  background: rgba(100, 116, 139, 0.06);
+}
 .partial-dashboard-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
