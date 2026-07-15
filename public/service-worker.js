@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-partials-layout-fix";
+const CACHE_NAME = "comissao-pwa-v20260715-metric-blocks";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-partials-layout-fix",
-  "/app.js?v=20260715-partials-layout-fix",
+  "/styles.css?v=20260715-metric-blocks",
+  "/app.js?v=20260715-metric-blocks",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
