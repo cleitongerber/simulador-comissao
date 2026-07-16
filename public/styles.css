@@ -6246,7 +6246,7 @@ body[data-view="home"] .main > .view > * {
 }
 
 #dashboardView .dashboard-finance-composition {
-  grid-column: span 2;
+  grid-column: span 4;
 }
 
 #dashboardView .dashboard-kpi {
@@ -6280,6 +6280,22 @@ body[data-view="home"] .main > .view > * {
 
 #dashboardView .dashboard-kpi strong {
   font-size: clamp(18px, 1.55vw, 26px);
+  line-height: 1.05;
+}
+
+#dashboardView .finance-mini-grid {
+  grid-template-columns: repeat(4, minmax(96px, 1fr));
+}
+
+#dashboardView .finance-mini-grid b,
+#dashboardView .finance-mini-grid strong {
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: nowrap;
+}
+
+#dashboardView .finance-mini-grid strong {
+  font-size: clamp(13px, 1.05vw, 15px);
   line-height: 1.05;
 }
 
