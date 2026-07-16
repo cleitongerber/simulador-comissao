@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260715-vendedor-detail-cards" />
+    <link rel="stylesheet" href="./styles.css?v=20260715-admin-structure" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -65,15 +65,10 @@
           <div class="actions">
             <span id="saveStatus" class="save-status">Conectando ao banco</span>
             <button id="saveNow" class="ghost-button admin-action" type="button" hidden>Salvar agora</button>
-            <details class="more-actions admin-action" hidden>
-              <summary>Mais acoes</summary>
-              <div class="more-actions-menu">
-                <button id="importData" class="ghost-button" type="button">Importar backup</button>
-                <input id="importDataFile" type="file" accept="application/json" hidden />
-                <button id="exportData" class="ghost-button" type="button">Exportar backup</button>
-                <button id="resetData" class="danger-button" type="button">Restaurar padrao</button>
-              </div>
-            </details>
+            <button id="importData" type="button" hidden>Importar backup</button>
+            <input id="importDataFile" type="file" accept="application/json" hidden />
+            <button id="exportData" type="button" hidden>Exportar backup</button>
+            <button id="resetData" type="button" hidden>Restaurar padrao</button>
             <button id="globalLogout" class="ghost-button logout-button" type="button" hidden>Sair</button>
           </div>
         </section>
@@ -274,22 +269,36 @@
             </div>
 
             <nav class="admin-tabs" aria-label="Secoes do admin">
-              <button class="admin-tab active" data-admin-tab="campanha" type="button">Campanha</button>
-              <button class="admin-tab" data-admin-tab="vendedores" type="button">Vendedores</button>
-              <button class="admin-tab" data-admin-tab="filiais" type="button">Filiais</button>
-              <button class="admin-tab" data-admin-tab="metas" type="button">Metas</button>
+              <button class="admin-tab active" data-admin-tab="visao" type="button">Visao geral</button>
+              <button class="admin-tab" data-admin-tab="campanhas" type="button">Campanhas</button>
+              <button class="admin-tab" data-admin-tab="cadastros" type="button">Cadastros</button>
+              <button class="admin-tab" data-admin-tab="metas" type="button">Metas e Indicadores</button>
               <button class="admin-tab" data-admin-tab="regras" type="button">Regras e Deflatores</button>
-              <button class="admin-tab" data-admin-tab="estornos" type="button">Estornos</button>
-              <button class="admin-tab" data-admin-tab="fechamento" type="button">Parciais e Fechamento</button>
-              <button class="admin-tab" data-admin-tab="importacao" type="button">Importacao / Backup</button>
-              <button class="admin-tab" data-admin-tab="identidade" type="button">Identidade</button>
+              <button class="admin-tab" data-admin-tab="parciais" type="button">Parciais</button>
+              <button class="admin-tab" data-admin-tab="fechamento" type="button">Fechamento</button>
+              <button class="admin-tab" data-admin-tab="importacao" type="button">Importacao e Backup</button>
               <button class="admin-tab" data-admin-tab="seguranca" type="button">Seguranca</button>
+              <button class="admin-tab" data-admin-tab="auditoria" type="button">Auditoria</button>
             </nav>
 
-            <div id="adminSummaryCards" class="admin-summary-grid"></div>
-
             <div class="admin-tab-panels">
-              <section class="admin-tab-panel active" data-admin-panel="campanha">
+              <section class="admin-tab-panel active" data-admin-panel="visao">
+                <div id="adminSummaryCards" class="admin-summary-grid"></div>
+                <section class="admin-section-card">
+                  <div class="section-title">
+                    <h3>Visao geral administrativa</h3>
+                    <p>Resumo rapido do ambiente. Analises de desempenho ficam no Dashboard, na Filial e na tela do Vendedor.</p>
+                  </div>
+                  <div class="permission-list">
+                    <div><strong>Campanhas</strong><span>Controle de periodo, status e historico.</span></div>
+                    <div><strong>Cadastros</strong><span>Vendedores, filiais e estrutura operacional.</span></div>
+                    <div><strong>Parciais</strong><span>Importacao, validacao e publicacao durante o mes.</span></div>
+                    <div><strong>Fechamento</strong><span>Estornos, conferencia e arquivo oficial.</span></div>
+                  </div>
+                </section>
+              </section>
+
+              <section class="admin-tab-panel" data-admin-panel="campanhas">
                 <div class="admin-section-grid">
                   <section class="admin-section-card wide">
                     <div id="campaignAdminPanel"></div>
@@ -320,12 +329,12 @@
                 </div>
               </section>
 
-              <section class="admin-tab-panel" data-admin-panel="vendedores">
+              <section class="admin-tab-panel" data-admin-panel="cadastros">
                 <section class="admin-section-card">
                   <div class="section-title inline-title">
                     <div>
                       <h3>Vendedores</h3>
-                      <p>Cadastre, filtre e mantenha os acessos dos vendedores.</p>
+                      <p>Cadastre dados operacionais dos vendedores. Senhas ficam em Seguranca e estornos ficam em Fechamento.</p>
                     </div>
                     <button id="addSeller" class="primary-button" type="button">Novo vendedor</button>
                   </div>
@@ -336,18 +345,27 @@
                   </div>
                   <div id="sellerEditorList" class="editor-list"></div>
                 </section>
-              </section>
 
-              <section class="admin-tab-panel" data-admin-panel="filiais">
                 <section class="admin-section-card">
                   <div class="section-title inline-title">
                     <div>
                       <h3>Filiais</h3>
-                      <p>Gerencie lojas, senhas de acesso e vinculos com vendedores.</p>
+                      <p>Gerencie lojas/unidades e vinculos com vendedores. Senhas das filiais ficam em Seguranca.</p>
                     </div>
                     <button id="addBranch" class="primary-button" type="button">Nova filial</button>
                   </div>
                   <div id="branchEditorList" class="rules-grid"></div>
+                </section>
+
+                <section class="admin-section-card">
+                  <div class="section-title">
+                    <h3>Areas e segmentos</h3>
+                    <p>Estrutura operacional usada nos cadastros e nas regras atuais.</p>
+                  </div>
+                  <div class="permission-list">
+                    <div><strong>Cabo</strong><span>Segmento operacional ativo.</span></div>
+                    <div><strong>Nao Cabo</strong><span>Segmento operacional ativo.</span></div>
+                  </div>
                 </section>
               </section>
 
@@ -356,8 +374,8 @@
                   <section class="admin-section-card wide">
                     <div class="section-title inline-title">
                       <div>
-                        <h3>Resultado e metas por vendedor</h3>
-                        <p>Atualize metas, realizados e acompanhe a projecao por indicador.</p>
+                        <h3>Metas e realizados por vendedor</h3>
+                        <p>Manutencao operacional de metas e realizados da campanha. Analises ficam nas telas de resultado.</p>
                       </div>
                       <select id="adminSellerSelect"></select>
                     </div>
@@ -414,16 +432,13 @@
                 </div>
               </section>
 
-              <section class="admin-tab-panel" data-admin-panel="estornos">
+              <section class="admin-tab-panel" data-admin-panel="parciais">
                 <section class="admin-section-card">
-                  <div id="adminEstornosPanel"></div>
+                  <div id="adminPartialsPanel"></div>
                 </section>
               </section>
 
               <section class="admin-tab-panel" data-admin-panel="fechamento">
-                <section class="admin-section-card">
-                  <div id="adminPartialsPanel"></div>
-                </section>
                 <section class="admin-section-card">
                   <div id="adminClosingPanel"></div>
                 </section>
@@ -464,7 +479,7 @@
                 </div>
               </section>
 
-              <section class="admin-tab-panel" data-admin-panel="identidade">
+              <section class="admin-tab-panel" data-admin-panel="identidade" hidden aria-hidden="true">
                 <section class="admin-section-card">
                   <div class="section-title">
                     <h3>Identidade da parceira</h3>
@@ -510,6 +525,24 @@
                   <p class="admin-inline-note">Padrao inicial: admin admin123 e dashboard dashboard123.</p>
                 </section>
 
+                <section class="admin-section-card">
+                  <div class="section-title">
+                    <h3>Senhas dos vendedores</h3>
+                    <p>Altere acessos individuais dos vendedores. Os valores ficam mascarados e nao aparecem em Cadastros.</p>
+                  </div>
+                  <div id="sellerPasswordList" class="access-list"></div>
+                </section>
+
+                <section class="admin-section-card">
+                  <div class="section-title">
+                    <h3>Senhas das filiais</h3>
+                    <p>Altere acessos das filiais. Os valores ficam centralizados nesta aba.</p>
+                  </div>
+                  <div id="branchPasswordList" class="access-list"></div>
+                </section>
+              </section>
+
+              <section class="admin-tab-panel" data-admin-panel="auditoria">
                 <section class="admin-section-card audit-log-card">
                   <div class="section-title admin-card-title-row">
                     <div>
@@ -556,9 +589,9 @@
                         <option>Regras e Deflatores</option>
                         <option>Estornos</option>
                         <option>Fechamento</option>
-                        <option>Importacao / Backup</option>
-                        <option>Identidade</option>
+                        <option>Importacao e Backup</option>
                         <option>Seguranca</option>
+                        <option>Auditoria</option>
                       </select>
                     </label>
                     <label>Campanha<select id="auditCampaignFilter"></select></label>
@@ -655,6 +688,6 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260715-vendedor-detail-cards"></script>
+    <script src="./app.js?v=20260715-admin-structure"></script>
   </body>
 </html>

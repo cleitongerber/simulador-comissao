@@ -155,7 +155,7 @@ let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 let activeManagerSellerId = "";
 let activeManagerIndicator = "Todos";
 let activeCollaboratorTab = "resumo";
-let activeAdminTab = "campanha";
+let activeAdminTab = "visao";
 let pendingAccessView = "dashboard";
 let activeAuditLogId = "";
 let lastAccessLogKey = "";
@@ -1493,7 +1493,7 @@ function downloadGoalTemplateCsv() {
     }
   }
   downloadFile("modelo-metas-comissao.csv", "text/csv;charset=utf-8", lines.map((line) => line.map(csvCell).join(";")).join("\n"));
-  logUpdate({ action: "Baixou modelo CSV", module: "Importacao / Backup", message: "Modelo CSV de metas baixado." }, { persist: true });
+  logUpdate({ action: "Baixou modelo CSV", module: "Importacao e Backup", message: "Modelo CSV de metas baixado." }, { persist: true });
 }
 
 function parseCsv(text) {
@@ -1708,7 +1708,7 @@ function importGoalTemplateCsv(text) {
   state.branches = normalizeBranches(state.branches, state.sellers);
   logUpdate({
     action: "Importou CSV",
-    module: "Importacao / Backup",
+    module: "Importacao e Backup",
     newValue: `${updated} linhas; ${createdSellers} vendedores; ${createdBranches} filiais; ${createdMetrics} metas novas; ${ignoredRows} ignoradas`,
     message: `CSV importado com ${updated} linhas atualizadas.`,
   });
@@ -2675,7 +2675,6 @@ function renderBranchEditor() {
   container.innerHTML = state.branches.map((branch) => `
     <div class="branch-card">
       <label>Filial<input data-branch-name="${escapeHtml(branch)}" value="${escapeHtml(branch)}"></label>
-      <label>Senha da filial<input data-branch-password="${escapeHtml(branch)}" type="text" value="${escapeHtml(state.branchPasswords?.[branch] || "1234")}"></label>
       <button class="danger-button" data-delete-branch="${escapeHtml(branch)}" type="button">Excluir filial</button>
     </div>
   `).join("");
@@ -2767,15 +2766,15 @@ function campaignShortStatus(status = campaignStatusLabel()) {
 function campaignNextActionsMarkup(campaign) {
   const status = campaignStatusLabel(campaign);
   const steps = [
-    ["Configurar periodo da campanha", "campanha", "done"],
-    ["Salvar campanha", "campanha", "done"],
+    ["Configurar periodo da campanha", "campanhas", "done"],
+    ["Salvar campanha", "campanhas", "done"],
     ["Congelar campanha", "fechamento", status === CAMPAIGN_STATUS.OPEN ? "active" : "done"],
     ["Revisar resultados", "fechamento", status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED ? "active" : status === CAMPAIGN_STATUS.OPEN ? "" : "done"],
-    ["Lancar estornos", "estornos", status === CAMPAIGN_STATUS.ADMIN_CLOSING ? "active" : status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
+    ["Lancar estornos", "fechamento", status === CAMPAIGN_STATUS.ADMIN_CLOSING ? "active" : status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
     ["Baixar prévia do arquivo", "fechamento", status === CAMPAIGN_STATUS.ADMIN_CLOSING ? "active" : status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
     ["Fechar comissao oficial", "fechamento", status === CAMPAIGN_STATUS.ADMIN_CLOSING ? "active" : status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
     ["Baixar arquivo oficial", "fechamento", status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "done" : ""],
-    ["Iniciar novo mes/campanha", "campanha", status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "active" : ""],
+    ["Iniciar novo mes/campanha", "campanhas", status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "active" : ""],
   ];
   return steps.map((step, index) => `<button class="campaign-step ${step[2]}" data-admin-tab-jump="${step[1]}" type="button"><span>${index + 1}</span>${escapeHtml(step[0])}</button>`).join("");
 }
@@ -3084,47 +3083,6 @@ function renderAdminSummary() {
   `).join("");
 }
 
-function renderAdminEstornosPanel() {
-  const container = document.getElementById("adminEstornosPanel");
-  if (!container) return;
-  const campaign = activeCampaign();
-  const canEditEstornos = canEditCampaignData() && isAdminUnlocked();
-  const rows = state.sellers.map((seller) => {
-    const record = sellerClosingRecord(seller);
-    return `<tr>
-      <td><strong>${escapeHtml(record.name)}</strong><small>${escapeHtml(record.branch)} - ${escapeHtml(record.area)}</small></td>
-      <td><input data-adjustment="quality" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${record.estornoQuality}" ${canEditEstornos ? "" : "disabled"}></td>
-      <td><input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${record.estornoInsurance}" ${canEditEstornos ? "" : "disabled"}></td>
-      <td><input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${record.estornoCarousel}" ${canEditEstornos ? "" : "disabled"}></td>
-      <td>${discountMoney(record.estornosTotal)}</td>
-      <td>${money.format(record.commissionFinal)}</td>
-      <td><span class="status ${record.estornosTotal ? "warn" : "neutral"}">${record.estornosTotal ? "Aplicado" : "Sem estorno"}</span></td>
-    </tr>`;
-  }).join("");
-  const totals = state.sellers.reduce((acc, seller) => acc + sellerEstornos(seller).total, 0);
-  container.innerHTML = `
-    <div class="section-title inline-title">
-      <div>
-        <h3>Estornos</h3>
-        <p>Informe descontos de Qualidade, Seguro e Carrossel antes do fechamento oficial.</p>
-      </div>
-      <span class="campaign-status-badge ${campaignStatusClass(campaign?.status)}">${campaignShortStatus(campaign?.status)}</span>
-    </div>
-    <div class="campaign-kpi-strip compact-strip">
-      <span>Campanha<strong>${escapeHtml(campaign?.name || "-")}</strong></span>
-      <span>Total de estornos<strong>${discountMoney(totals)}</strong></span>
-      <span>Edicao<strong>${canEditEstornos ? "Liberada" : "Bloqueada"}</strong></span>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Vendedor</th><th>Qualidade</th><th>Seguro</th><th>Carrossel</th><th>Total estornos</th><th>Comissao final</th><th>Status</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="7">Nenhum vendedor nesta campanha.</td></tr>`}</tbody>
-      </table>
-    </div>
-    <p class="admin-inline-note">Estornos sempre reduzem a comissao final. A edicao e bloqueada apos fechamento oficial.</p>
-  `;
-}
-
 function nextPartialNumber() {
   const numbers = partialsForCampaign().map((partial) => Number(partial.number) || 0);
   return Math.max(0, ...numbers) + 1;
@@ -3198,6 +3156,7 @@ function renderAdminPartialsPanel() {
       </div>
       <span class="campaign-status-badge ${campaignStatusClass(campaign.status)}">${escapeHtml(campaign.status)}</span>
     </div>
+    <p class="admin-inline-note">Parciais sao usadas para acompanhamento durante o mes. O fechamento oficial da comissao deve ser realizado na aba Fechamento.</p>
     <div class="admin-section-grid single">
       <section class="admin-section-card">
         <div class="section-title">
@@ -3239,7 +3198,7 @@ function renderAdminClosingPanel() {
     <div class="section-title inline-title">
       <div>
         <h3>Fechamento</h3>
-        <p>Confira totais, estornos e gere o arquivo oficial de comissionamento.</p>
+        <p>Confira totais, lance estornos por vendedor e gere o arquivo oficial de comissionamento.</p>
       </div>
       <span class="campaign-status-badge ${campaignStatusClass(campaign?.status)}">${campaignShortStatus(campaign?.status)}</span>
     </div>
@@ -3274,6 +3233,27 @@ function renderAdminFilters() {
     const selected = branchFilter.value || "";
     branchFilter.innerHTML = `<option value="">Todas</option>${branches().map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("")}`;
     if ([...branchFilter.options].some((option) => option.value === selected)) branchFilter.value = selected;
+  }
+}
+
+function renderAdminSecurityAccesses() {
+  const sellerContainer = document.getElementById("sellerPasswordList");
+  if (sellerContainer) {
+    sellerContainer.innerHTML = state.sellers.map((seller) => `
+      <label class="access-row security-access-row">
+        <span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></span>
+        <input data-seller-field="password" data-seller-id="${seller.id}" type="password" minlength="1" value="${escapeHtml(seller.password || "1234")}" autocomplete="new-password">
+      </label>
+    `).join("") || `<p class="muted-note">Nenhum vendedor cadastrado.</p>`;
+  }
+  const branchContainer = document.getElementById("branchPasswordList");
+  if (branchContainer) {
+    branchContainer.innerHTML = branches().map((branch) => `
+      <label class="access-row security-access-row">
+        <span><strong>${escapeHtml(branch)}</strong><small>Acesso da filial</small></span>
+        <input data-branch-password="${escapeHtml(branch)}" type="password" minlength="1" value="${escapeHtml(state.branchPasswords?.[branch] || "1234")}" autocomplete="new-password">
+      </label>
+    `).join("") || `<p class="muted-note">Nenhuma filial cadastrada.</p>`;
   }
 }
 
@@ -3377,7 +3357,7 @@ function exportAuditLogsCsv() {
   const header = ["Data/hora", "Tipo", "Perfil/usuario", "Modulo", "Acao", "Campanha", "Descricao", "Status"];
   const csv = `\uFEFF${[header, ...rows].map((line) => line.map(csvCell).join(";")).join("\n")}`;
   downloadFile(`logs-auditoria-${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8", csv);
-  logUpdate({ action: "Exportou logs", module: "Seguranca", message: "Admin exportou logs de auditoria em CSV." }, { persist: true });
+  logUpdate({ action: "Exportou logs", module: "Auditoria", message: "Admin exportou logs de auditoria em CSV." }, { persist: true });
 }
 
 function auditRawElementValue(target) {
@@ -3416,12 +3396,12 @@ function auditFieldDescriptor(target) {
     const seller = state.sellers.find((item) => item.id === target.dataset.sellerId);
     const field = target.dataset.sellerField;
     const action = field === "password" ? "Alterou senha do vendedor" : "Editou vendedor";
-    return { type: field === "password" ? "Seguranca" : "Atualizacao", action, module: "Vendedores", itemId: seller?.id || "", itemName: seller?.name || "", field, forceLog: field === "password", message: `Admin editou o vendedor ${seller?.name || ""}.` };
+    return { type: field === "password" ? "Seguranca" : "Atualizacao", action, module: field === "password" ? "Seguranca" : "Vendedores", itemId: seller?.id || "", itemName: seller?.name || "", field, forceLog: field === "password", message: `Admin editou o vendedor ${seller?.name || ""}.` };
   }
   if (target.dataset.adjustment) {
     const seller = state.sellers.find((item) => item.id === target.dataset.sellerId);
     const label = estornoFields.find((item) => item.id === target.dataset.adjustment)?.label || target.dataset.adjustment;
-    return { action: "Editou estornos", module: "Estornos", itemId: seller?.id || "", itemName: seller?.name || "", field: `Estorno ${label}`, message: `Admin alterou estorno ${label} do vendedor ${seller?.name || ""}.` };
+    return { action: "Editou estornos", module: "Fechamento", itemId: seller?.id || "", itemName: seller?.name || "", field: `Estorno ${label}`, message: `Admin alterou estorno ${label} do vendedor ${seller?.name || ""}.` };
   }
   if (target.dataset.metricGoal || target.dataset.metricRealized) {
     const seller = selectedAdminSeller();
@@ -3451,7 +3431,7 @@ function auditFieldDescriptor(target) {
     return { action: "Editou filial", module: "Filiais", itemName: target.dataset.branchName, field: "Filial", message: `Admin editou a filial ${target.dataset.branchName}.` };
   }
   if (target.dataset.branchPassword) {
-    return { type: "Seguranca", action: "Alterou senha da filial", module: "Filiais", itemName: target.dataset.branchPassword, field: "Senha da filial", forceLog: true, message: `Senha da filial ${target.dataset.branchPassword} alterada.` };
+    return { type: "Seguranca", action: "Alterou senha da filial", module: "Seguranca", itemName: target.dataset.branchPassword, field: "Senha da filial", forceLog: true, message: `Senha da filial ${target.dataset.branchPassword} alterada.` };
   }
   return null;
 }
@@ -3479,10 +3459,10 @@ function renderAdmin() {
   updateAdminTabs();
   renderCampaignAdminPanel();
   renderAdminSummary();
-  renderAdminEstornosPanel();
   renderAdminPartialsPanel();
   renderAdminClosingPanel();
   renderAdminFilters();
+  renderAdminSecurityAccesses();
   const adminPeriodMonth = document.getElementById("adminPeriodMonth");
   const adminDaysTotal = document.getElementById("adminDaysTotal");
   const adminDaysDone = document.getElementById("adminDaysDone");
@@ -3502,14 +3482,6 @@ function renderAdmin() {
         </select>
       </label>
       <label>Filial<select data-seller-field="branch" data-seller-id="${seller.id}">${branchOptions(seller.branch)}</select></label>
-      <div class="seller-estornos-panel">
-        <div class="seller-estornos-head"><strong>Estornos</strong><span>Valores descontados da comissao final.</span></div>
-        <label>Qualidade<input data-adjustment="quality" data-seller-id="${seller.id}" type="number" min="0" step="0.01" placeholder="R$ 0,00" value="${sellerEstornos(seller).items.find((item) => item.id === "quality")?.value || 0}"></label>
-        <label>Seguro<input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" min="0" step="0.01" placeholder="R$ 0,00" value="${sellerEstornos(seller).items.find((item) => item.id === "insurance")?.value || 0}"></label>
-        <label>Carrossel<input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" min="0" step="0.01" placeholder="R$ 0,00" value="${sellerEstornos(seller).items.find((item) => item.id === "carousel")?.value || 0}"></label>
-        <span class="seller-estornos-total">Total de estornos <strong>${discountMoney(sellerEstornos(seller).total)}</strong></span>
-      </div>
-      <label>Senha vendedor<input data-seller-field="password" data-seller-id="${seller.id}" type="text" value="${escapeHtml(seller.password || "1234")}"></label>
       <label class="checkbox-line"><input data-seller-experience="${seller.id}" type="checkbox" ${seller.emExperiencia ? "checked" : ""}> Vendedor em experiência</label>
       <button class="delete-seller-button" data-delete-seller="${seller.id}" type="button">Excluir vendedor</button>
     </div>
@@ -3537,8 +3509,7 @@ function renderAdminMetrics() {
     return;
   }
   ensureSellerValues(seller);
-  const result = sellerResult(seller);
-  summary.innerHTML = `Comissao bruta proj.: <strong>${money.format(result.projectedSubtotal)}</strong> | Deflator proj.: <strong>${money.format(result.projectedDeflator)}</strong> | Estornos: <strong>${discountMoney(result.estornos)}</strong> | Comissao final proj.: <strong>${money.format(result.projected)}</strong>`;
+  summary.innerHTML = `Use esta area apenas para manutencao operacional dos valores da campanha. A leitura analitica fica no Dashboard, na Filial e na tela do Vendedor.`;
   body.innerHTML = metricsFor(seller.area).map((metric) => {
     const value = seller.values[metric.id];
     const participates = metricParticipates(metric);
@@ -5126,7 +5097,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "adminImportBackup") {
-    document.getElementById("importData")?.click();
+    document.getElementById("importDataFile")?.click();
   }
 
   if (event.target.id === "adminExportBackup") {
@@ -5394,7 +5365,7 @@ document.addEventListener("click", async (event) => {
     state.auditLogs = auditLogs;
     logUpdate({
       action: "Restaurou padrao",
-      module: "Importacao / Backup",
+      module: "Importacao e Backup",
       message: "Dados padrao restaurados. Logs de auditoria preservados.",
     });
     saveState();
@@ -5414,7 +5385,7 @@ document.addEventListener("click", async (event) => {
     link.click();
     URL.revokeObjectURL(url);
     updateSaveStatus("Backup exportado");
-    logUpdate({ action: "Exportou backup", module: "Importacao / Backup", message: "Backup JSON exportado." }, { persist: true });
+    logUpdate({ action: "Exportou backup", module: "Importacao e Backup", message: "Backup JSON exportado." }, { persist: true });
   }
 
   if (event.target.id === "exportCollaboratorPdf") {
@@ -5857,7 +5828,7 @@ document.addEventListener("change", (event) => {
         state = { ...imported, auditLogs: [...byId.values()] };
         logUpdate({
           action: "Importou backup",
-          module: "Importacao / Backup",
+          module: "Importacao e Backup",
           message: "Backup JSON importado. Historico de auditoria preservado.",
         });
         saveState("Backup importado");
