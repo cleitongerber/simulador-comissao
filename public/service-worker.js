@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-security-visible-passwords";
+const CACHE_NAME = "comissao-pwa-v20260715-dashboard-card-cleanup";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-security-visible-passwords",
-  "/app.js?v=20260715-security-visible-passwords",
+  "/styles.css?v=20260715-dashboard-card-cleanup",
+  "/app.js?v=20260715-dashboard-card-cleanup",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

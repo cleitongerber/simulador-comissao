@@ -6254,8 +6254,33 @@ body[data-view="home"] .main > .view > * {
   align-items: flex-start;
 }
 
+#dashboardView .dashboard-kpi > div,
+#dashboardView .block-summary-card,
+#dashboardView .finance-mini-grid strong,
+#dashboardView .dashboard-branch-ranking-name,
+#dashboardView .dashboard-branch-ranking-critical {
+  min-width: 0;
+}
+
+#dashboardView .dashboard-kpi small,
+#dashboardView .dashboard-kpi strong,
+#dashboardView .dashboard-kpi em,
+#dashboardView .block-summary-card span,
+#dashboardView .block-summary-card strong,
+#dashboardView .block-summary-card small,
+#dashboardView .finance-mini-grid b,
+#dashboardView .finance-mini-grid strong,
+#dashboardView .dashboard-branch-ranking-name,
+#dashboardView .dashboard-branch-ranking-name small,
+#dashboardView .dashboard-branch-ranking-critical {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 #dashboardView .dashboard-kpi strong {
-  font-size: clamp(20px, 1.8vw, 28px);
+  font-size: clamp(18px, 1.55vw, 26px);
+  line-height: 1.05;
 }
 
 #dashboardView .dashboard-blocks-panel .dashboard-card-head,
@@ -6272,10 +6297,12 @@ body[data-view="home"] .main > .view > * {
   display: grid;
   align-content: space-between;
   min-height: 138px;
+  gap: 7px;
 }
 
 #dashboardView .block-summary-card strong {
-  font-size: 22px;
+  font-size: clamp(18px, 1.5vw, 22px);
+  line-height: 1.05;
 }
 
 #dashboardView .dashboard-critical-grid {
@@ -6316,10 +6343,6 @@ body[data-view="home"] .main > .view > * {
 
 #dashboardView .dashboard-exec-layout > section:has(#sellerSummaryBody) {
   order: 1;
-}
-
-#dashboardView .dashboard-exec-layout > section:has(#branchAttainmentBars) {
-  order: 2;
 }
 
 #dashboardView .dashboard-exec-layout > section:has(#rankingList) {
