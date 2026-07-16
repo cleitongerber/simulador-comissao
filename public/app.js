@@ -3237,12 +3237,16 @@ function renderAdminFilters() {
 }
 
 function renderAdminSecurityAccesses() {
+  const adminPasswordInput = document.getElementById("newAdminPassword");
+  const dashboardPasswordInput = document.getElementById("newDashboardPassword");
+  if (adminPasswordInput && document.activeElement !== adminPasswordInput) adminPasswordInput.value = adminPassword();
+  if (dashboardPasswordInput && document.activeElement !== dashboardPasswordInput) dashboardPasswordInput.value = dashboardPassword();
   const sellerContainer = document.getElementById("sellerPasswordList");
   if (sellerContainer) {
     sellerContainer.innerHTML = state.sellers.map((seller) => `
       <label class="access-row security-access-row">
         <span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></span>
-        <input data-seller-field="password" data-seller-id="${seller.id}" type="password" minlength="1" value="${escapeHtml(seller.password || "1234")}" autocomplete="new-password">
+        <input data-seller-field="password" data-seller-id="${seller.id}" type="text" minlength="1" value="${escapeHtml(seller.password || "1234")}" autocomplete="off">
       </label>
     `).join("") || `<p class="muted-note">Nenhum vendedor cadastrado.</p>`;
   }
@@ -3251,7 +3255,7 @@ function renderAdminSecurityAccesses() {
     branchContainer.innerHTML = branches().map((branch) => `
       <label class="access-row security-access-row">
         <span><strong>${escapeHtml(branch)}</strong><small>Acesso da filial</small></span>
-        <input data-branch-password="${escapeHtml(branch)}" type="password" minlength="1" value="${escapeHtml(state.branchPasswords?.[branch] || "1234")}" autocomplete="new-password">
+        <input data-branch-password="${escapeHtml(branch)}" type="text" minlength="1" value="${escapeHtml(state.branchPasswords?.[branch] || "1234")}" autocomplete="off">
       </label>
     `).join("") || `<p class="muted-note">Nenhuma filial cadastrada.</p>`;
   }

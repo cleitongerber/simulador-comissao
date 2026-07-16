@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260715-admin-structure" />
+    <link rel="stylesheet" href="./styles.css?v=20260715-security-visible-passwords" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -507,12 +507,12 @@
                   <div class="security-grid">
                     <label>
                       Senha admin
-                      <input id="newAdminPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" />
+                      <input id="newAdminPassword" type="text" minlength="4" placeholder="Minimo 4 caracteres" />
                       <small>Admin: configuracoes administrativas.</small>
                     </label>
                     <label>
                       Senha Dashboard
-                      <input id="newDashboardPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" />
+                      <input id="newDashboardPassword" type="text" minlength="4" placeholder="Minimo 4 caracteres" />
                       <small>Dashboard: somente visualizacao.</small>
                     </label>
                   </div>
@@ -528,7 +528,7 @@
                 <section class="admin-section-card">
                   <div class="section-title">
                     <h3>Senhas dos vendedores</h3>
-                    <p>Altere acessos individuais dos vendedores. Os valores ficam mascarados e nao aparecem em Cadastros.</p>
+                    <p>Consulte ou altere os acessos individuais dos vendedores. Estes valores aparecem apenas nesta aba.</p>
                   </div>
                   <div id="sellerPasswordList" class="access-list"></div>
                 </section>
@@ -536,7 +536,7 @@
                 <section class="admin-section-card">
                   <div class="section-title">
                     <h3>Senhas das filiais</h3>
-                    <p>Altere acessos das filiais. Os valores ficam centralizados nesta aba.</p>
+                    <p>Consulte ou altere os acessos das filiais. Estes valores aparecem apenas nesta aba.</p>
                   </div>
                   <div id="branchPasswordList" class="access-list"></div>
                 </section>
@@ -688,6 +688,6 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260715-admin-structure"></script>
+    <script src="./app.js?v=20260715-security-visible-passwords"></script>
   </body>
 </html>

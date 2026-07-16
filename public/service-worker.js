@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260715-admin-structure";
+const CACHE_NAME = "comissao-pwa-v20260715-security-visible-passwords";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260715-admin-structure",
-  "/app.js?v=20260715-admin-structure",
+  "/styles.css?v=20260715-security-visible-passwords",
+  "/app.js?v=20260715-security-visible-passwords",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
