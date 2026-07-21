@@ -2396,7 +2396,7 @@ function renderDashboardPartialPanel() {
   const infoPanel = document.getElementById("dashboardPartialInfo");
   const partial = selectedDashboardPartial();
   if (!partial) {
-    if (hero) hero.innerHTML = `<div><p class="eyebrow">Dashboard</p><h2>Dashboard</h2><span>Nenhuma parcial publicada para esta campanha.</span></div>`;
+    if (hero) hero.innerHTML = `<div><p class="eyebrow">Dashboard executivo</p><h2>Dashboard Executivo</h2><span>Nenhuma parcial publicada para esta campanha.</span></div>`;
     if (container) container.innerHTML = `<div class="dashboard-card-head"><div><h3>Blocos de metas</h3><p>Publique uma parcial para visualizar a analise por bloco.</p></div></div>`;
     if (criticalPanel) criticalPanel.innerHTML = `<div class="dashboard-card-head"><div><h3>Indicadores abaixo de 80%</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div>`;
     if (infoPanel) infoPanel.innerHTML = `<div class="dashboard-card-head"><div><h3>Informacoes da parcial</h3><p>Nenhuma parcial publicada.</p></div></div>`;
@@ -2421,7 +2421,7 @@ function renderDashboardPartialPanel() {
   if (hero) {
     hero.innerHTML = `<div>
       <p class="eyebrow">Dashboard executivo</p>
-      <h2>Dashboard</h2>
+      <h2>Dashboard Executivo</h2>
       <span>${escapeHtml(campaign?.name || "Campanha atual")} - ${escapeHtml(campaign?.reference || state.month || "")}</span>
       <span>${partialHistoric ? "Você está analisando uma parcial histórica" : "Você está analisando a última parcial publicada"}: ${escapeHtml(partial.name)} - Base ${escapeHtml(partial.baseDate || "-")}</span>
     </div>
@@ -2611,12 +2611,12 @@ function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent,
   const container = document.getElementById("dashboardExecutiveCards");
   if (!container) return;
   const cards = [
+    ["Vendedores", String(totals.partial?.sellerIds?.size || 0), "com parcial oficial", "star", 1],
     ["% metas atingidas", completion.metPercent === null ? "-" : pct.format(completion.metPercent), `${completion.metCount}/${completion.applicableCount} metas`, "percent", completion.metPercent],
     ["% projetado geral", pct.format(projectedPercent), "Projecao ate o fechamento", "trend", projectedPercent],
     ["Gap geral", totals.gap === null ? "-" : num.format(totals.gap), "Falta para meta", "alert", totals.gap ? 0 : 1],
     ["Filiais criticas", String(riskBranches), "Abaixo de 80% projetado", "alert", riskBranches ? 0 : 1],
     ["Principal ofensor", offender?.key || "-", offender?.projectedPercent !== null && offender ? `${pct.format(offender.projectedPercent)} projetado` : "Sem indicador", "target", offender?.projectedPercent ?? null],
-    ["Vendedores destaque", String(highlightSellers), "100% das metas projetadas", "money", highlightSellers ? 1 : 0],
   ];
   const financialComposition = `<article class="dashboard-kpi dashboard-finance-composition">
     <span aria-hidden="true"></span>
@@ -4167,9 +4167,11 @@ function branchPartialFilterControls(branch, sellers) {
   const sellerOptions = [`<option value="">Todos</option>`, ...sellers.map((seller) => `<option value="${seller.id}" ${seller.id === activeManagerSellerId ? "selected" : ""}>${escapeHtml(seller.name)}</option>`)];
   const indicatorOptions = ["Todos", ...indicatorNames].map((name) => `<option value="${escapeHtml(name)}" ${name === activeManagerIndicator ? "selected" : ""}>${escapeHtml(name)}</option>`);
   return `<section class="branch-card-panel branch-filter-panel branch-partial-filter-panel">
+    <div class="branch-filter-grid">
     <label>Parcial<select id="managerPartialFilter">${publishedPartialOptionsMarkup(activeManagerPartialId)}</select></label>
     <label>Vendedor<select id="managerSellerFilter">${sellerOptions.join("")}</select></label>
     <label>Indicador<select id="managerIndicatorFilter">${indicatorOptions.join("")}</select></label>
+    </div>
     <div class="partial-meta-line"><strong>${partialIsLatest(partial) ? "Exibindo" : "Exibindo parcial histórica"}</strong><span>${partial ? `${escapeHtml(partial.name)} - Base ${escapeHtml(partial.baseDate || "-")} - ${escapeHtml(partial.status)}` : "Nenhuma parcial publicada para esta campanha."}</span></div>
   </section>`;
 }
@@ -4364,7 +4366,7 @@ function branchPartialTeamSummary(branch, sellers) {
     const sellerRecords = records.filter((record) => record.seller.id === row.seller.id);
     const criticalMetric = partialCriticalMetric(sellerRecords);
     const criticalBlock = partialCriticalBlock(sellerRecords);
-    return `<tr><td><strong>${escapeHtml(row.seller.name)}</strong><small>${escapeHtml(row.seller.area)}</small></td><td>${achievementPill(row.metPercent)}<small>${row.metCount}/${row.applicableCount}</small></td><td>${achievementPill(row.totals.projectedPercent)}</td><td>${row.totals.gap === null ? "-" : num.format(row.totals.gap)}</td><td>${escapeHtml(metricGroupDisplay(criticalBlock?.key || "-"))}</td><td>${escapeHtml(criticalMetric?.key || "-")}</td><td>${row.criticalCount}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td><td><button class="ghost-button compact-action" data-branch-partial-detail="${row.seller.id}" type="button">Ver detalhes</button></td></tr>`;
+    return `<tr><td data-label="Vendedor"><strong>${escapeHtml(row.seller.name)}</strong><small>${escapeHtml(row.seller.area)}</small></td><td data-label="% metas">${achievementPill(row.metPercent)}<small>${row.metCount}/${row.applicableCount}</small></td><td data-label="% projetado">${achievementPill(row.totals.projectedPercent)}</td><td data-label="Gap">${row.totals.gap === null ? "-" : num.format(row.totals.gap)}</td><td data-label="Bloco critico">${escapeHtml(metricGroupDisplay(criticalBlock?.key || "-"))}</td><td data-label="Indicador critico">${escapeHtml(criticalMetric?.key || "-")}</td><td data-label="Criticos">${row.criticalCount}</td><td data-label="Status"><span class="status ${row.status.cls}">${row.status.label}</span></td><td data-label="Detalhes"><button class="ghost-button compact-action" data-branch-partial-detail="${row.seller.id}" type="button">Ver detalhes</button></td></tr>`;
   }).join("") || `<tr><td colspan="9">Nenhum resultado parcial para esta filial.</td></tr>`}</tbody></table></div></section>`;
 }
 
@@ -4373,7 +4375,7 @@ function branchPartialDetails(branch, sellers) {
   const partial = getVisiblePartial("filial");
   const records = branchPartialRecords(partial, branch, sellers, activeManagerSellerId);
   if (activeManagerSellerId) {
-    const body = metricGroupHeaderRows(records, 10, (record) => `<tr><td>${escapeHtml(metricGroupDisplay(record.groupMeta))}</td><td>${escapeHtml(record.metric?.name || record.item.metricName)}</td><td>${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</td><td>${formatMetricAmount(record.metric, record.realized)}</td><td>${achievementPill(record.percent)}</td><td>${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</td><td>${achievementPill(record.projectedPercent)}</td><td>${record.gap === null ? "-" : formatMetricAmount(record.metric, record.gap)}</td><td>${record.paceNeeded === null ? "-" : formatMetricPace(record.metric, record.paceNeeded)}</td><td><span class="status ${record.status.cls}">${record.status.label}</span></td></tr>`);
+    const body = metricGroupHeaderRows(records, 10, (record) => `<tr><td data-label="Bloco">${escapeHtml(metricGroupDisplay(record.groupMeta))}</td><td data-label="Indicador">${escapeHtml(record.metric?.name || record.item.metricName)}</td><td data-label="Meta">${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(record.metric, record.realized)}</td><td data-label="% parcial">${achievementPill(record.percent)}</td><td data-label="Projecao">${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</td><td data-label="% proj.">${achievementPill(record.projectedPercent)}</td><td data-label="Falta">${record.gap === null ? "-" : formatMetricAmount(record.metric, record.gap)}</td><td data-label="Ritmo/dia">${record.paceNeeded === null ? "-" : formatMetricPace(record.metric, record.paceNeeded)}</td><td data-label="Status"><span class="status ${record.status.cls}">${record.status.label}</span></td></tr>`);
     return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes do vendedor</h3><p>${escapeHtml(records[0]?.seller?.name || "Vendedor")} na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="10">Nenhum dado parcial para o vendedor selecionado.</td></tr>`}</tbody></table></div></section>`;
   }
   const metricGroups = [...groupItems(records, (record) => `${record.groupMeta || metricGroup(record.metric)}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, metricRecords]) => {
@@ -4384,7 +4386,7 @@ function branchPartialDetails(branch, sellers) {
   const body = metricGroups.map((row) => {
     const metric = row.sample.metric;
     const status = row.totals.status;
-    return `<tr><td>${escapeHtml(metricGroupDisplay(row.sample.groupMeta))}</td><td>${escapeHtml(metric?.name || row.sample.item.metricName)}</td><td>${row.totals.goal ? formatMetricAmount(metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</td><td>${formatMetricAmount(metric, row.totals.realized)}</td><td>${achievementPill(row.totals.percent)}</td><td>${row.totals.projected === null ? "-" : formatMetricAmount(metric, row.totals.projected)}</td><td>${achievementPill(row.totals.projectedPercent)}</td><td>${row.totals.gap === null ? "-" : formatMetricAmount(metric, row.totals.gap)}</td><td>${row.totals.paceNeeded === null ? "-" : formatMetricPace(metric, row.totals.paceNeeded)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
+    return `<tr><td data-label="Bloco">${escapeHtml(metricGroupDisplay(row.sample.groupMeta))}</td><td data-label="Indicador">${escapeHtml(metric?.name || row.sample.item.metricName)}</td><td data-label="Meta filial">${row.totals.goal ? formatMetricAmount(metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(metric, row.totals.realized)}</td><td data-label="% parcial">${achievementPill(row.totals.percent)}</td><td data-label="Projecao">${row.totals.projected === null ? "-" : formatMetricAmount(metric, row.totals.projected)}</td><td data-label="% proj.">${achievementPill(row.totals.projectedPercent)}</td><td data-label="Falta">${row.totals.gap === null ? "-" : formatMetricAmount(metric, row.totals.gap)}</td><td data-label="Ritmo/dia">${row.totals.paceNeeded === null ? "-" : formatMetricPace(metric, row.totals.paceNeeded)}</td><td data-label="Status"><span class="status ${status.cls}">${status.label}</span></td></tr>`;
   }).join("");
   return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes da filial</h3><p>Consolidado por indicador da filial na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta filial</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="10">Nenhum dado parcial para o filtro selecionado.</td></tr>`}</tbody></table></div></section>`;
 }
@@ -4410,8 +4412,8 @@ function branchPartialOpportunities(branch, sellers) {
 }
 
 function branchDashboardMarkup(branch, sellers) {
-  if (!sellers.length) return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
-  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Simulador operacional</p><h2>Painel da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}${branchPartialDetails(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div></div>`;
+  if (!sellers.length) return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
+  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}${branchPartialDetails(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div></div>`;
 }
 function renderManager() {
   const loginPanel = document.getElementById("managerLoginPanel");

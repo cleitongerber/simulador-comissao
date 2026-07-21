@@ -6801,3 +6801,374 @@ body[data-view="home"] .main > .view > * {
 #dashboardView .dashboard-table-wrap table {
   min-width: 0;
 }
+
+/* Sprint 3: executive Dashboard and branch-management responsive polish. */
+#dashboardView,
+#gerenteView {
+  overflow-x: hidden;
+}
+
+#dashboardView *,
+#gerenteView * {
+  min-width: 0;
+}
+
+#dashboardView .dashboard-modern,
+#gerenteView.manager-authenticated .manager-layout {
+  width: min(100%, 1500px);
+  max-width: 1500px;
+  margin-inline: auto;
+}
+
+#dashboardView .dashboard-hero-card,
+#gerenteView .branch-title-row {
+  border: 1px solid #eee2e4;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fff 0%, #fff8f9 100%);
+  box-shadow: var(--shadow);
+}
+
+#gerenteView .branch-title-row {
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+}
+
+#dashboardView .dashboard-hero-card h2,
+#gerenteView .branch-title-row h2 {
+  font-size: clamp(26px, 2.5vw, 36px);
+  letter-spacing: 0;
+}
+
+#dashboardView .dashboard-hero-card > div:first-child,
+#gerenteView .branch-title-row > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+#dashboardView .dashboard-hero-meta {
+  grid-template-columns: repeat(5, minmax(104px, 1fr));
+  min-width: min(100%, 760px);
+}
+
+#dashboardView .dashboard-hero-meta > .campaign-status-badge {
+  align-self: stretch;
+  justify-self: stretch;
+  min-height: 58px;
+  border-radius: 12px;
+}
+
+#dashboardView .dashboard-filter-grid,
+#gerenteView .branch-filter-grid {
+  display: grid;
+  align-items: end;
+  gap: 10px;
+}
+
+#dashboardView .dashboard-filter-grid {
+  grid-template-columns: minmax(210px, 1.3fr) repeat(6, minmax(122px, 1fr)) minmax(120px, .75fr);
+}
+
+#gerenteView .branch-filter-grid {
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+}
+
+#gerenteView .branch-filter-panel {
+  display: grid;
+  gap: 10px;
+}
+
+#gerenteView .branch-filter-panel label {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: none;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+#gerenteView .branch-filter-panel select {
+  width: 100%;
+}
+
+#dashboardView .dashboard-executive-grid {
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  align-items: stretch;
+}
+
+#dashboardView .dashboard-kpi {
+  min-height: 108px;
+}
+
+#dashboardView .dashboard-kpi div {
+  display: grid;
+  align-content: center;
+}
+
+#dashboardView .dashboard-kpi small,
+#dashboardView .dashboard-kpi em,
+#dashboardView .dashboard-card-head p,
+#gerenteView .branch-card-head p,
+#gerenteView .branch-kpi small,
+#gerenteView .branch-kpi em {
+  overflow-wrap: anywhere;
+}
+
+#dashboardView .dashboard-finance-composition {
+  grid-column: 1 / -1;
+  min-height: 90px;
+}
+
+#dashboardView .dashboard-finance-composition > div {
+  align-content: stretch;
+}
+
+#dashboardView .finance-mini-grid {
+  grid-template-columns: repeat(4, minmax(135px, 1fr));
+  gap: 10px;
+}
+
+#dashboardView .finance-mini-grid strong {
+  min-height: 52px;
+  justify-content: center;
+  white-space: normal;
+}
+
+#dashboardView .dashboard-block-grid,
+#gerenteView .branch-block-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#dashboardView .block-summary-card,
+#gerenteView .block-summary-card {
+  min-height: 132px;
+  border-radius: 14px;
+}
+
+#dashboardView .dashboard-critical-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, .78fr);
+  align-items: start;
+}
+
+#dashboardView .dashboard-exec-layout,
+#gerenteView .branch-main-grid {
+  grid-template-columns: minmax(0, 1.42fr) minmax(330px, .58fr);
+  align-items: start;
+}
+
+#dashboardView .dashboard-card-head,
+#gerenteView .branch-card-head {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+#dashboardView .dashboard-table-wrap,
+#gerenteView .branch-table-wrap {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+#dashboardView .dashboard-table-wrap table,
+#gerenteView .branch-table-wrap table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+#dashboardView .dashboard-table-wrap th,
+#dashboardView .dashboard-table-wrap td,
+#gerenteView .branch-table-wrap th,
+#gerenteView .branch-table-wrap td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  vertical-align: middle;
+}
+
+#dashboardView .dashboard-table-wrap th,
+#gerenteView .branch-table-wrap th {
+  font-size: 11px;
+}
+
+#gerenteView .branch-team-panel th:nth-child(4),
+#gerenteView .branch-team-panel td:nth-child(4) {
+  display: none;
+}
+
+#gerenteView .branch-main-grid aside {
+  position: sticky;
+  top: 92px;
+}
+
+#gerenteView .partial-meta-line {
+  margin: 0;
+  background: #fff8f9;
+}
+
+#gerenteView .branch-partial-summary.analytic {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+#gerenteView .branch-partial-summary article,
+#dashboardView .dashboard-kpi,
+#dashboardView .dashboard-card,
+#gerenteView .branch-card-panel,
+#gerenteView .branch-kpi {
+  overflow: hidden;
+}
+
+#gerenteView .branch-partial-actions {
+  justify-content: flex-start;
+}
+
+#gerenteView .branch-partial-actions .ghost-button,
+#dashboardView .dashboard-branch-row > button {
+  min-height: 40px;
+}
+
+@media (max-width: 1320px) {
+  #dashboardView .dashboard-filter-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  #dashboardView .dashboard-executive-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #dashboardView .dashboard-critical-grid,
+  #dashboardView .dashboard-exec-layout,
+  #gerenteView .branch-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #gerenteView .branch-main-grid aside {
+    position: static;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  #dashboardView .dashboard-hero-card,
+  #gerenteView .branch-title-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #dashboardView .dashboard-hero-meta,
+  #dashboardView .dashboard-filter-grid,
+  #dashboardView .dashboard-block-grid,
+  #dashboardView .dashboard-critical-grid,
+  #gerenteView .branch-filter-grid,
+  #gerenteView .branch-block-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #gerenteView .branch-main-grid aside {
+    grid-template-columns: 1fr;
+  }
+
+  #gerenteView .branch-team-panel th:nth-child(5),
+  #gerenteView .branch-team-panel td:nth-child(5),
+  #gerenteView .branch-team-panel th:nth-child(6),
+  #gerenteView .branch-team-panel td:nth-child(6) {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  #dashboardView .dashboard-modern,
+  #gerenteView.manager-authenticated .manager-layout {
+    width: 100%;
+  }
+
+  #dashboardView .dashboard-hero-card,
+  #dashboardView .dashboard-card,
+  #gerenteView .branch-title-row,
+  #gerenteView .branch-card-panel {
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  #dashboardView .dashboard-hero-meta,
+  #dashboardView .dashboard-filter-grid,
+  #dashboardView .dashboard-executive-grid,
+  #dashboardView .dashboard-block-grid,
+  #dashboardView .dashboard-critical-grid,
+  #dashboardView .finance-mini-grid,
+  #gerenteView .branch-filter-grid,
+  #gerenteView .branch-partial-summary,
+  #gerenteView .branch-block-summary,
+  #gerenteView .branch-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #dashboardView .dashboard-kpi {
+    min-height: 86px;
+  }
+
+  #dashboardView .dashboard-finance-composition {
+    min-height: 0;
+  }
+
+  #gerenteView .branch-table-wrap table,
+  #gerenteView .branch-table-wrap thead,
+  #gerenteView .branch-table-wrap tbody,
+  #gerenteView .branch-table-wrap tr,
+  #gerenteView .branch-table-wrap td {
+    display: block;
+    width: 100%;
+  }
+
+  #gerenteView .branch-table-wrap thead {
+    display: none;
+  }
+
+  #gerenteView .branch-table-wrap table {
+    border-collapse: separate;
+    border-spacing: 0 10px;
+  }
+
+  #gerenteView .branch-table-wrap tr:not(.metric-group-row) {
+    padding: 12px;
+    border: 1px solid #f0e6e8;
+    border-radius: 14px;
+    background: #fffafa;
+  }
+
+  #gerenteView .branch-table-wrap td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 0;
+    padding: 7px 0;
+    text-align: right;
+  }
+
+  #gerenteView .branch-table-wrap td::before {
+    content: attr(data-label);
+    flex: 0 0 42%;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 900;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  #gerenteView .branch-table-wrap .metric-group-row td {
+    display: block;
+    padding: 9px 10px;
+    text-align: left;
+  }
+
+  #gerenteView .branch-table-wrap .metric-group-row td::before,
+  #gerenteView .branch-table-wrap td[colspan]::before {
+    content: none;
+  }
+
+  #gerenteView .branch-table-wrap .compact-action {
+    width: 100%;
+  }
+}

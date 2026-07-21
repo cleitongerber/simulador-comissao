@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260721-metrics-p0";
+const CACHE_NAME = "comissao-pwa-v20260721-sprint3-layout";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260721-metrics-p0",
-  "/app.js?v=20260721-metrics-p0",
+  "/styles.css?v=20260721-sprint3-layout",
+  "/app.js?v=20260721-sprint3-layout",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
