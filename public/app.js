@@ -154,6 +154,9 @@ let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
 let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 let activeManagerSellerId = "";
 let activeManagerIndicator = "Todos";
+let activeManagerPartialId = "latest";
+let activeCollaboratorPartialId = "latest";
+let activeCollaboratorSimulationDaysTotal = sessionStorage.getItem("commission-collaborator-simulation-days-total") || "";
 let activeCollaboratorTab = "resumo";
 let activeAdminTab = "visao";
 let pendingAccessView = "dashboard";
@@ -224,12 +227,14 @@ function setCollaboratorSession(seller) {
     return;
   }
   activeCollaboratorId = seller.id;
+  activeCollaboratorPartialId = "latest";
   sessionStorage.setItem(COLLAB_SESSION_KEY, seller.id);
   sessionStorage.setItem(COLLAB_SESSION_META_KEY, JSON.stringify(collaboratorSessionMeta(seller)));
 }
 
 function clearCollaboratorSession() {
   activeCollaboratorId = "";
+  activeCollaboratorPartialId = "latest";
   sessionStorage.removeItem(COLLAB_SESSION_KEY);
   sessionStorage.removeItem(COLLAB_SESSION_META_KEY);
 }
@@ -287,6 +292,12 @@ function setActiveCampaign(campaignId) {
   }
   const matchingManagerSeller = findMatchingSeller(previousManagerSeller);
   activeManagerSellerId = matchingManagerSeller?.id || "";
+  activeDashboardPartialId = "latest";
+  activeManagerPartialId = "latest";
+  activeCollaboratorPartialId = "latest";
+  activeDashboardSellerDetailId = "";
+  activeDashboardBranchDetail = "";
+  showBranchPartialDetails = false;
   const campaign = activeCampaign();
   logAccess({
     status: "Sucesso",
@@ -995,9 +1006,22 @@ function rateFor(area, metricId, percent) {
 }
 
 function projected(realized) {
-  const done = Math.max(1, Number(state.period.daysDone) || 1);
-  const total = Math.max(done, Number(state.period.daysTotal) || done);
+  const source = projectionPeriodOverride || state.period;
+  const done = Math.max(1, Number(source.daysDone) || 1);
+  const total = Math.max(done, Number(source.daysTotal) || done);
   return (Number(realized) || 0) / done * total;
+}
+
+let projectionPeriodOverride = null;
+
+function withProjectionPeriod(period, callback) {
+  const previous = projectionPeriodOverride;
+  projectionPeriodOverride = period || null;
+  try {
+    return callback();
+  } finally {
+    projectionPeriodOverride = previous;
+  }
 }
 
 function metricCommission(seller, metric, mode) {
@@ -1757,11 +1781,51 @@ function latestPublishedPartial(campaign = activeCampaign()) {
     .sort((a, b) => String(b.publishedAt || b.importedAt || b.baseDate).localeCompare(String(a.publishedAt || a.importedAt || a.baseDate)))[0] || null;
 }
 
-function selectedDashboardPartial() {
-  const campaign = activeCampaign();
+function publishedPartialsForCampaign(campaign = activeCampaign()) {
+  return partialsForCampaign(campaign)
+    .filter((partial) => partial.status === PARTIAL_STATUS.PUBLISHED)
+    .sort((a, b) => String(b.publishedAt || b.importedAt || b.baseDate).localeCompare(String(a.publishedAt || a.importedAt || a.baseDate)));
+}
+
+function getVisiblePartial(context = "dashboard", campaign = activeCampaign()) {
   if (!campaign) return null;
-  if (activeDashboardPartialId && activeDashboardPartialId !== "latest") return partialById(activeDashboardPartialId, campaign) || latestPublishedPartial(campaign);
-  return latestPublishedPartial(campaign);
+  const published = publishedPartialsForCampaign(campaign);
+  const latest = published[0] || null;
+  const selectedId = context === "colaborador" ? activeCollaboratorPartialId : context === "filial" ? activeManagerPartialId : activeDashboardPartialId;
+  if (selectedId && selectedId !== "latest") return published.find((partial) => partial.id === selectedId) || latest;
+  return latest;
+}
+
+function partialIsLatest(partial, campaign = activeCampaign()) {
+  const latest = latestPublishedPartial(campaign);
+  return Boolean(partial && latest && partial.id === latest.id);
+}
+
+function partialVisibilityBadge(partial, campaign = activeCampaign(), prefix = "") {
+  if (!partial) return `<span class="status neutral">Sem parcial</span>`;
+  const latest = partialIsLatest(partial, campaign);
+  const label = latest ? "Última parcial publicada" : "Parcial histórica";
+  return `<span class="status ${latest ? "ok" : "neutral"}">${escapeHtml(prefix ? `${prefix}: ${label}` : label)}</span>`;
+}
+
+function partialHistoryMessage(partial, campaign = activeCampaign()) {
+  if (!partial || partialIsLatest(partial, campaign)) return "";
+  return `<p class="admin-inline-note warning">Você está consultando uma parcial anterior. A última parcial publicada continua sendo a referência atual da campanha.</p>`;
+}
+
+function partialOptionLabel(partial) {
+  return `${partial.name || "Parcial"}${partial.baseDate ? ` - ${partial.baseDate}` : ""}`;
+}
+
+function publishedPartialOptionsMarkup(selectedId = "latest", campaign = activeCampaign()) {
+  const published = publishedPartialsForCampaign(campaign);
+  const options = [`<option value="latest" ${selectedId === "latest" ? "selected" : ""}>Última publicada</option>`];
+  options.push(...published.map((partial) => `<option value="${escapeHtml(partial.id)}" ${partial.id === selectedId ? "selected" : ""}>${escapeHtml(partialOptionLabel(partial))}</option>`));
+  return options.join("");
+}
+
+function selectedDashboardPartial() {
+  return getVisiblePartial("dashboard");
 }
 
 function partialStatusClass(status) {
@@ -2109,9 +2173,8 @@ function renderDashboardFilterControls(baseSellers) {
   if (statusSelect) statusSelect.value = activeDashboardStatus;
   if (deflatorSelect) deflatorSelect.value = activeDashboardDeflator;
   if (partialSelect) {
-    const published = partialsForCampaign().filter((partial) => partial.status === PARTIAL_STATUS.PUBLISHED);
-    const options = [`<option value="latest">Ultima publicada</option>`, ...published.map((partial) => `<option value="${escapeHtml(partial.id)}">${escapeHtml(partial.name)} - ${escapeHtml(partial.baseDate || "")}</option>`)];
-    partialSelect.innerHTML = options.join("");
+    const published = publishedPartialsForCampaign();
+    partialSelect.innerHTML = publishedPartialOptionsMarkup(activeDashboardPartialId);
     if (activeDashboardPartialId !== "latest" && !published.some((partial) => partial.id === activeDashboardPartialId)) activeDashboardPartialId = "latest";
     partialSelect.value = activeDashboardPartialId;
   }
@@ -2288,17 +2351,20 @@ function renderDashboardPartialPanel() {
     || a.branch.localeCompare(b.branch)
   ).slice(0, 8);
   const campaign = activeCampaign();
+  const partialHistoric = !partialIsLatest(partial, campaign);
   if (hero) {
     hero.innerHTML = `<div>
       <p class="eyebrow">Dashboard executivo</p>
       <h2>Dashboard</h2>
       <span>${escapeHtml(campaign?.name || "Campanha atual")} - ${escapeHtml(campaign?.reference || state.month || "")}</span>
+      <span>${partialHistoric ? "Você está analisando uma parcial histórica" : "Você está analisando a última parcial publicada"}: ${escapeHtml(partial.name)} - Base ${escapeHtml(partial.baseDate || "-")}</span>
     </div>
     <div class="dashboard-hero-meta">
       <span><strong>Parcial</strong>${escapeHtml(partial.name)}</span>
       <span><strong>Base</strong>${escapeHtml(partial.baseDate || "-")}</span>
       <span><strong>Status</strong><em class="status ok">${escapeHtml(partial.status)}</em></span>
       <span><strong>Dias</strong>${state.period?.daysDone || 0} de ${state.period?.daysTotal || 0}</span>
+      ${partialVisibilityBadge(partial, campaign)}
     </div>`;
   }
   if (container) container.innerHTML = `<div class="dashboard-card-head">
@@ -3799,14 +3865,18 @@ function branchSellerFilter(sellers) {
 }
 
 function branchPartialFilterControls(branch, sellers) {
-  const partial = latestPublishedPartial();
+  const published = publishedPartialsForCampaign();
+  if (activeManagerPartialId !== "latest" && !published.some((partial) => partial.id === activeManagerPartialId)) activeManagerPartialId = "latest";
+  const partial = getVisiblePartial("filial");
   const records = branchPartialRecords(partial, branch, sellers, "", "Todos");
   const indicatorNames = [...new Set(records.map((record) => record.metric?.name || record.item.metricName).filter(Boolean))];
   const sellerOptions = [`<option value="">Todos</option>`, ...sellers.map((seller) => `<option value="${seller.id}" ${seller.id === activeManagerSellerId ? "selected" : ""}>${escapeHtml(seller.name)}</option>`)];
   const indicatorOptions = ["Todos", ...indicatorNames].map((name) => `<option value="${escapeHtml(name)}" ${name === activeManagerIndicator ? "selected" : ""}>${escapeHtml(name)}</option>`);
   return `<section class="branch-card-panel branch-filter-panel branch-partial-filter-panel">
+    <label>Parcial<select id="managerPartialFilter">${publishedPartialOptionsMarkup(activeManagerPartialId)}</select></label>
     <label>Vendedor<select id="managerSellerFilter">${sellerOptions.join("")}</select></label>
     <label>Indicador<select id="managerIndicatorFilter">${indicatorOptions.join("")}</select></label>
+    <div class="partial-meta-line"><strong>${partialIsLatest(partial) ? "Exibindo" : "Exibindo parcial histórica"}</strong><span>${partial ? `${escapeHtml(partial.name)} - Base ${escapeHtml(partial.baseDate || "-")} - ${escapeHtml(partial.status)}` : "Nenhuma parcial publicada para esta campanha."}</span></div>
   </section>`;
 }
 
@@ -3966,7 +4036,7 @@ function partialOpportunityText(records, scope = "filial") {
 }
 
 function branchOfficialPartialCard(branch, sellers) {
-  const partial = latestPublishedPartial();
+  const partial = getVisiblePartial("filial");
   if (!partial) return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial oficial</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div></section>`;
   const records = branchPartialRecords(partial, branch, sellers, showBranchPartialDetails ? activeManagerSellerId : "");
   const totals = partialRecordTotals(records);
@@ -3975,7 +4045,8 @@ function branchOfficialPartialCard(branch, sellers) {
   const sellerRows = branchPartialSellerRows(records);
   const riskSellers = sellerRows.filter((row) => (row.metPercent ?? 0) < 0.8 || (row.projectedAverage ?? 1) < 0.8).length;
   const criticalMetric = partialCriticalMetric(records);
-  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial oficial</h3><p>${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div><span class="status ok">${escapeHtml(partial.status)}</span></div>
+  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial oficial</h3><p>${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div>${partialVisibilityBadge(partial)}</div>
+    ${partialHistoryMessage(partial)}
     <div class="partial-meta-line"><strong>Informacoes da parcial</strong><span>${escapeHtml(partial.name)} | Base ${escapeHtml(partial.baseDate || "-")} | ${totals.sellerIds.size} vendedores | ${totals.metrics.size} indicadores | ${records.length} linhas</span></div>
     <div class="branch-partial-summary analytic">
       <article><span>% metas atingidas</span><strong>${achievementPill(completion.metPercent)}</strong><small>${completion.metCount}/${completion.applicableCount} metas</small></article>
@@ -3992,7 +4063,7 @@ function branchOfficialPartialCard(branch, sellers) {
 }
 
 function branchPartialTeamSummary(branch, sellers) {
-  const partial = latestPublishedPartial();
+  const partial = getVisiblePartial("filial");
   const records = branchPartialRecords(partial, branch, sellers, showBranchPartialDetails ? activeManagerSellerId : "");
   const rows = branchPartialSellerRows(records).slice(0, 8);
   return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Gestao por vendedor com base na parcial oficial publicada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>% metas atingidas</th><th>% projetado</th><th>Gap</th><th>Bloco critico</th><th>Indicador critico</th><th>Criticos</th><th>Status</th><th>Detalhes</th></tr></thead><tbody>${rows.map((row) => {
@@ -4005,11 +4076,11 @@ function branchPartialTeamSummary(branch, sellers) {
 
 function branchPartialDetails(branch, sellers) {
   if (!showBranchPartialDetails) return "";
-  const partial = latestPublishedPartial();
+  const partial = getVisiblePartial("filial");
   const records = branchPartialRecords(partial, branch, sellers, activeManagerSellerId);
   if (activeManagerSellerId) {
     const body = metricGroupHeaderRows(records, 10, (record) => `<tr><td>${escapeHtml(metricGroupDisplay(record.groupMeta))}</td><td>${escapeHtml(record.metric?.name || record.item.metricName)}</td><td>${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</td><td>${formatMetricAmount(record.metric, record.realized)}</td><td>${achievementPill(record.percent)}</td><td>${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</td><td>${achievementPill(record.projectedPercent)}</td><td>${record.gap === null ? "-" : formatMetricAmount(record.metric, record.gap)}</td><td>${record.paceNeeded === null ? "-" : formatMetricPace(record.metric, record.paceNeeded)}</td><td><span class="status ${record.status.cls}">${record.status.label}</span></td></tr>`);
-    return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes do vendedor</h3><p>${escapeHtml(records[0]?.seller?.name || "Vendedor")} na ultima parcial publicada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="10">Nenhum dado parcial para o vendedor selecionado.</td></tr>`}</tbody></table></div></section>`;
+    return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes do vendedor</h3><p>${escapeHtml(records[0]?.seller?.name || "Vendedor")} na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="10">Nenhum dado parcial para o vendedor selecionado.</td></tr>`}</tbody></table></div></section>`;
   }
   const metricGroups = [...groupItems(records, (record) => `${record.groupMeta || metricGroup(record.metric)}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, metricRecords]) => {
     const sample = metricRecords[0];
@@ -4021,11 +4092,11 @@ function branchPartialDetails(branch, sellers) {
     const status = row.totals.status;
     return `<tr><td>${escapeHtml(metricGroupDisplay(row.sample.groupMeta))}</td><td>${escapeHtml(metric?.name || row.sample.item.metricName)}</td><td>${row.totals.goal ? formatMetricAmount(metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</td><td>${formatMetricAmount(metric, row.totals.realized)}</td><td>${achievementPill(row.totals.percent)}</td><td>${row.totals.projected === null ? "-" : formatMetricAmount(metric, row.totals.projected)}</td><td>${achievementPill(row.totals.projectedPercent)}</td><td>${row.totals.gap === null ? "-" : formatMetricAmount(metric, row.totals.gap)}</td><td>${row.totals.paceNeeded === null ? "-" : formatMetricPace(metric, row.totals.paceNeeded)}</td><td><span class="status ${status.cls}">${status.label}</span></td></tr>`;
   }).join("");
-  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes da filial</h3><p>Consolidado por indicador da filial na ultima parcial publicada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta filial</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="10">Nenhum dado parcial para o filtro selecionado.</td></tr>`}</tbody></table></div></section>`;
+  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes da filial</h3><p>Consolidado por indicador da filial na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta filial</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="10">Nenhum dado parcial para o filtro selecionado.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function branchPartialAttention(branch, sellers) {
-  const records = branchPartialRecords(latestPublishedPartial(), branch, sellers);
+  const records = branchPartialRecords(getVisiblePartial("filial"), branch, sellers);
   const rows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
     .filter((row) => row.projectedPercent !== null && row.projectedPercent < 0.8)
     .sort((a, b) => (a.projectedPercent || 0) - (b.projectedPercent || 0))
@@ -4034,13 +4105,13 @@ function branchPartialAttention(branch, sellers) {
 }
 
 function branchPartialRanking(branch, sellers) {
-  const records = branchPartialRecords(latestPublishedPartial(), branch, sellers);
+  const records = branchPartialRecords(getVisiblePartial("filial"), branch, sellers);
   const ranked = branchPartialSellerRows(records).slice(0, 8);
   return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Ranking interno</h3><p>Ranking por metas atingidas na parcial oficial.</p></div></div><div class="executive-list">${ranked.map((row, index) => `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(row.seller.name)}<small>${row.metCount}/${row.applicableCount} metas | ${row.criticalCount} critico(s)</small></span><em>${achievementPill(row.metPercent)}</em></div>`).join("") || `<p class="muted-note">Nenhum vendedor para ranking.</p>`}</div></section>`;
 }
 
 function branchPartialOpportunities(branch, sellers) {
-  const records = branchPartialRecords(latestPublishedPartial(), branch, sellers);
+  const records = branchPartialRecords(getVisiblePartial("filial"), branch, sellers);
   return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Oportunidades da filial</h3><p>Prioridade sugerida pela parcial oficial.</p></div></div><p class="recommended-action">${escapeHtml(partialOpportunityText(records, "filial"))}</p></section>`;
 }
 
@@ -4079,7 +4150,7 @@ function renderManager() {
   }
   const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === activeBranchSession);
   if (activeManagerSellerId && !sellers.some((seller) => seller.id === activeManagerSellerId)) activeManagerSellerId = "";
-  if (activeManagerIndicator !== "Todos" && !branchPartialRecords(latestPublishedPartial(), activeBranchSession, sellers, "", "Todos").some((record) => metricNameMatches(record.metric || { name: record.item.metricName }, activeManagerIndicator))) activeManagerIndicator = "Todos";
+  if (activeManagerIndicator !== "Todos" && !branchPartialRecords(getVisiblePartial("filial"), activeBranchSession, sellers, "", "Todos").some((record) => metricNameMatches(record.metric || { name: record.item.metricName }, activeManagerIndicator))) activeManagerIndicator = "Todos";
   managerView?.classList.add("manager-authenticated");
   managerView?.classList.remove("manager-login-mode");
   loginPanel.innerHTML = "";
@@ -4326,7 +4397,7 @@ function sellerWithPartialValues(seller, records) {
 }
 
 function collaboratorOfficialPartialData(seller) {
-  const partial = latestPublishedPartial();
+  const partial = getVisiblePartial("colaborador");
   const records = partial ? officialPartialRecords(partial, [seller]) : [];
   const totals = partialRecordTotals(records);
   const blockRows = partialBlockRows(records);
@@ -4334,6 +4405,25 @@ function collaboratorOfficialPartialData(seller) {
   const partialSeller = sellerWithPartialValues(seller, records);
   const commission = records.length ? sellerResult(partialSeller) : null;
   return { partial, records, totals, blockRows, criticalMetric, commission };
+}
+
+function collaboratorPartialSelectorMarkup(seller) {
+  const published = publishedPartialsForCampaign();
+  if (activeCollaboratorPartialId !== "latest" && !published.some((partial) => partial.id === activeCollaboratorPartialId)) activeCollaboratorPartialId = "latest";
+  const partial = getVisiblePartial("colaborador");
+  const sellerHasRecords = partial && officialPartialRecords(partial, [seller]).length > 0;
+  return `<section class="collab-card collab-partial-selector">
+    <div class="collab-card-head">
+      <div><h3>Histórico de parciais</h3><p>Consulte parciais publicadas sem alterar sua simulação.</p></div>
+      ${partialVisibilityBadge(partial)}
+    </div>
+    <div class="branch-filter-panel compact-filter">
+      <label>Parcial<select id="collabPartialFilter">${publishedPartialOptionsMarkup(activeCollaboratorPartialId)}</select></label>
+      <div class="partial-meta-line"><strong>${partial ? (partialIsLatest(partial) ? "Exibindo" : "Parcial histórica") : "Sem parcial"}</strong><span>${partial ? `${escapeHtml(partial.name)} - Base ${escapeHtml(partial.baseDate || "-")} - ${escapeHtml(partial.status)}` : "Resultado parcial oficial ainda não disponível para esta campanha."}</span></div>
+    </div>
+    ${partialHistoryMessage(partial)}
+    ${partial && !sellerHasRecords ? `<p class="admin-inline-note warning">Nao ha resultado parcial publicado para este vendedor nesta parcial.</p>` : ""}
+  </section>`;
 }
 
 function collaboratorTabsMarkup() {
@@ -4347,8 +4437,8 @@ function collaboratorTabsMarkup() {
 
 function collaboratorOfficialSummaryMarkup(seller) {
   const { partial, records, totals, blockRows, criticalMetric, commission } = collaboratorOfficialPartialData(seller);
-  if (!partial) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">Indisponivel</span></div><p>Resultado parcial oficial ainda nao disponivel para esta campanha.</p></section>`;
-  if (!records.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Nao ha resultado parcial publicado para este vendedor.</p></section>`;
+  if (!partial) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">Indisponível</span></div><p>Resultado parcial oficial ainda não disponível para esta campanha.</p></section>`;
+  if (!records.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Não há resultado parcial publicado para este vendedor.</p></section>`;
   const period = partialPeriodInfo();
   const blockGoalRows = goalCompletionBlocksFromRecords(records);
   const completion = goalCompletionStats(records);
@@ -4361,15 +4451,18 @@ function collaboratorOfficialSummaryMarkup(seller) {
     ? `<div class="partial-meta-line warning"><strong>Deflatores identificados</strong><span>${preview.triggered.map((item) => `${item.metric.name} abaixo da regra minima`).join(" | ")}${preview.ignored ? " | Ignorado por experiencia" : ""}</span></div>`
     : `<div class="partial-meta-line"><strong>Deflatores</strong><span>Nenhum deflator identificado.</span></div>`;
   return `<section class="collab-card collab-official-summary-card">
-    <div class="collab-card-head"><div><h3>Resultado parcial oficial</h3><p>Este e o resultado parcial oficial importado pela empresa.</p></div><span class="status ${completion.status.cls}">${completion.status.label}</span></div>
+    <div class="collab-card-head"><div><h3>Resultado parcial oficial</h3><p>Este é o resultado parcial oficial importado pela empresa.</p></div>${partialVisibilityBadge(partial)}</div>
     <div class="collab-month-grid">
       <span>Campanha<strong>${escapeHtml(partial.campaignName || activeCampaign()?.name || "-")}</strong></span>
       <span>Parcial<strong>${escapeHtml(partial.name)}</strong></span>
       <span>Data base<strong>${escapeHtml(partial.baseDate || "-")}</strong></span>
+      <span>Status<strong>${escapeHtml(partial.status || "-")}</strong></span>
+      <span>Dias realizados<strong>${num.format(period.daysDone)}</strong></span>
+      <span>Dias úteis<strong>${num.format(period.daysTotal)}</strong></span>
       <span>Dias restantes<strong>${num.format(period.daysRemaining)}</strong></span>
     </div>
     <div class="block-summary-grid collab-block-summary">
-      ${blockGoalRows.map((row) => `<article class="block-summary-card ${row.status.cls}"><span>${escapeHtml(metricGroupDisplay(row.key))}</span><strong>${achievementPill(row.metPercent)}</strong><small>Metas atingidas: ${row.metCount}/${row.applicableCount}</small><small>Projetado do bloco: ${achievementPill(row.totals.projectedPercent)} | Criticos: ${criticalMetricNames(row.items, 3) || "Nenhum"}</small></article>`).join("")}
+      ${blockGoalRows.map((row) => `<article class="block-summary-card ${row.status.cls}"><span>${escapeHtml(metricGroupDisplay(row.key))}</span><strong>${achievementPill(row.metPercent)}</strong><small>Metas atingidas: ${row.metCount}/${row.applicableCount}</small><small>Projetado do bloco: ${achievementPill(row.totals.projectedPercent)} | Críticos: ${criticalMetricNames(row.items, 3) || "Nenhum"}</small></article>`).join("")}
     </div>
     <div class="branch-partial-summary analytic">
       <article><span>Comissao estimada</span><strong>${commission ? money.format(commission.projected) : "-"}</strong><small>Com base na parcial</small></article>
@@ -4383,10 +4476,10 @@ function collaboratorOfficialSummaryMarkup(seller) {
 }
 
 function collaboratorOfficialPartialMarkup(seller) {
-  const partial = latestPublishedPartial();
-  if (!partial) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">Indisponivel</span></div><p>Resultado parcial oficial ainda nao disponivel para esta campanha.</p></section>`;
+  const partial = getVisiblePartial("colaborador");
+  if (!partial) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">Indisponível</span></div><p>Resultado parcial oficial ainda não disponível para esta campanha.</p></section>`;
   const items = partialItemsForSeller(partial, seller);
-  if (!items.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Nao ha resultado parcial publicado para este vendedor.</p></section>`;
+  if (!items.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Não há resultado parcial publicado para este vendedor.</p></section>`;
   const rows = items.map((item) => ({ item, ...partialMetricContext(item, seller) }));
   const body = metricGroupHeaderRows(rows, 10, (row) => `<tr>
     <td>${escapeHtml(row.metric?.name || row.item.metricName)}</td>
@@ -4415,7 +4508,8 @@ function collaboratorOfficialPartialMarkup(seller) {
   </article>`).join("");
   const hasInformative = rows.some((row) => !row.participates);
   return `<section class="collab-card collab-official-partial-card">
-    <div class="collab-card-head"><div><h3>Detalhes da parcial</h3><p>Tabela completa por blocos com projecao, gap e ritmo necessario.</p></div><span class="status ok">${escapeHtml(partial.status)}</span></div>
+    <div class="collab-card-head"><div><h3>Detalhes da parcial</h3><p>Tabela completa por blocos com projeção, gap e ritmo necessário.</p></div>${partialVisibilityBadge(partial)}</div>
+    ${partialHistoryMessage(partial)}
     <div class="collab-month-grid"><span>Campanha<strong>${escapeHtml(partial.campaignName || activeCampaign()?.name || "-")}</strong></span><span>Parcial<strong>${escapeHtml(partial.name)}</strong></span><span>Data base<strong>${escapeHtml(partial.baseDate || "-")}</strong></span><span>Importado em<strong>${partial.importedAt ? dateTime.format(new Date(partial.importedAt)) : "-"}</strong></span></div>
     ${hasInformative ? `<p class="metric-info-note">Receita de aparelhos e indicadores informativos nao compoem o atingimento de metas. Apenas o volume de aparelhos entra no calculo.</p>` : ""}
     <div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Bloco</th><th>Meta</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body}</tbody></table></div>
@@ -4429,9 +4523,9 @@ function collaboratorIndicatorTable(seller) {
   const disabled = locked ? "disabled" : "";
   const body = rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></td><td>${achievementPill(row.currentPercent)}</td><td>${num.format(row.missing)}</td><td>${num.format(row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.deflator)}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td></tr>`).join("");
   const cards = rows.map((row) => `<article class="collab-indicator-card"><div><strong>${escapeHtml(row.metric.name)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div><dl><dt>Meta</dt><dd>${num.format(row.goal)}</dd><dt>Realizado</dt><dd><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></dd><dt>% atual</dt><dd>${pct.format(row.currentPercent || 0)}</dd><dt>Falta</dt><dd>${num.format(row.missing)}</dd><dt>Projetado</dt><dd>${num.format(row.projectedValue)}</dd><dt>% projetado</dt><dd>${pct.format(row.projectedPercent || 0)}</dd><dt>Comissão</dt><dd>${money.format(row.commission)}</dd><dt>Deflator</dt><dd>${escapeHtml(row.deflator)}</dd></dl></article>`).join("");
-  const helper = locked ? "Esta campanha esta encerrada e nao permite novas alteracoes." : "Use esta area para simular cenarios. A simulacao nao altera o resultado parcial oficial.";
-  const note = locked ? `<p class="admin-inline-note warning">Esta campanha esta encerrada e nao permite novas alteracoes.</p>` : "";
-  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Minha simulacao</h3><p>${helper}</p></div>${note}<div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${num.format(totals.goal)}</td><td>${num.format(totals.realized)}</td><td>${achievementPill(totals.currentPercent)}</td><td>${num.format(totals.missing)}</td><td>${num.format(totals.projected)}</td><td>${achievementPill(totals.projectedPercent)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.status.cls}">${totals.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
+  const helper = locked ? "Esta campanha está encerrada e não permite novas alterações." : "Use esta área para simular cenários. A simulação não altera o resultado parcial oficial.";
+  const note = locked ? `<p class="admin-inline-note warning">Esta campanha está encerrada e não permite novas alterações.</p>` : "";
+  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Minha simulação</h3><p>${helper}</p></div>${note}<div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${num.format(totals.goal)}</td><td>${num.format(totals.realized)}</td><td>${achievementPill(totals.currentPercent)}</td><td>${num.format(totals.missing)}</td><td>${num.format(totals.projected)}</td><td>${achievementPill(totals.projectedPercent)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.status.cls}">${totals.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
 }
 
 function collaboratorIndicatorTableGrouped(seller) {
@@ -4440,10 +4534,10 @@ function collaboratorIndicatorTableGrouped(seller) {
   const disabled = locked ? "disabled" : "";
   const body = metricGroupHeaderRows(rows, 10, (row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${row.participates ? formatMetricAmount(row.metric, row.goal) : "Informativo"}</td><td><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></td><td>${achievementPill(row.currentPercent)}</td><td>${row.participates ? formatMetricAmount(row.metric, row.missing) : "-"}</td><td>${formatMetricAmount(row.metric, row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${row.participates ? escapeHtml(row.deflator) : "Informativo"}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td></tr>`);
   const cards = rows.map((row) => `<article class="collab-indicator-card"><div><strong>${escapeHtml(row.metric.name)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div><small class="metric-block-label">${escapeHtml(metricGroupDisplay(row.groupMeta))}</small><dl><dt>Meta</dt><dd>${row.participates ? formatMetricAmount(row.metric, row.goal) : "Informativo"}</dd><dt>Realizado</dt><dd><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></dd><dt>% atual</dt><dd>${row.currentPercent === null ? "-" : pct.format(row.currentPercent)}</dd><dt>Falta</dt><dd>${row.participates ? formatMetricAmount(row.metric, row.missing) : "-"}</dd><dt>Projetado</dt><dd>${formatMetricAmount(row.metric, row.projectedValue)}</dd><dt>% projetado</dt><dd>${row.projectedPercent === null ? "-" : pct.format(row.projectedPercent)}</dd><dt>Comissao</dt><dd>${money.format(row.commission)}</dd><dt>Deflator</dt><dd>${row.participates ? escapeHtml(row.deflator) : "Informativo"}</dd></dl></article>`).join("");
-  const helper = locked ? "Esta campanha esta encerrada e nao permite novas alteracoes." : "Use esta area para simular cenarios. A simulacao nao altera o resultado parcial oficial.";
-  const note = locked ? `<p class="admin-inline-note warning">Esta campanha esta encerrada e nao permite novas alteracoes.</p>` : "";
+  const helper = locked ? "Esta campanha está encerrada e não permite novas alterações." : "Use esta área para simular cenários. A simulação não altera o resultado parcial oficial.";
+  const note = locked ? `<p class="admin-inline-note warning">Esta campanha está encerrada e não permite novas alterações.</p>` : "";
   const infoNote = `<p class="metric-info-note">Receita de aparelhos e indicadores informativos nao compoem o atingimento de metas. Apenas o volume de aparelhos entra no calculo.</p>`;
-  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Minha simulacao</h3><p>${helper}</p></div>${note}${infoNote}<div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissao</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${totals.goalCompletion.metCount}/${totals.goalCompletion.applicableCount} metas</td><td>${achievementPill(totals.goalCompletion.metPercent)}</td><td colspan="3">Atingimento do simulador por metas atingidas</td><td>${achievementPill(totals.goalCompletion.projectedAverage)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.goalCompletion.status.cls}">${totals.goalCompletion.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
+  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Minha simulação</h3><p>${helper}</p></div>${note}${infoNote}<div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${totals.goalCompletion.metCount}/${totals.goalCompletion.applicableCount} metas</td><td>${achievementPill(totals.goalCompletion.metPercent)}</td><td colspan="3">Atingimento do simulador por metas atingidas</td><td>${achievementPill(totals.goalCompletion.projectedAverage)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.goalCompletion.status.cls}">${totals.goalCompletion.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
 }
 
 function collaboratorGuidanceMarkup(seller) {
@@ -4464,14 +4558,40 @@ function collaboratorScenarioMarkup(seller) {
   return `<section class="collab-card collab-scenario-card"><div class="collab-card-head"><h3>Simular novo cenário</h3><span>${diff >= 0 ? "+" : ""}${money.format(diff)}</span></div><div class="collab-scenario-grid"><span>Cenário atual<strong>${money.format(current)}</strong></span><span>Cenário simulado<strong>${money.format(simulated)}</strong></span><span>Novo % projetado<strong>${pct.format(summary.projectedPercent)}</strong></span><span>Deflator previsto<strong>${summary.preview.rate ? `-${pct.format(summary.preview.rate)}` : "Sem deflator"}</strong></span></div><p>Altere os valores em Resultado por indicador para atualizar automaticamente o cenário.</p></section>`;
 }
 
+function collaboratorSimulationPeriod() {
+  const official = partialPeriodInfo();
+  const officialTotal = Number(state.period.daysTotal) || official.daysTotal || 1;
+  const requestedTotal = Number(activeCollaboratorSimulationDaysTotal) || officialTotal;
+  const daysDone = Math.max(1, Number(state.period.daysDone) || official.daysDone || 1);
+  return {
+    ...state.period,
+    daysDone,
+    daysTotal: Math.max(daysDone, requestedTotal),
+  };
+}
+
+function collaboratorSimulationPeriodMarkup() {
+  const period = collaboratorSimulationPeriod();
+  return `<section class="collab-card collab-simulation-period-card">
+    <div class="collab-card-head">
+      <div><h3>Dias da simulação</h3><p>Este campo altera apenas a simulação. Os dias úteis oficiais da campanha só podem ser alterados pelo Admin.</p></div>
+    </div>
+    <div class="collab-month-grid">
+      <span>Dias realizados oficiais<strong>${num.format(state.period.daysDone || 0)}</strong></span>
+      <span>Dias úteis oficiais<strong>${num.format(state.period.daysTotal || 0)}</strong></span>
+      <label>Dias úteis para simulação<input id="collabSimulationDaysTotal" type="number" min="1" value="${period.daysTotal}"></label>
+    </div>
+  </section>`;
+}
+
 function collaboratorSimulatorMarkup(seller) {
-  const partial = latestPublishedPartial();
+  const partial = getVisiblePartial("colaborador");
   const usePartialButton = partial && partialItemsForSeller(partial, seller).length
     ? `<button class="ghost-button compact-action" type="button" data-use-partial-simulation="${escapeHtml(partial.id)}" ${isCampaignOperationLocked() ? "disabled" : ""}>Usar parcial como base da simulação</button>`
     : "";
-  return `<div class="collab-tab-panel">
+  return withProjectionPeriod(collaboratorSimulationPeriod(), () => `<div class="collab-tab-panel">
     <div class="collab-top-grid">${collaboratorKpiMarkup(seller)}${collaboratorGuidanceMarkup(seller)}</div>
-    <div class="collab-mid-grid">${collaboratorMonthMarkup()}${collaboratorDeflatorMarkup(seller)}${collaboratorEstornosMarkup(seller)}</div>
+    <div class="collab-mid-grid">${collaboratorMonthMarkup()}${collaboratorSimulationPeriodMarkup()}${collaboratorDeflatorMarkup(seller)}${collaboratorEstornosMarkup(seller)}</div>
     <section class="collab-card collab-simulator-intro">
       <div class="collab-card-head">
         <div><h3>Minha simulação</h3><p>Use esta área para simular cenários. A simulação não altera o resultado parcial oficial.</p></div>
@@ -4480,7 +4600,7 @@ function collaboratorSimulatorMarkup(seller) {
     </section>
     ${collaboratorIndicatorTableGrouped(seller)}
     <div class="collab-bottom-grid">${collaboratorOpportunityMarkup(seller)}${collaboratorScenarioMarkup(seller)}</div>
-  </div>`;
+  </div>`);
 }
 
 function collaboratorReportHtml(seller) {
@@ -4646,6 +4766,7 @@ function renderCollaborator() {
     activeTabContent = `<section class="collab-empty-state">Nao foi possivel carregar o painel deste vendedor. Tente atualizar a tela ou trocar o vendedor.</section>`;
   }
   dashboard.innerHTML = `
+    ${collaboratorPartialSelectorMarkup(seller)}
     ${collaboratorTabsMarkup()}
     ${activeTabContent}
   `;
@@ -4688,6 +4809,7 @@ function renderAll() {
   renderCampaignSelectors();
   document.getElementById("periodMonthDisplay").textContent = state.period.month;
   document.getElementById("daysDone").value = state.period.daysDone;
+  document.getElementById("daysDone").disabled = !isAdminUnlocked();
   document.getElementById("daysTotalDisplay").textContent = state.period.daysTotal;
   safeRender("dashboard", renderDashboard);
   safeRender("filial", renderManager);
@@ -5046,6 +5168,7 @@ document.addEventListener("click", async (event) => {
     activeDashboardIndicator = "Todos";
     activeDashboardStatus = "Todos";
     activeDashboardDeflator = "Todos";
+    activeDashboardPartialId = "latest";
     activeDashboardSellerDetailId = "";
     activeDashboardBranchDetail = "";
     document.querySelectorAll(".area-filter").forEach((button) => button.classList.toggle("active", button.dataset.area === "Todas"));
@@ -5271,6 +5394,9 @@ document.addEventListener("click", async (event) => {
     const typed = document.getElementById("managerPassword").value;
     if (typed === String(state.branchPasswords?.[branch] || "1234")) {
       activeBranchSession = branch;
+      activeManagerPartialId = "latest";
+      activeManagerSellerId = "";
+      activeManagerIndicator = "Todos";
       sessionStorage.setItem(BRANCH_SESSION_KEY, branch);
       logAccess({
         status: "Sucesso",
@@ -5309,6 +5435,7 @@ document.addEventListener("click", async (event) => {
     activeBranchSession = "";
     activeManagerSellerId = "";
     activeManagerIndicator = "Todos";
+    activeManagerPartialId = "latest";
     sessionStorage.removeItem(BRANCH_SESSION_KEY);
     renderAll();
   }
@@ -5560,10 +5687,20 @@ document.addEventListener("input", (event) => {
     renderAuditLogs();
     return;
   }
+  if (target.id === "collabSimulationDaysTotal") {
+    activeCollaboratorSimulationDaysTotal = target.value;
+    sessionStorage.setItem("commission-collaborator-simulation-days-total", activeCollaboratorSimulationDaysTotal);
+    return;
+  }
   const protectedInput = target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
     ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id);
   if (protectedInput && !canEditCampaignData()) {
     alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
+    renderAll();
+    return;
+  }
+  if (["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id) && !isAdminUnlocked()) {
+    alert("Os dias oficiais da campanha so podem ser alterados pelo Admin.");
     renderAll();
     return;
   }
@@ -5776,6 +5913,16 @@ document.addEventListener("change", (event) => {
     activeDashboardPartialId = event.target.value || "latest";
     activeDashboardSellerDetailId = "";
     activeDashboardBranchDetail = "";
+    const partial = selectedDashboardPartial();
+    logAccess({
+      status: "Sucesso",
+      profile: currentAuditProfile(),
+      module: "Dashboard",
+      action: "Selecionou parcial",
+      itemId: partial?.id || activeDashboardPartialId,
+      itemName: partial?.name || "Ultima publicada",
+      message: `${currentAuditProfile()} selecionou ${partial?.name || "a ultima parcial publicada"} no Dashboard.`,
+    }, { persist: true });
     renderDashboard();
     return;
   }
@@ -5911,9 +6058,56 @@ document.addEventListener("change", (event) => {
     showBranchPartialDetails = true;
     renderManager();
   }
+  if (event.target.id === "managerPartialFilter") {
+    activeManagerPartialId = event.target.value || "latest";
+    activeManagerSellerId = "";
+    showBranchPartialDetails = false;
+    const partial = getVisiblePartial("filial");
+    logAccess({
+      status: "Sucesso",
+      profile: "Filial",
+      module: "Filial",
+      action: "Selecionou parcial",
+      itemId: partial?.id || activeManagerPartialId,
+      itemName: partial?.name || "Ultima publicada",
+      message: `Filial ${activeBranchSession || ""} selecionou ${partial?.name || "a ultima parcial publicada"}.`,
+    }, { persist: true });
+    renderManager();
+  }
   if (event.target.id === "managerIndicatorFilter") {
     activeManagerIndicator = event.target.value || "Todos";
     renderManager();
+  }
+  if (event.target.id === "collabPartialFilter") {
+    activeCollaboratorPartialId = event.target.value || "latest";
+    const seller = selectedCollabSeller();
+    const partial = getVisiblePartial("colaborador");
+    logAccess({
+      status: "Sucesso",
+      profile: "Colaborador",
+      module: "Vendedor",
+      action: partialIsLatest(partial) ? "Selecionou ultima parcial" : "Consultou parcial historica",
+      itemId: partial?.id || activeCollaboratorPartialId,
+      itemName: partial?.name || "Ultima publicada",
+      sellerName: seller?.name || "",
+      message: `${seller?.name || "Vendedor"} consultou ${partial?.name || "a ultima parcial publicada"}.`,
+    }, { persist: true });
+    renderCollaborator();
+  }
+  if (event.target.id === "collabSimulationDaysTotal") {
+    activeCollaboratorSimulationDaysTotal = event.target.value;
+    sessionStorage.setItem("commission-collaborator-simulation-days-total", activeCollaboratorSimulationDaysTotal);
+    const seller = selectedCollabSeller();
+    logUpdate({
+      action: "Alterou dias uteis da simulacao",
+      module: "Vendedor",
+      itemId: seller?.id || "",
+      itemName: seller?.name || "",
+      sellerName: seller?.name || "",
+      newValue: event.target.value,
+      message: `${seller?.name || "Vendedor"} alterou dias uteis apenas na simulacao.`,
+    }, { persist: true });
+    renderCollaborator();
   }
 });
 

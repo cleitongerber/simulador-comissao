@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260721-closing-currency-export";
+const CACHE_NAME = "comissao-pwa-v20260721-partial-governance";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260721-closing-currency-export",
-  "/app.js?v=20260721-closing-currency-export",
+  "/styles.css?v=20260721-partial-governance",
+  "/app.js?v=20260721-partial-governance",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
