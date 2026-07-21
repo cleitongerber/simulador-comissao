@@ -45,18 +45,18 @@
             <p class="eyebrow">Simulador operacional</p>
             <h2 id="viewTitle">Home</h2>
           </div>
-          <div class="period-card">
+          <div class="period-card readonly-period-card">
             <div class="period-readonly">
-              <span>Mês</span>
+              <span>Campanha</span>
               <strong id="periodMonthDisplay">JUNHO</strong>
             </div>
-            <div class="period-grid">
+            <div class="period-grid readonly-period-grid">
               <label>
-                Dias realizados
-                <input id="daysDone" min="1" type="number" />
+                Base da parcial
+                <strong id="daysDoneLegacyRemoved">-</strong>
               </label>
               <div class="period-readonly compact">
-                <span>Dias úteis</span>
+                <span>Periodo ativo</span>
                 <strong id="daysTotalDisplay">26</strong>
               </div>
             </div>
@@ -292,25 +292,25 @@
 
                   <section class="admin-section-card compact">
                     <div class="section-title">
-                      <h3>Periodo da campanha</h3>
-                      <p>Os dias realizados serao usados para calcular a projecao do mes.</p>
+                      <h3>Dias uteis planejados</h3>
+                      <p>Este valor sera usado como padrao para novas parciais.</p>
                     </div>
                     <div class="period-admin-grid">
                       <label>
-                        Mês atual
-                        <input id="adminPeriodMonth" type="text" />
+                        Referencia
+                        <span class="admin-inline-note">Definido no cadastro da campanha.</span>
                       </label>
                       <label>
-                        Dias úteis planejados
+                        Dias uteis planejados
                         <input id="adminDaysTotal" min="1" type="number" />
                       </label>
                       <label>
-                        Dias realizados ate hoje
-                        <input id="adminDaysDone" min="0" type="number" />
+                        Dias realizados
+                        <span class="admin-inline-note">Dias realizados pertencem a cada parcial.</span>
                       </label>
                     </div>
-                    <p id="adminPeriodMessage" class="admin-inline-note">Dias realizados não podem passar dos dias úteis.</p>
-                    <button id="savePeriodAdmin" class="primary-button" type="button">Salvar periodo</button>
+                    <p id="adminPeriodMessage" class="admin-inline-note">Dias uteis planejados serao usados como padrao para novas parciais.</p>
+                    <button id="savePeriodAdmin" class="primary-button" type="button">Salvar dias planejados</button>
                   </section>
                 </div>
               </section>

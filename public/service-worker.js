@@ -1,4 +1,4 @@
-const CACHE_NAME = "comissao-pwa-v20260721-evolucao2-extrato";
+const CACHE_NAME = "comissao-pwa-v20260721-p0-dias-parcial";
 const APP_SHELL = [
   "/",
   "/index.html",

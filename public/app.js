@@ -334,6 +334,7 @@ function criticalEditKey(target) {
 
 function targetAffectsPublishedCampaign(target) {
   if (!campaignHasPublishedPartial()) return false;
+  if (target?.dataset?.campaignField === "plannedBusinessDays") return false;
   return Boolean(target?.dataset?.metricGoal
     || target?.dataset?.metricRealized
     || target?.dataset?.catalogMetricField
@@ -753,24 +754,30 @@ function normalizePartialItem(item) {
 }
 
 function normalizePartials(source) {
-  return Array.isArray(source) ? source.map((partial, index) => ({
-    id: partial?.id || makeId(),
-    campaignId: partial?.campaignId || "",
-    campaignName: partial?.campaignName || "",
-    number: Number(partial?.number) || index + 1,
-    name: partial?.name || `Parcial ${String(Number(partial?.number) || index + 1).padStart(2, "0")}`,
-    baseDate: partial?.baseDate || "",
-    importedAt: partial?.importedAt || new Date().toISOString(),
-    publishedAt: partial?.publishedAt || "",
-    responsible: partial?.responsible || "Admin",
-    status: Object.values(PARTIAL_STATUS).includes(partial?.status) ? partial.status : PARTIAL_STATUS.DRAFT,
-    totalRows: Number(partial?.totalRows) || 0,
-    validRows: Number(partial?.validRows) || 0,
-    warningRows: Number(partial?.warningRows) || 0,
-    errorRows: Number(partial?.errorRows) || 0,
-    summary: partial?.summary || {},
-    items: Array.isArray(partial?.items) ? partial.items.map(normalizePartialItem) : [],
-  })) : [];
+  return Array.isArray(source) ? source.map((partial, index) => {
+    const period = normalizePartialPeriodData(partial);
+    return {
+      id: partial?.id || makeId(),
+      campaignId: partial?.campaignId || "",
+      campaignName: partial?.campaignName || "",
+      number: Number(partial?.number) || index + 1,
+      name: partial?.name || `Parcial ${String(Number(partial?.number) || index + 1).padStart(2, "0")}`,
+      baseDate: partial?.baseDate || "",
+      daysDone: period.daysDone,
+      daysTotal: period.daysTotal,
+      period,
+      importedAt: partial?.importedAt || new Date().toISOString(),
+      publishedAt: partial?.publishedAt || "",
+      responsible: partial?.responsible || "Admin",
+      status: Object.values(PARTIAL_STATUS).includes(partial?.status) ? partial.status : PARTIAL_STATUS.DRAFT,
+      totalRows: Number(partial?.totalRows) || 0,
+      validRows: Number(partial?.validRows) || 0,
+      warningRows: Number(partial?.warningRows) || 0,
+      errorRows: Number(partial?.errorRows) || 0,
+      summary: partial?.summary || {},
+      items: Array.isArray(partial?.items) ? partial.items.map(normalizePartialItem) : [],
+    };
+  }) : [];
 }
 
 function normalizeClosingStatus(status) {
@@ -985,8 +992,10 @@ function cloneData(value) {
 }
 
 function campaignPayloadFrom(source, options = {}) {
+  const plannedBusinessDays = positiveInteger(source.plannedBusinessDays, positiveInteger(source.period?.daysTotal, 1));
   const payload = {
-    period: cloneData(source.period || { month: "JUNHO", daysDone: 1, daysTotal: 1 }),
+    plannedBusinessDays,
+    period: cloneData(source.period || { month: "JUNHO", daysDone: 0, daysTotal: plannedBusinessDays }),
     sellers: cloneData(source.sellers || []),
     rules: cloneData(source.rules || defaultRules),
     metricCatalog: normalizeMetricCatalog(source.metricCatalog),
@@ -998,6 +1007,7 @@ function campaignPayloadFrom(source, options = {}) {
   };
   payload.branches = normalizeBranches(payload.branches, payload.sellers);
   payload.branchPasswords = normalizeBranchPasswords(payload.branchPasswords, source.managerAccess, source._legacyManagers, payload.branches);
+  payload.period.daysTotal = plannedBusinessDays;
   if (options.resetOperational) {
     payload.period.daysDone = 0;
     for (const seller of payload.sellers) {
@@ -1009,8 +1019,10 @@ function campaignPayloadFrom(source, options = {}) {
 }
 
 function emptyCampaignSource(reference = "Novo periodo") {
+  const plannedBusinessDays = positiveInteger(state?.period?.daysTotal, 1);
   return {
-    period: { month: reference, daysDone: 0, daysTotal: Number(state?.period?.daysTotal) || 1 },
+    plannedBusinessDays,
+    period: { month: reference, daysDone: 0, daysTotal: plannedBusinessDays },
     sellers: [],
     rules: structuredClone(defaultRules),
     metricCatalog: normalizeMetricCatalog(),
@@ -1062,6 +1074,8 @@ function normalizeCampaign(campaign, fallback) {
   });
   const normalized = { ...base, ...(campaign || {}) };
   normalized.period = normalized.period || fallback.period || { month: "JUNHO", daysDone: 1, daysTotal: 1 };
+  normalized.plannedBusinessDays = positiveInteger(normalized.plannedBusinessDays, positiveInteger(normalized.period?.daysTotal, 1));
+  normalized.period.daysTotal = normalized.plannedBusinessDays;
   normalized.sellers = Array.isArray(normalized.sellers) ? normalized.sellers : cloneData(fallback.sellers || []);
   normalized.rules = normalized.rules || cloneData(fallback.rules || defaultRules);
   normalized.metricCatalog = normalizeMetricCatalog(normalized.metricCatalog);
@@ -1092,6 +1106,8 @@ function normalizeCampaigns(candidate) {
 
 function applyCampaignToState(target, campaign) {
   if (!campaign) return;
+  campaign.plannedBusinessDays = positiveInteger(campaign.plannedBusinessDays, positiveInteger(campaign.period?.daysTotal, 1));
+  campaign.period = { ...(campaign.period || {}), daysTotal: campaign.plannedBusinessDays };
   target.period = cloneData(campaign.period);
   target.sellers = cloneData(campaign.sellers);
   target.rules = cloneData(campaign.rules);
@@ -1324,6 +1340,70 @@ function finiteNumber(value, fallback = 0) {
 function validGoalValue(value) {
   const goal = Number(value);
   return Number.isFinite(goal) && goal > 0 ? goal : null;
+}
+
+function integerValue(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.floor(number) : fallback;
+}
+
+function positiveInteger(value, fallback = 0) {
+  const number = integerValue(value, fallback);
+  return number > 0 ? number : fallback;
+}
+
+function normalizePartialPeriodData(partial = {}) {
+  const rawPeriod = partial?.period || {};
+  const daysDone = integerValue(partial?.daysDone ?? rawPeriod.daysDone, 0);
+  const daysTotal = integerValue(partial?.daysTotal ?? rawPeriod.daysTotal, 0);
+  return {
+    month: rawPeriod.month || partial?.month || "",
+    daysDone: daysDone > 0 ? daysDone : 0,
+    daysTotal: daysTotal > 0 ? daysTotal : 0,
+  };
+}
+
+function campaignPlannedBusinessDays(campaign = activeCampaign()) {
+  return positiveInteger(campaign?.plannedBusinessDays, positiveInteger(campaign?.period?.daysTotal, positiveInteger(state?.period?.daysTotal, 1)));
+}
+
+function periodWithCalculation(period, source) {
+  const base = {
+    month: period?.month || state?.period?.month || activeCampaign()?.reference || "",
+    daysDone: integerValue(period?.daysDone, 0),
+    daysTotal: integerValue(period?.daysTotal, 0),
+  };
+  const info = periodCalculationInfo(base);
+  return { ...base, ...info, source };
+}
+
+function getPeriodForPartial(partial, campaign = activeCampaign()) {
+  const month = partial?.period?.month || campaign?.reference || campaign?.period?.month || state?.period?.month || "";
+  const directDone = positiveInteger(partial?.daysDone, 0);
+  const directTotal = positiveInteger(partial?.daysTotal, 0);
+  if (directDone && directTotal) return periodWithCalculation({ month, daysDone: directDone, daysTotal: directTotal }, "partial");
+
+  const periodDone = positiveInteger(partial?.period?.daysDone, 0);
+  const periodTotal = positiveInteger(partial?.period?.daysTotal, 0);
+  if (periodDone && periodTotal) return periodWithCalculation({ month, daysDone: periodDone, daysTotal: periodTotal }, "partial.period");
+
+  const plannedDays = campaignPlannedBusinessDays(campaign);
+  if (plannedDays) return periodWithCalculation({ month, daysDone: 0, daysTotal: plannedDays }, "campaignFallback");
+
+  return periodWithCalculation({ month: state?.period?.month || month, daysDone: state?.period?.daysDone, daysTotal: state?.period?.daysTotal }, "legacyStateFallback");
+}
+
+function partialPeriodDisplay(partial, campaign = activeCampaign()) {
+  const period = getPeriodForPartial(partial, campaign);
+  if (period.daysDone && period.daysTotal) return `${num.format(period.daysDone)} de ${num.format(period.daysTotal)} dias`;
+  if (period.daysTotal) return `Revisar dias (${num.format(period.daysTotal)} uteis)`;
+  return "Revisar dias";
+}
+
+function partialPeriodWarning(partial, campaign = activeCampaign()) {
+  const period = getPeriodForPartial(partial, campaign);
+  if (period.source === "partial" || period.source === "partial.period") return "";
+  return "Esta parcial foi criada antes da configuracao de dias por parcial. Revise os dias antes de usar como base oficial.";
 }
 
 function periodCalculationInfo(period = projectionPeriodOverride || state.period) {
@@ -1689,6 +1769,8 @@ function sellerClosingRecord(seller) {
 }
 
 function buildCampaignSnapshot(campaign = activeCampaign(), options = {}) {
+  const snapshotPeriod = options.period || state.period || {};
+  const basePartialPeriod = options.basePartial ? getPeriodForPartial(options.basePartial, campaign) : periodWithCalculation(snapshotPeriod, "snapshot");
   const sellerRows = state.sellers.map(sellerClosingRecord);
   const indicatorRows = sellerRows.flatMap((seller) => seller.indicators);
   const totalGoal = sellerRows.reduce((sum, row) => sum + row.goal, 0);
@@ -1715,9 +1797,11 @@ function buildCampaignSnapshot(campaign = activeCampaign(), options = {}) {
     createdBy: options.createdBy || "",
     closedBy: options.closedBy || "",
     closedAt: Object.prototype.hasOwnProperty.call(options, "closedAt") ? options.closedAt : new Date().toISOString(),
-    period: cloneData(state.period),
-    daysDone: Number(state.period?.daysDone) || 0,
-    daysTotal: Number(state.period?.daysTotal) || 0,
+    period: cloneData(snapshotPeriod),
+    daysDone: Number(snapshotPeriod?.daysDone) || 0,
+    daysTotal: Number(snapshotPeriod?.daysTotal) || 0,
+    basePartialDaysDone: Number(basePartialPeriod?.daysDone) || 0,
+    basePartialDaysTotal: Number(basePartialPeriod?.daysTotal) || 0,
     campaign: {
       id: campaign?.id || "",
       name: campaign?.name || "Campanha",
@@ -1726,7 +1810,7 @@ function buildCampaignSnapshot(campaign = activeCampaign(), options = {}) {
       startDate: campaign?.startDate || "",
       operationalCloseDate: campaign?.operationalCloseDate || "",
       officialCloseDate: campaign?.officialCloseDate || "",
-      period: cloneData(state.period),
+      period: cloneData(snapshotPeriod),
     },
     basePartial: options.basePartial ? cloneData(options.basePartial) : null,
     branchesSnapshot: cloneData(state.branches || []),
@@ -1770,6 +1854,7 @@ function generateOfficialCommissionCsv(snapshot) {
   lines.push(["Comissao 360"]);
   lines.push(["Nome da campanha", snapshot.campaignName]);
   lines.push(["Mes/ano", snapshot.reference]);
+  lines.push(["Periodo base", `${snapshot.daysDone || snapshot.basePartialDaysDone || "-"} de ${snapshot.daysTotal || snapshot.basePartialDaysTotal || "-"} dias`]);
   lines.push(["Data/hora fechamento", dateTime.format(new Date(snapshot.closedAt))]);
   lines.push(["Total vendedores", snapshot.totalSellers]);
   lines.push(["Total filiais", snapshot.totalBranches]);
@@ -1856,6 +1941,13 @@ function closingBasePartial(closing, campaign = activeCampaign()) {
 
 function closingPayloadFromPartial(campaign, partial) {
   const payload = campaignPayloadFrom(campaign);
+  const period = getPeriodForPartial(partial, campaign);
+  payload.period = {
+    month: period.month || campaign?.reference || campaign?.period?.month || "",
+    daysDone: period.daysDone,
+    daysTotal: period.daysTotal,
+  };
+  payload.plannedBusinessDays = period.daysTotal || payload.plannedBusinessDays;
   const sellerMap = new Map(payload.sellers.map((seller) => [seller.id, seller]));
   const sellerKeys = new Map(payload.sellers.map((seller) => [`${normalizedKey(seller.name)}|${normalizedKey(seller.branch)}`, seller]));
   for (const seller of payload.sellers) {
@@ -2860,16 +2952,20 @@ function partialMetricGoal(metric, seller) {
   return Number.isFinite(goal) && goal > 0 ? goal : null;
 }
 
-function partialPeriodInfo() {
-  return periodCalculationInfo(state.period);
+function partialPeriodInfo(partial = null, campaign = activeCampaign()) {
+  if (partial?.source && Object.prototype.hasOwnProperty.call(partial, "daysRemaining")) return partial;
+  if (partial) return getPeriodForPartial(partial, campaign);
+  if (projectionPeriodOverride) return periodWithCalculation(projectionPeriodOverride, "override");
+  return periodWithCalculation({ month: campaign?.reference || campaign?.period?.month || state.period.month, daysDone: 0, daysTotal: campaignPlannedBusinessDays(campaign) }, "campaignFallback");
 }
 
-function partialProjectionFor(realized) {
-  return projectionForPeriod(realized, state.period);
+function partialProjectionFor(realized, periodOrPartial = null, campaign = activeCampaign()) {
+  const period = periodOrPartial ? partialPeriodInfo(periodOrPartial, campaign) : partialPeriodInfo();
+  return projectionForPeriod(realized, period);
 }
 
-function partialPaceNeeded(goal, realized) {
-  const { daysRemaining } = partialPeriodInfo();
+function partialPaceNeeded(goal, realized, periodOrPartial = null, campaign = activeCampaign()) {
+  const { daysRemaining } = periodOrPartial ? partialPeriodInfo(periodOrPartial, campaign) : partialPeriodInfo();
   const safeGoal = validGoalValue(goal);
   if (!daysRemaining || !safeGoal) return null;
   return Math.max(safeGoal - finiteNumber(realized), 0) / daysRemaining;
@@ -2883,16 +2979,17 @@ function partialStatusFromProjected(projectedPercent, fallbackPercent = null) {
   return { label: "Crítico", cls: "bad", action: "Ação imediata" };
 }
 
-function partialMetricContext(item, seller) {
+function partialMetricContext(item, seller, partial = null, campaign = activeCampaign()) {
   const metric = partialItemMetric(item, seller);
   const participates = metricParticipates(metric);
   const groupMeta = metricGroup(metric);
   const tipoIndicador = metricTypeKind(metric);
   const goal = participates ? partialMetricGoal(metric, seller) : null;
   const realized = Number(item?.realized) || 0;
-  const projectedValue = participates ? partialProjectionFor(realized) : null;
+  const period = partial ? getPeriodForPartial(partial, campaign) : partialPeriodInfo();
+  const projectedValue = participates ? partialProjectionFor(realized, period) : null;
   const calc = indicatorCalculation({ metric, goal, realized, projectedValue, participates });
-  const paceNeeded = participates && goal ? partialPaceNeeded(goal, realized) : null;
+  const paceNeeded = participates && goal ? partialPaceNeeded(goal, realized, period) : null;
   return {
     metric,
     goal: calc.goal,
@@ -2906,12 +3003,41 @@ function partialMetricContext(item, seller) {
     participates,
     groupMeta,
     tipoIndicador,
+    period,
   };
+}
+
+function partialMetaFromForm(campaign = activeCampaign()) {
+  const plannedDays = campaignPlannedBusinessDays(campaign);
+  return {
+    number: document.getElementById("partialNumber")?.value,
+    name: document.getElementById("partialName")?.value,
+    baseDate: document.getElementById("partialBaseDate")?.value,
+    daysDone: document.getElementById("partialDaysDone")?.value,
+    daysTotal: document.getElementById("partialDaysTotal")?.value || plannedDays,
+  };
+}
+
+function validatePartialMeta(meta = {}, campaign = activeCampaign()) {
+  const errors = [];
+  const number = positiveInteger(meta.number, 0);
+  const baseDate = String(meta.baseDate || "").trim();
+  const daysDone = positiveInteger(meta.daysDone, 0);
+  const daysTotal = positiveInteger(meta.daysTotal, 0);
+  if (!number) errors.push("Numero da parcial e obrigatorio.");
+  if (!baseDate) errors.push("Data base e obrigatoria.");
+  if (!daysDone) errors.push("Dias realizados da parcial e obrigatorio.");
+  if (!daysTotal) errors.push("Dias uteis da parcial e obrigatorio.");
+  if (daysDone && daysTotal && daysDone > daysTotal) errors.push("Dias realizados nao podem ser maiores que dias uteis.");
+  if (!campaign || isCampaignOfficialClosed(campaign) || campaign.status !== CAMPAIGN_STATUS.OPEN) errors.push("Campanha fechada oficialmente nao permite nova parcial comum.");
+  return { ok: errors.length === 0, errors, number, baseDate, daysDone, daysTotal };
 }
 
 function validatePartialCsv(text, meta = {}) {
   const campaign = activeCampaign();
   if (!campaign) throw new Error("Nenhuma campanha selecionada.");
+  const metaValidation = validatePartialMeta(meta, campaign);
+  if (!metaValidation.ok) throw new Error(metaValidation.errors[0]);
   const rows = parseCsv(text).filter((row) => row.some((cell) => String(cell || "").trim()));
   const header = rows.shift()?.map((item) => normalizedKey(item.replace(/^\uFEFF/, ""))) || [];
   const index = (name) => header.indexOf(normalizedKey(name));
@@ -2977,14 +3103,22 @@ function validatePartialCsv(text, meta = {}) {
     };
   });
   const summary = partialSummary(items, rows.length);
-  const number = Number(meta.number) || (partialsForCampaign(campaign).length + 1);
+  const number = metaValidation.number || (partialsForCampaign(campaign).length + 1);
+  const period = {
+    month: campaign.reference || campaign.period?.month || state.period.month || "",
+    daysDone: metaValidation.daysDone,
+    daysTotal: metaValidation.daysTotal,
+  };
   return {
     id: makeId(),
     campaignId: campaign.id,
     campaignName: campaign.name,
     number,
     name: meta.name || `Parcial ${String(number).padStart(2, "0")}`,
-    baseDate: meta.baseDate || new Date().toISOString().slice(0, 10),
+    baseDate: metaValidation.baseDate || new Date().toISOString().slice(0, 10),
+    daysDone: period.daysDone,
+    daysTotal: period.daysTotal,
+    period,
     importedAt: new Date().toISOString(),
     publishedAt: "",
     responsible: currentAuditProfile() || "Admin",
@@ -3015,6 +3149,11 @@ function savePendingPartial(status) {
   }
   if (pendingPartialImport.errorRows > 0) {
     alert("Corrija os erros antes de salvar ou publicar esta parcial.");
+    return;
+  }
+  const metaValidation = validatePartialMeta(pendingPartialImport, campaign);
+  if (!metaValidation.ok) {
+    alert(metaValidation.errors[0]);
     return;
   }
   const partial = normalizePartials([{ ...pendingPartialImport, status }])[0];
@@ -3054,6 +3193,11 @@ function publishPartial(partialId) {
     alert("Corrija os erros antes de publicar esta parcial.");
     return;
   }
+  const metaValidation = validatePartialMeta(partial, campaign);
+  if (!metaValidation.ok) {
+    alert(metaValidation.errors[0]);
+    return;
+  }
   if (!criticalConfirm("Voce esta publicando esta parcial para consulta dos vendedores, filiais e dashboard. A simulacao dos vendedores continuara separada e nao sera alterada. Deseja continuar?")) return;
   partial.status = PARTIAL_STATUS.PUBLISHED;
   partial.publishedAt = new Date().toISOString();
@@ -3082,6 +3226,13 @@ function updatePartialStatus(partialId, status) {
     : status === PARTIAL_STATUS.REPLACED
       ? "marcando esta parcial como substituida. Ela sera mantida no historico, mas nao deve ser usada como referencia atual."
       : `alterando esta parcial para ${status}.`;
+  if (status === PARTIAL_STATUS.PUBLISHED) {
+    const metaValidation = validatePartialMeta(partial, campaign);
+    if (!metaValidation.ok) {
+      alert(metaValidation.errors[0]);
+      return;
+    }
+  }
   if (!criticalConfirm(`Voce esta ${statusImpact} Deseja continuar?`)) return;
   partial.status = status;
   logUpdate({
@@ -3194,7 +3345,7 @@ function officialPartialRecords(partial, sellers, options = {}) {
     const seller = sellerMap.get(item.sellerId) || sellerKeys.get(`${normalizedKey(item.sellerName)}|${normalizedKey(item.branch)}`) || null;
     if (!seller) continue;
     if (options.sellerId && seller.id !== options.sellerId) continue;
-    const context = partialMetricContext(item, seller);
+    const context = partialMetricContext(item, seller, partial);
     if (!context.metric && options.requireMetric !== false) continue;
     if (options.metricName && options.metricName !== "Todos") {
       const recordMetric = context.metric || { name: item.metricName, id: item.metricId };
@@ -3231,7 +3382,8 @@ function partialRecordTotals(records) {
   const percent = totals.goal ? totals.realized / totals.goal : null;
   const projectedPercent = totals.goal && totals.withProjection ? totals.projected / totals.goal : null;
   const gap = totals.goal ? Math.max(totals.goal - totals.realized, 0) : null;
-  const paceNeeded = totals.goal ? partialPaceNeeded(totals.goal, totals.realized) : null;
+  const period = records.find((record) => record.period)?.period || null;
+  const paceNeeded = totals.goal ? partialPaceNeeded(totals.goal, totals.realized, period) : null;
   const status = totals.withGoal
     ? partialStatusFromProjected(projectedPercent, percent)
     : totals.withoutGoal
@@ -3269,7 +3421,8 @@ function groupedPartialRows(records, keyFn) {
     const percent = row.goal ? row.realized / row.goal : null;
     const projectedPercent = row.goal && row.projectedCount ? row.projected / row.goal : null;
     const gap = row.goal ? Math.max(row.goal - row.realized, 0) : null;
-    const paceNeeded = row.goal ? partialPaceNeeded(row.goal, row.realized) : null;
+    const period = records.find((record) => record.period)?.period || null;
+    const paceNeeded = row.goal ? partialPaceNeeded(row.goal, row.realized, period) : null;
     const status = row.goal
       ? partialStatusFromProjected(projectedPercent, percent)
       : row.participatingCount
@@ -3342,6 +3495,9 @@ function renderDashboardPartialPanel() {
   }
   const records = officialPartialRecords(partial, dashboardBaseSellers(), { metricName: activeDashboardIndicator });
   const totals = partialRecordTotals(records);
+  const campaign = activeCampaign();
+  const period = getPeriodForPartial(partial, campaign);
+  const periodWarning = partialPeriodWarning(partial, campaign);
   const blockRows = goalCompletionBlocksFromRecords(records);
   const metricRows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
     .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
@@ -3356,7 +3512,6 @@ function renderDashboardPartialPanel() {
     || Number(b.totals.projectedPercent ?? -1) - Number(a.totals.projectedPercent ?? -1)
     || a.branch.localeCompare(b.branch)
   ).slice(0, 8);
-  const campaign = activeCampaign();
   const partialHistoric = !partialIsLatest(partial, campaign);
   if (hero) {
     hero.innerHTML = `<div>
@@ -3369,7 +3524,7 @@ function renderDashboardPartialPanel() {
       <span><strong>Parcial</strong>${escapeHtml(partial.name)}</span>
       <span><strong>Base</strong>${escapeHtml(partial.baseDate || "-")}</span>
       <span><strong>Status</strong><em class="status ok">${escapeHtml(partial.status)}</em></span>
-      <span><strong>Dias</strong>${state.period?.daysDone || 0} de ${state.period?.daysTotal || 0}</span>
+      <span><strong>Dias</strong>${period.daysDone || "-"} de ${period.daysTotal || "-"}</span>
       ${partialVisibilityBadge(partial, campaign)}
     </div>`;
   }
@@ -3396,7 +3551,8 @@ function renderDashboardPartialPanel() {
   </div>
   <div class="partial-meta-line">
     <strong>${escapeHtml(partial.name)}</strong>
-    <span>Base ${escapeHtml(partial.baseDate || "-")} | ${totals.sellerIds.size} vendedores | ${totals.branches.size} filiais | ${records.length} linhas publicadas</span>
+    <span>Base ${escapeHtml(partial.baseDate || "-")} | ${period.daysDone || "-"} de ${period.daysTotal || "-"} dias | ${totals.sellerIds.size} vendedores | ${totals.branches.size} filiais | ${records.length} linhas publicadas</span>
+    ${periodWarning ? `<small class="warning">${escapeHtml(periodWarning)}</small>` : ""}
   </div>`;
 }
 
@@ -3974,8 +4130,8 @@ function renderCampaignAdminPanel() {
         <strong>${escapeHtml(campaign.name)}</strong>
         <small>${escapeHtml(campaign.reference || campaign.period?.month || "-")}</small>
       </div>
-      <div><span>Dias uteis</span><strong>${num.format(state.period.daysTotal || 0)}</strong><small>Planejados</small></div>
-      <div><span>Dias realizados</span><strong>${num.format(state.period.daysDone || 0)}</strong><small>Projecao ativa</small></div>
+      <div><span>Dias uteis planejados</span><strong>${num.format(campaignPlannedBusinessDays(campaign))}</strong><small>Padrao para novas parciais</small></div>
+      <div><span>Ultima parcial</span><strong>${escapeHtml(latestPublishedPartial(campaign)?.name || "Nenhuma")}</strong><small>Dias realizados ficam na parcial</small></div>
       <div><span>Status</span><strong class="${campaignStatusClass(campaign.status)}">${campaignShortStatus(campaign.status)}</strong><small>${escapeHtml(campaign.status)}</small></div>
     </div>
     <div class="campaign-kpi-strip">
@@ -3994,6 +4150,7 @@ function renderCampaignAdminPanel() {
     <div class="campaign-current-grid">
       <label>Nome da campanha<input data-campaign-field="name" value="${escapeHtml(campaign.name)}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
       <label>Mes/ano<input data-campaign-field="reference" value="${escapeHtml(campaign.reference || "")}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
+      <label>Dias uteis planejados<input data-campaign-field="plannedBusinessDays" type="number" min="1" value="${campaignPlannedBusinessDays(campaign)}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}><small>Dias uteis planejados serao usados como padrao para novas parciais.</small></label>
       <label>Data de inicio<input data-campaign-field="startDate" type="date" value="${escapeHtml(campaign.startDate || "")}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
       <label>Encerramento operacional<input data-campaign-field="operationalCloseDate" type="date" value="${escapeHtml(campaign.operationalCloseDate || "")}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
       <label>Fechamento oficial<input data-campaign-field="officialCloseDate" type="date" value="${escapeHtml(campaign.officialCloseDate || "")}" ${officialClosed && !isOwnerUnlocked() ? "disabled" : ""}></label>
@@ -4224,9 +4381,12 @@ function partialPreviewMarkup(partial, options = {}) {
   const visibleItems = partial.items.filter((item) => filter === "Todos" || item.status === filter);
   const canSave = !options.readOnly && partial.errorRows === 0;
   const summary = partial.summary || partialSummary(partial.items, partial.totalRows);
+  const period = getPeriodForPartial(partial, activeCampaign());
+  const periodWarning = partialPeriodWarning(partial, activeCampaign());
   const filters = ["Todos", "OK", "Alerta", "Ignorado", "Erro"].map((item) => `<button class="ghost-button compact-action ${filter === item ? "active" : ""}" data-partial-preview-filter="${item}" type="button">${item}</button>`).join("");
   return `<div class="partial-preview">
     <div class="campaign-kpi-strip compact-strip">
+      <span>Dias da parcial<strong>${period.daysDone ? num.format(period.daysDone) : "-"} / ${period.daysTotal ? num.format(period.daysTotal) : "-"}</strong></span>
       <span>Linhas lidas<strong>${summary.totalRows}</strong></span>
       <span>Validas<strong>${summary.validRows}</strong></span>
       <span>Alertas<strong>${summary.warningRows}</strong></span>
@@ -4240,6 +4400,7 @@ function partialPreviewMarkup(partial, options = {}) {
       ${options.readOnly ? "" : `<div><button id="cancelPartialPreview" class="ghost-button" type="button">Cancelar</button><button id="savePartialDraft" class="ghost-button" type="button" ${canSave ? "" : "disabled"}>Salvar como rascunho</button><button id="publishPendingPartial" class="primary-button" type="button" ${canSave ? "" : "disabled"}>Publicar parcial</button></div>`}
     </div>
     ${partial.errorRows ? `<p class="admin-inline-note warning">Corrija os erros antes de salvar ou publicar esta parcial.</p>` : `<p class="admin-inline-note">Previa validada. A publicacao nao altera a simulacao dos vendedores.</p>`}
+    ${periodWarning ? `<p class="admin-inline-note warning">${escapeHtml(periodWarning)}</p>` : ""}
     <div class="table-wrap partial-preview-table"><table>
       <thead><tr><th>Linha</th><th>Vendedor</th><th>Filial</th><th>Area</th><th>Metrica</th><th>Realizado</th><th>Status</th><th>Mensagem</th></tr></thead>
       <tbody>${visibleItems.map((item) => `<tr class="${partialLineClass(item.status)}"><td>${item.lineNumber}</td><td>${escapeHtml(item.sellerName)}</td><td>${escapeHtml(item.branch)}</td><td>${escapeHtml(item.area)}</td><td>${escapeHtml(item.metricName)}</td><td>${num.format(item.realized)}</td><td><span class="status ${partialLineClass(item.status)}">${item.status}</span></td><td>${escapeHtml(item.message || "-")}</td></tr>`).join("") || `<tr><td colspan="8">Nenhuma linha para este filtro.</td></tr>`}</tbody>
@@ -4257,13 +4418,16 @@ function renderAdminPartialsPanel() {
   }
   const locked = isCampaignOfficialClosed(campaign) || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED;
   const disabled = locked ? "disabled" : "";
+  const plannedDays = campaignPlannedBusinessDays(campaign);
   const partials = partialsForCampaign(campaign).sort((a, b) => Number(b.number) - Number(a.number) || String(b.importedAt).localeCompare(String(a.importedAt)));
   const rows = partials.map((partial) => {
     const summary = partial.summary || partialSummary(partial.items, partial.totalRows);
+    const periodWarning = partialPeriodWarning(partial, campaign);
     return `<tr>
       <td>${escapeHtml(campaign.name)}</td>
       <td>${partial.number}</td>
       <td><strong>${escapeHtml(partial.name)}</strong><small>${escapeHtml(partial.baseDate || "-")}</small></td>
+      <td>${escapeHtml(partialPeriodDisplay(partial, campaign))}${periodWarning ? `<small class="warning">${escapeHtml(periodWarning)}</small>` : ""}</td>
       <td>${partial.importedAt ? dateTime.format(new Date(partial.importedAt)) : "-"}</td>
       <td>${escapeHtml(partial.responsible || "Admin")}</td>
       <td><span class="status ${partialStatusClass(partial.status)}">${escapeHtml(partial.status)}</span></td>
@@ -4300,6 +4464,8 @@ function renderAdminPartialsPanel() {
           <label>Numero da parcial<input id="partialNumber" type="number" min="1" value="${nextPartialNumber()}" ${disabled}></label>
           <label>Nome da parcial<input id="partialName" placeholder="Parcial ${String(nextPartialNumber()).padStart(2, "0")}" ${disabled}></label>
           <label>Data base<input id="partialBaseDate" type="date" value="${new Date().toISOString().slice(0, 10)}" ${disabled}></label>
+          <label>Dias realizados da parcial<input id="partialDaysDone" type="number" min="1" ${disabled}></label>
+          <label>Dias uteis da parcial<input id="partialDaysTotal" type="number" min="1" value="${plannedDays}" ${disabled}></label>
         </div>
         <div class="csv-import-layout">
           <div class="csv-dropzone" id="partialCsvDropzone"><strong>Selecionar CSV de parcial</strong><span>O arquivo sera validado antes de salvar.</span></div>
@@ -4313,7 +4479,7 @@ function renderAdminPartialsPanel() {
       </section>
       <section class="admin-section-card">
         <div class="section-title"><h3>Parciais importadas</h3><p>Historico da campanha selecionada.</p></div>
-        <div class="table-wrap"><table><thead><tr><th>Campanha</th><th>N.</th><th>Parcial</th><th>Importacao</th><th>Responsavel</th><th>Status</th><th>Vendedores</th><th>Metricas</th><th>Linhas</th><th>Acoes</th></tr></thead><tbody>${rows || `<tr><td colspan="10">Nenhuma parcial importada para esta campanha.</td></tr>`}</tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Campanha</th><th>N.</th><th>Parcial</th><th>Dias</th><th>Importacao</th><th>Responsavel</th><th>Status</th><th>Vendedores</th><th>Metricas</th><th>Linhas</th><th>Acoes</th></tr></thead><tbody>${rows || `<tr><td colspan="11">Nenhuma parcial importada para esta campanha.</td></tr>`}</tbody></table></div>
       </section>
     </div>
   `;
@@ -4370,6 +4536,11 @@ function renderAdminClosingPanel() {
   const latestPartial = latestPublishedPartial(campaign);
   const basePartial = closing ? closingBasePartial(closing, campaign) : null;
   const snapshot = closing ? closingSnapshotForDisplay(campaign, closing) : null;
+  const closingPeriod = snapshot
+    ? periodWithCalculation(snapshot.period || { month: snapshot.reference, daysDone: snapshot.daysDone, daysTotal: snapshot.daysTotal }, "closingSnapshot")
+    : latestPartial
+      ? getPeriodForPartial(latestPartial, campaign)
+      : periodWithCalculation({ month: campaign.reference || state.period.month, daysDone: 0, daysTotal: campaignPlannedBusinessDays(campaign) }, "campaignFallback");
   const validation = snapshot ? validateClosingSnapshot(snapshot, campaign, basePartial) : { ok: false, errors: [], warnings: [] };
   const totals = snapshot ? closingTotalsFromSnapshot(snapshot) : normalizeClosingTotals();
   const canAdminEdit = canEditCampaignData() && isAdminUnlocked();
@@ -4413,7 +4584,7 @@ function renderAdminClosingPanel() {
     </div>
     <div class="campaign-command-card closing-summary">
       <div><span>Campanha</span><strong>${escapeHtml(campaign.name || "-")}</strong><small>${escapeHtml(campaign.reference || "-")}</small></div>
-      <div><span>Dias oficiais</span><strong>${num.format(campaign.period?.daysDone || state.period.daysDone || 0)} / ${num.format(campaign.period?.daysTotal || state.period.daysTotal || 0)}</strong><small>Realizados / uteis</small></div>
+      <div><span>Dias da base</span><strong>${closingPeriod.daysDone || "-"} / ${closingPeriod.daysTotal || "-"}</strong><small>Realizados / uteis</small></div>
       <div><span>Ultima parcial</span><strong>${escapeHtml(latestPartial?.name || "Nenhuma")}</strong><small>${escapeHtml(latestPartial?.baseDate || "Sem parcial publicada")}</small></div>
       <div><span>Vendedores</span><strong>${state.sellers.length}</strong><small>${branches().length} filiais</small></div>
       <div><span>Indicadores ativos</span><strong>${metricCount}</strong><small>Metas da campanha</small></div>
@@ -4512,7 +4683,13 @@ function filteredAdminSellers() {
 function renderAdminPeriodMessage() {
   const message = document.getElementById("adminPeriodMessage");
   if (!message) return;
-  const invalid = Number(state.period.daysDone) > Number(state.period.daysTotal);
+  const plannedDays = campaignPlannedBusinessDays(activeCampaign());
+  message.textContent = plannedDays > 0
+    ? "Dias uteis planejados serao usados como padrao para novas parciais. Parciais publicadas mantem os dias salvos."
+    : "Dias uteis planejados deve ser maior que zero.";
+  message.classList.toggle("warning", plannedDays <= 0);
+  return;
+  const invalid = false;
   message.textContent = invalid ? "Dias realizados não podem passar dos dias úteis." : "Período pronto para cálculo da projeção.";
   message.classList.toggle("warning", invalid);
 }
@@ -4699,23 +4876,18 @@ function updateSecurityPassword(target) {
 }
 
 function isOfficialPeriodTarget(target) {
-  return Boolean(target && ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id));
+  return Boolean(target && target.id === "adminDaysTotal");
 }
 
 function officialPeriodDraftFromInputs(target = null) {
-  const adminMonth = document.getElementById("adminPeriodMonth")?.value || state.period.month;
-  const adminDaysDone = document.getElementById("adminDaysDone")?.value;
   const adminDaysTotal = document.getElementById("adminDaysTotal")?.value;
-  const topDaysDone = document.getElementById("daysDone")?.value;
+  const campaign = activeCampaign();
   const draft = {
-    month: adminMonth,
-    daysDone: Number(adminDaysDone ?? topDaysDone ?? state.period.daysDone) || 0,
-    daysTotal: Number(adminDaysTotal ?? state.period.daysTotal) || 1,
+    month: campaign?.reference || campaign?.period?.month || state.period.month,
+    daysDone: 0,
+    daysTotal: positiveInteger(adminDaysTotal ?? campaignPlannedBusinessDays(campaign), 0),
   };
-  if (target?.id === "daysDone") draft.daysDone = Number(target.value) || 0;
-  if (target?.id === "adminDaysDone") draft.daysDone = Number(target.value) || 0;
-  if (target?.id === "adminDaysTotal") draft.daysTotal = Number(target.value) || 1;
-  if (target?.id === "adminPeriodMonth") draft.month = target.value || state.period.month;
+  if (target?.id === "adminDaysTotal") draft.daysTotal = positiveInteger(target.value, 0);
   return draft;
 }
 
@@ -4730,30 +4902,34 @@ function commitOfficialPeriodChange(target = null, options = {}) {
     renderAll();
     return false;
   }
-  if (Number(draft.daysDone) > Number(draft.daysTotal)) {
-    alert("Dias realizados nao pode ser maior que dias uteis.");
-    renderAll();
-    return false;
-  }
-  const previous = { ...state.period };
-  const changed = previous.month !== draft.month || Number(previous.daysDone) !== Number(draft.daysDone) || Number(previous.daysTotal) !== Number(draft.daysTotal);
+  const campaign = activeCampaign();
+  if (!campaign) return false;
+  const previous = campaignPlannedBusinessDays(campaign);
+  const changed = Number(previous) !== Number(draft.daysTotal);
   if (!changed) return true;
-  if (!criticalConfirm("Voce esta alterando dias uteis/dias realizados oficiais da campanha. Esta informacao impacta a projecao oficial exibida para Dashboard, Filial e Vendedor. Deseja continuar?")) {
+  const hasPublished = publishedPartialsForCampaign(campaign).length > 0;
+  const confirmMessage = hasPublished
+    ? "Esta alteracao sera usada como padrao para novas parciais. Parciais ja publicadas manterao os dias uteis salvos no momento da publicacao. Deseja continuar?"
+    : "Voce esta alterando os dias uteis planejados da campanha. Este valor sera usado como padrao para novas parciais. Deseja continuar?";
+  if (!criticalConfirm(confirmMessage)) {
     renderAll();
     return false;
   }
+  campaign.plannedBusinessDays = draft.daysTotal;
+  campaign.period = { ...(campaign.period || {}), month: draft.month, daysTotal: draft.daysTotal };
   state.period.month = draft.month;
-  state.period.daysDone = draft.daysDone;
   state.period.daysTotal = draft.daysTotal;
   logUpdate({
-    action: options.action || "Alterou periodo oficial da campanha",
+    action: options.action || "Alterou dias uteis planejados da campanha",
     module: "Campanhas",
-    itemName: activeCampaign()?.name || "",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemName: campaign.name || "",
     previousValue: previous,
-    newValue: draft,
-    message: "Admin alterou dias uteis/dias realizados oficiais da campanha.",
+    newValue: draft.daysTotal,
+    message: "Admin alterou dias uteis planejados da campanha. Parciais publicadas mantem os dias salvos.",
   });
-  saveState("Periodo oficial salvo");
+  saveState("Dias uteis planejados salvos");
   renderAll();
   return true;
 }
@@ -4776,8 +4952,8 @@ function auditFieldDescriptor(target) {
     const campaign = activeCampaign();
     return { action: "Editou campanha", module: "Campanhas", itemId: campaign?.id || "", itemName: campaign?.name || "", field: target.dataset.campaignField, message: `Admin editou a campanha ${campaign?.name || ""}.` };
   }
-  if (["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) {
-    return { action: "Alterou periodo da campanha", module: "Campanhas", itemName: activeCampaign()?.name || "", field: target.id, message: "Admin alterou dados do periodo da campanha." };
+  if (target.id === "adminDaysTotal") {
+    return { action: "Alterou dias uteis planejados", module: "Campanhas", itemName: activeCampaign()?.name || "", field: target.id, message: "Admin alterou dias uteis planejados da campanha." };
   }
   if (target.id === "partnerName") {
     return { action: "Alterou identidade do sistema", module: "Identidade", itemName: "Nome da parceira", field: "partnerName", message: "Admin alterou o nome da parceira/franquia." };
@@ -4853,7 +5029,7 @@ function rememberAuditPreviousValue(target) {
 function recordAuditFieldChange(target) {
   const descriptor = auditFieldDescriptor(target);
   if (!descriptor) return;
-  if ((target.matches("[data-seller-field], [data-seller-experience], [data-adjustment], [data-closing-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") || ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) && !canEditCampaignData()) return;
+  if ((target.matches("[data-seller-field], [data-seller-experience], [data-adjustment], [data-closing-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") || target.id === "adminDaysTotal") && !canEditCampaignData()) return;
   if (target.dataset.collabRealized && isCampaignOperationLocked()) return;
   const previousValue = target.dataset.auditPreviousValue || "";
   const newValue = auditRawElementValue(target);
@@ -4871,12 +5047,8 @@ function renderAdmin() {
   renderAdminClosingPanel();
   renderAdminFilters();
   renderAdminSecurityAccesses();
-  const adminPeriodMonth = document.getElementById("adminPeriodMonth");
   const adminDaysTotal = document.getElementById("adminDaysTotal");
-  const adminDaysDone = document.getElementById("adminDaysDone");
-  if (adminPeriodMonth) adminPeriodMonth.value = state.period.month;
-  if (adminDaysTotal) adminDaysTotal.value = state.period.daysTotal;
-  if (adminDaysDone) adminDaysDone.value = state.period.daysDone;
+  if (adminDaysTotal) adminDaysTotal.value = campaignPlannedBusinessDays(activeCampaign());
   renderAdminPeriodMessage();
   const list = document.getElementById("sellerEditorList");
   const sellers = filteredAdminSellers();
@@ -5389,10 +5561,15 @@ function branchPartialFilterControls(branch, sellers) {
   const published = publishedPartialsForCampaign();
   if (activeManagerPartialId !== "latest" && !published.some((partial) => partial.id === activeManagerPartialId)) activeManagerPartialId = "latest";
   const partial = getVisiblePartial("filial");
+  const period = partial ? getPeriodForPartial(partial, activeCampaign()) : null;
   const records = branchPartialRecords(partial, branch, sellers, "", "Todos");
   const indicatorNames = [...new Set(records.map((record) => record.metric?.name || record.item.metricName).filter(Boolean))];
   const sellerOptions = [`<option value="">Todos</option>`, ...sellers.map((seller) => `<option value="${seller.id}" ${seller.id === activeManagerSellerId ? "selected" : ""}>${escapeHtml(seller.name)}</option>`)];
   const indicatorOptions = ["Todos", ...indicatorNames].map((name) => `<option value="${escapeHtml(name)}" ${name === activeManagerIndicator ? "selected" : ""}>${escapeHtml(name)}</option>`);
+  const partialLabel = partialIsLatest(partial) ? "Exibindo" : "Exibindo parcial historica";
+  const partialInfo = partial
+    ? `${escapeHtml(partial.name)} - Base ${escapeHtml(partial.baseDate || "-")} - ${period?.daysDone || "-"} de ${period?.daysTotal || "-"} dias - ${escapeHtml(partial.status)}`
+    : "Nenhuma parcial publicada para esta campanha.";
   return `<section class="branch-card-panel branch-filter-panel branch-partial-filter-panel">
     <div class="branch-filter-grid">
     <label>Parcial<select id="managerPartialFilter">${publishedPartialOptionsMarkup(activeManagerPartialId)}</select></label>
@@ -5557,6 +5734,7 @@ function branchOfficialPartialCard(branch, sellers) {
   const partial = getVisiblePartial("filial");
   if (!partial) return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial oficial</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div></section>`;
   const records = branchPartialRecords(partial, branch, sellers, showBranchPartialDetails ? activeManagerSellerId : "");
+  const period = getPeriodForPartial(partial, activeCampaign());
   const totals = partialRecordTotals(records);
   const blockRows = goalCompletionBlocksFromRecords(records);
   const completion = goalCompletionStats(records);
@@ -5565,7 +5743,7 @@ function branchOfficialPartialCard(branch, sellers) {
   const criticalMetric = partialCriticalMetric(records);
   return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial oficial</h3><p>${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div>${partialVisibilityBadge(partial)}</div>
     ${partialHistoryMessage(partial)}
-    <div class="partial-meta-line"><strong>Informacoes da parcial</strong><span>${escapeHtml(partial.name)} | Base ${escapeHtml(partial.baseDate || "-")} | ${totals.sellerIds.size} vendedores | ${totals.metrics.size} indicadores | ${records.length} linhas</span></div>
+    <div class="partial-meta-line"><strong>Informacoes da parcial</strong><span>${escapeHtml(partial.name)} | Base ${escapeHtml(partial.baseDate || "-")} | ${period.daysDone || "-"} de ${period.daysTotal || "-"} dias | ${totals.sellerIds.size} vendedores | ${totals.metrics.size} indicadores | ${records.length} linhas</span></div>
     <div class="branch-partial-summary analytic">
       <article><span>% metas atingidas</span><strong>${achievementPill(completion.metPercent)}</strong><small>${completion.metCount}/${completion.applicableCount} metas</small></article>
       <article><span>% projetado</span><strong>${totals.projectedPercent === null ? "-" : pct.format(totals.projectedPercent)}</strong><small>Projecao da filial</small></article>
@@ -5704,10 +5882,11 @@ function legacyPrepareCollaboratorPdfExport() {
   }
   const stamp = document.getElementById("collabExportStamp");
   if (stamp) {
+    const period = partialPeriodInfo(getVisiblePartial("colaborador"));
     stamp.innerHTML = `
       <strong>Relatório do vendedor</strong>
       <span>${seller.name} - ${seller.branch} - ${seller.area}</span>
-      <span>Mês: ${state.period.month} | Dias realizados: ${state.period.daysDone} | Dias úteis: ${state.period.daysTotal}</span>
+      <span>Periodo: ${period.month || state.period.month} | Dias realizados: ${period.daysDone || "-"} | Dias uteis: ${period.daysTotal || "-"}</span>
       <span>Exportado em ${dateTime.format(new Date())}</span>
     `;
   }
@@ -5888,10 +6067,13 @@ function collaboratorKpiMarkup(seller) {
   </section>`;
 }
 
-function collaboratorMonthMarkup() {
-  const done = Number(state.period.daysDone) || 0;
-  const total = Number(state.period.daysTotal) || 0;
+function collaboratorMonthMarkup(periodOverride = null) {
+  const partial = getVisiblePartial("colaborador");
+  const period = periodOverride || partialPeriodInfo(partial);
+  const done = Number(period.daysDone) || 0;
+  const total = Number(period.daysTotal) || 0;
   const percent = total ? done / total : 0;
+  return `<section class="collab-card collab-month-card"><div class="collab-card-head"><h3>Base da parcial</h3><span>${total && done ? pct.format(percent) : "-"}</span></div><div class="collab-month-grid"><span>Periodo<strong>${escapeHtml(period.month || activeCampaign()?.reference || "-")}</strong></span><span>Dias realizados<strong>${done ? num.format(done) : "-"}</strong></span><span>Dias uteis<strong>${total ? num.format(total) : "-"}</strong></span><span>Periodo concluido<strong>${total && done ? pct.format(percent) : "-"}</strong></span></div></section>`;
   return `<section class="collab-card collab-month-card"><div class="collab-card-head"><h3>Resumo do mês</h3><span>${total ? pct.format(percent) : "-"}</span></div><div class="collab-month-grid"><span>Mês<strong>${escapeHtml(state.period.month)}</strong></span><span>Dias realizados<strong>${num.format(done)}</strong></span><span>Dias úteis<strong>${num.format(total)}</strong></span><span>Período concluído<strong>${total ? pct.format(percent) : "-"}</strong></span></div></section>`;
 }
 
@@ -5937,7 +6119,8 @@ function collaboratorOfficialPartialData(seller) {
   const blockRows = partialBlockRows(records);
   const criticalMetric = partialCriticalMetric(records);
   const partialSeller = sellerWithPartialValues(seller, records);
-  const commission = records.length ? sellerResult(partialSeller) : null;
+  const period = partial ? getPeriodForPartial(partial, activeCampaign()) : null;
+  const commission = records.length ? withProjectionPeriod(period, () => sellerResult(partialSeller)) : null;
   return { partial, records, totals, blockRows, criticalMetric, commission };
 }
 
@@ -5945,6 +6128,7 @@ function collaboratorPartialSelectorMarkup(seller) {
   const published = publishedPartialsForCampaign();
   if (activeCollaboratorPartialId !== "latest" && !published.some((partial) => partial.id === activeCollaboratorPartialId)) activeCollaboratorPartialId = "latest";
   const partial = getVisiblePartial("colaborador");
+  const period = partial ? getPeriodForPartial(partial, activeCampaign()) : null;
   const sellerHasRecords = partial && officialPartialRecords(partial, [seller]).length > 0;
   return `<section class="collab-card collab-partial-selector">
     <div class="collab-card-head">
@@ -5957,6 +6141,7 @@ function collaboratorPartialSelectorMarkup(seller) {
     </div>
     ${partialHistoryMessage(partial)}
     ${partial && !sellerHasRecords ? `<p class="admin-inline-note warning">Nao ha resultado parcial publicado para este vendedor nesta parcial.</p>` : ""}
+    ${partial ? `<div class="partial-meta-line"><strong>Base da parcial</strong><span>${period?.daysDone || "-"} de ${period?.daysTotal || "-"} dias</span></div>` : ""}
   </section>`;
 }
 
@@ -6080,6 +6265,7 @@ function collaboratorOfficialExtractMarkup(seller) {
     <div class="collab-month-grid official-extract-meta">
       <span>Campanha<strong>${escapeHtml(snapshot.campaignName || campaign?.name || "-")}</strong></span>
       <span>Referencia<strong>${escapeHtml(snapshot.reference || campaign?.reference || "-")}</strong></span>
+      <span>Periodo base<strong>${snapshot.daysDone || snapshot.basePartialDaysDone || "-"} de ${snapshot.daysTotal || snapshot.basePartialDaysTotal || "-"} dias</strong></span>
       <span>Fechado em<strong>${closedAt ? dateTime.format(new Date(closedAt)) : "-"}</strong></span>
       <span>Publicado em<strong>${publishedAt ? dateTime.format(new Date(publishedAt)) : "-"}</strong></span>
       <span>Vendedor<strong>${escapeHtml(row.name || seller.name)}</strong></span>
@@ -6117,7 +6303,7 @@ function collaboratorOfficialSummaryMarkup(seller) {
   const { partial, records, totals, blockRows, criticalMetric, commission } = collaboratorOfficialPartialData(seller);
   if (!partial) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">Indisponível</span></div><p>Resultado parcial oficial ainda não disponível para esta campanha.</p></section>`;
   if (!records.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Não há resultado parcial publicado para este vendedor.</p></section>`;
-  const period = partialPeriodInfo();
+  const period = partialPeriodInfo(partial);
   const blockGoalRows = goalCompletionBlocksFromRecords(records);
   const completion = goalCompletionStats(records);
   const previewSeller = sellerWithPartialValues(seller, records);
@@ -6158,7 +6344,8 @@ function collaboratorOfficialPartialMarkup(seller) {
   if (!partial) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">Indisponível</span></div><p>Resultado parcial oficial ainda não disponível para esta campanha.</p></section>`;
   const items = partialItemsForSeller(partial, seller);
   if (!items.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Não há resultado parcial publicado para este vendedor.</p></section>`;
-  const rows = items.map((item) => ({ item, ...partialMetricContext(item, seller) }));
+  const period = partialPeriodInfo(partial);
+  const rows = items.map((item) => ({ item, ...partialMetricContext(item, seller, partial) }));
   const body = metricGroupHeaderRows(rows, 10, (row) => `<tr>
     <td>${escapeHtml(row.metric?.name || row.item.metricName)}</td>
     <td>${escapeHtml(metricGroupDisplay(row.groupMeta))}</td>
@@ -6188,7 +6375,7 @@ function collaboratorOfficialPartialMarkup(seller) {
   return `<section class="collab-card collab-official-partial-card">
     <div class="collab-card-head"><div><h3>Detalhes da parcial</h3><p>Tabela completa por blocos com projeção, gap e ritmo necessário.</p></div>${partialVisibilityBadge(partial)}</div>
     ${partialHistoryMessage(partial)}
-    <div class="collab-month-grid"><span>Campanha<strong>${escapeHtml(partial.campaignName || activeCampaign()?.name || "-")}</strong></span><span>Parcial<strong>${escapeHtml(partial.name)}</strong></span><span>Data base<strong>${escapeHtml(partial.baseDate || "-")}</strong></span><span>Importado em<strong>${partial.importedAt ? dateTime.format(new Date(partial.importedAt)) : "-"}</strong></span></div>
+    <div class="collab-month-grid"><span>Campanha<strong>${escapeHtml(partial.campaignName || activeCampaign()?.name || "-")}</strong></span><span>Parcial<strong>${escapeHtml(partial.name)}</strong></span><span>Data base<strong>${escapeHtml(partial.baseDate || "-")}</strong></span><span>Dias da parcial<strong>${period.daysDone || "-"} de ${period.daysTotal || "-"}</strong></span><span>Importado em<strong>${partial.importedAt ? dateTime.format(new Date(partial.importedAt)) : "-"}</strong></span></div>
     ${hasInformative ? `<p class="metric-info-note">Receita de aparelhos e indicadores informativos nao compoem o atingimento de metas. Apenas o volume de aparelhos entra no calculo.</p>` : ""}
     <div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Bloco</th><th>Meta</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body}</tbody></table></div>
     <div class="collab-indicator-cards collab-detail-cards">${cards}</div>
@@ -6230,26 +6417,29 @@ function collaboratorScenarioMarkup(seller) {
 }
 
 function collaboratorSimulationPeriod() {
-  const official = partialPeriodInfo();
-  const officialTotal = Number(state.period.daysTotal) || official.daysTotal || 1;
+  const partial = getVisiblePartial("colaborador");
+  const official = partialPeriodInfo(partial);
+  const officialTotal = official.daysTotal || campaignPlannedBusinessDays(activeCampaign()) || 1;
   const requestedTotal = Number(activeCollaboratorSimulationDaysTotal) || officialTotal;
-  const daysDone = Math.max(1, Number(state.period.daysDone) || official.daysDone || 1);
+  const daysDone = Math.max(1, official.daysDone || 1);
   return {
-    ...state.period,
+    month: official.month || activeCampaign()?.reference || state.period.month,
     daysDone,
     daysTotal: Math.max(daysDone, requestedTotal),
+    source: "simulation",
   };
 }
 
 function collaboratorSimulationPeriodMarkup() {
   const period = collaboratorSimulationPeriod();
+  const official = partialPeriodInfo(getVisiblePartial("colaborador"));
   return `<section class="collab-card collab-simulation-period-card">
     <div class="collab-card-head">
       <div><h3>Dias da simulação</h3><p>Este campo altera apenas a simulação. Os dias úteis oficiais da campanha só podem ser alterados pelo Admin.</p></div>
     </div>
     <div class="collab-month-grid">
-      <span>Dias realizados oficiais<strong>${num.format(state.period.daysDone || 0)}</strong></span>
-      <span>Dias úteis oficiais<strong>${num.format(state.period.daysTotal || 0)}</strong></span>
+      <span>Dias realizados oficiais<strong>${official.daysDone ? num.format(official.daysDone) : "-"}</strong></span>
+      <span>Dias uteis da parcial<strong>${official.daysTotal ? num.format(official.daysTotal) : "-"}</strong></span>
       <label>Dias úteis para simulação<input id="collabSimulationDaysTotal" type="number" min="1" value="${period.daysTotal}"></label>
     </div>
   </section>`;
@@ -6280,6 +6470,7 @@ function collaboratorReportHtml(seller) {
   const estornos = sellerEstornos(seller);
   const exportedAt = dateTime.format(new Date());
   const campaign = activeCampaign();
+  const reportPeriod = partialPeriodInfo(getVisiblePartial("colaborador"));
   const campaignStatus = campaignShortStatus(campaign?.status);
   const deflatorText = summary.preview.triggered.length ? `Deflator aplicado: -${pct.format(summary.preview.rate)} | Impacto financeiro: ${money.format(summary.result.projectedDeflator)} | Comissão bruta: ${money.format(summary.gross)} | Estornos: ${discountMoney(summary.estornos)} | Comissão estimada: ${money.format(summary.final)}` : "Nenhum deflator aplicado no momento.";
   const experienceText = seller.emExperiencia && summary.preview.triggered.length ? "Vendedor em experiência - deflator previsto ignorado." : "";
@@ -6301,8 +6492,8 @@ function collaboratorReportHtml(seller) {
       <span>Filial<strong>${escapeHtml(seller.branch)}</strong></span>
       <span>Fun&ccedil;&atilde;o / &Aacute;rea<strong>${escapeHtml(seller.area)}</strong></span>
       <span>Campanha / M&ecirc;s<strong>${escapeHtml(campaign?.reference || state.period.month)}</strong></span>
-      <span>Dias realizados<strong>${num.format(state.period.daysDone)}</strong></span>
-      <span>Dias &uacute;teis<strong>${num.format(state.period.daysTotal)}</strong></span>
+      <span>Dias realizados<strong>${reportPeriod.daysDone ? num.format(reportPeriod.daysDone) : "-"}</strong></span>
+      <span>Dias &uacute;teis<strong>${reportPeriod.daysTotal ? num.format(reportPeriod.daysTotal) : "-"}</strong></span>
       <span>Status campanha<strong>${escapeHtml(campaignStatus)}</strong></span>
     </section>
     <section class="report-summary">
@@ -6367,6 +6558,7 @@ function collaboratorOfficialExtractReportHtml(seller) {
     <section class="report-meta">
       <span>Campanha<strong>${escapeHtml(snapshot.campaignName || "-")}</strong></span>
       <span>Refer&ecirc;ncia<strong>${escapeHtml(snapshot.reference || "-")}</strong></span>
+      <span>Periodo base<strong>${snapshot.daysDone || snapshot.basePartialDaysDone || "-"} de ${snapshot.daysTotal || snapshot.basePartialDaysTotal || "-"} dias</strong></span>
       <span>Fechado em<strong>${closedAt ? dateTime.format(new Date(closedAt)) : "-"}</strong></span>
       <span>Publicado em<strong>${publishedAt ? dateTime.format(new Date(publishedAt)) : "-"}</strong></span>
       <span>Vendedor<strong>${escapeHtml(row.name || seller.name)}</strong></span>
@@ -6552,10 +6744,15 @@ function safeRender(label, action) {
 function renderAll() {
   renderBrand();
   renderCampaignSelectors();
-  document.getElementById("periodMonthDisplay").textContent = state.period.month;
-  document.getElementById("daysDone").value = state.period.daysDone;
-  document.getElementById("daysDone").disabled = !isAdminUnlocked();
-  document.getElementById("daysTotalDisplay").textContent = state.period.daysTotal;
+  const campaign = activeCampaign();
+  const latestPartial = latestPublishedPartial(campaign);
+  const topPeriod = latestPartial ? getPeriodForPartial(latestPartial, campaign) : null;
+  const periodMonthDisplay = document.getElementById("periodMonthDisplay");
+  const daysTotalDisplay = document.getElementById("daysTotalDisplay");
+  const daysDoneLegacyRemoved = document.getElementById("daysDoneLegacyRemoved");
+  if (periodMonthDisplay) periodMonthDisplay.textContent = campaign?.reference || state.period.month;
+  if (daysTotalDisplay) daysTotalDisplay.textContent = latestPartial ? `${topPeriod.daysDone || "-"} de ${topPeriod.daysTotal || "-"} dias` : `${campaignPlannedBusinessDays(campaign)} dias planej.`;
+  if (daysDoneLegacyRemoved) daysDoneLegacyRemoved.textContent = latestPartial ? latestPartial.name : "Sem parcial";
   safeRender("dashboard", renderDashboard);
   safeRender("filial", renderManager);
   safeRender("admin", renderAdmin);
@@ -6955,13 +7152,13 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "savePeriodAdmin") {
-    commitOfficialPeriodChange(null, { action: "Salvou periodo oficial da campanha" });
+    commitOfficialPeriodChange(null, { action: "Salvou dias uteis planejados da campanha" });
     return;
     if (Number(state.period.daysTotal) <= 0) {
       alert("Dias úteis deve ser maior que zero.");
       return;
     }
-    if (Number(state.period.daysDone) > Number(state.period.daysTotal)) {
+    if (false) {
       alert("Dias realizados não pode ser maior que dias úteis.");
       return;
     }
@@ -7431,7 +7628,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     for (const item of partialItemsForSeller(partial, seller)) {
-      const context = partialMetricContext(item, seller);
+      const context = partialMetricContext(item, seller, partial);
       if (!context.metric) continue;
       ensureSellerValues(seller);
       seller.values[context.metric.id] = seller.values[context.metric.id] || { goal: context.goal || context.metric.goal || 0, realized: 0 };
@@ -7552,7 +7749,7 @@ document.addEventListener("input", (event) => {
   }
   if (isSecurityPasswordTarget(target) || isOfficialPeriodTarget(target)) return;
   const protectedInput = target.matches("[data-seller-field], [data-seller-experience], [data-adjustment], [data-closing-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
-    ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id);
+    target.id === "adminDaysTotal";
   if (protectedInput && !requireAdminAction("adminMutation", "Admin", { auditAction: "Tentativa de alteracao oficial bloqueada" })) {
     renderAll();
     return;
@@ -7567,7 +7764,7 @@ document.addEventListener("input", (event) => {
     renderAll();
     return;
   }
-  if (["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id) && !isAdminUnlocked()) {
+  if (target.id === "adminDaysTotal" && !isAdminUnlocked()) {
     alert("Os dias oficiais da campanha so podem ser alterados pelo Admin.");
     renderAll();
     return;
@@ -7575,11 +7772,6 @@ document.addEventListener("input", (event) => {
   if (target.dataset.collabRealized && isCampaignOperationLocked()) {
     alert("Esta campanha esta encerrada e nao permite novas alteracoes.");
     renderCollaborator();
-    return;
-  }
-  if (target.id === "daysDone" && isCampaignOperationLocked() && document.body.dataset.view !== "admin") {
-    alert("Esta campanha esta encerrada e nao permite novas alteracoes.");
-    renderAll();
     return;
   }
   if (target.dataset.campaignField) {
@@ -7598,7 +7790,25 @@ document.addEventListener("input", (event) => {
       renderCampaignAdminPanel();
       return;
     }
-    campaign[target.dataset.campaignField] = target.value;
+    const field = target.dataset.campaignField;
+    if (field === "plannedBusinessDays") {
+      const plannedDays = positiveInteger(target.value, 0);
+      if (!plannedDays) {
+        alert("Dias uteis planejados deve ser maior que zero.");
+        renderCampaignAdminPanel();
+        return;
+      }
+      const hasPublished = publishedPartialsForCampaign(campaign).length > 0;
+      if (hasPublished && !criticalConfirm("Esta alteracao sera usada como padrao para novas parciais. Parciais ja publicadas manterao os dias uteis salvos no momento da publicacao. Deseja continuar?")) {
+        renderCampaignAdminPanel();
+        return;
+      }
+      campaign.plannedBusinessDays = plannedDays;
+      campaign.period = { ...(campaign.period || {}), daysTotal: plannedDays };
+      if (campaign.id === state.activeCampaignId) state.period.daysTotal = plannedDays;
+    } else {
+      campaign[field] = target.value;
+    }
     if (target.dataset.campaignField === "reference") {
       campaign.period.month = target.value;
       state.period.month = target.value;
@@ -7607,21 +7817,6 @@ document.addEventListener("input", (event) => {
     saveState("Campanha atualizada");
     renderCampaignSelectors();
     return;
-  }
-  if (target.id === "daysDone" || target.id === "adminDaysDone") state.period.daysDone = Number(target.value) || 0;
-  if (target.id === "adminPeriodMonth") state.period.month = target.value;
-  if (target.id === "adminDaysTotal") state.period.daysTotal = Number(target.value) || 1;
-  if (target.id === "daysDone" || target.id === "adminDaysDone" || target.id === "adminPeriodMonth" || target.id === "adminDaysTotal") {
-    saveState();
-    document.getElementById("periodMonthDisplay").textContent = state.period.month;
-    document.getElementById("daysTotalDisplay").textContent = state.period.daysTotal;
-    const adminDaysDone = document.getElementById("adminDaysDone");
-    if (adminDaysDone && target.id !== "adminDaysDone") adminDaysDone.value = state.period.daysDone;
-    renderAdminPeriodMessage();
-    renderDashboard();
-    renderAdminMetrics();
-    renderManager();
-    renderCollaborator();
   }
 
   if (target.id === "branchFilter") {
@@ -7857,11 +8052,7 @@ document.addEventListener("change", (event) => {
       message: `Admin iniciou importacao do arquivo ${file.name}.`,
     });
     readCsvFileText(file).then((text) => {
-      const meta = {
-        number: document.getElementById("partialNumber")?.value,
-        name: document.getElementById("partialName")?.value,
-        baseDate: document.getElementById("partialBaseDate")?.value,
-      };
+      const meta = partialMetaFromForm(campaign);
       pendingPartialImport = validatePartialCsv(text, meta);
       partialPreviewFilter = pendingPartialImport.errorRows ? "Erro" : "Todos";
       logUpdate({
