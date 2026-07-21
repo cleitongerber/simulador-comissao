@@ -169,6 +169,7 @@ let activeAdminTab = "visao";
 let pendingAccessView = "dashboard";
 let activeAuditLogId = "";
 let lastAccessLogKey = "";
+let confirmedCriticalEditKeys = new Set();
 let pendingPartialImport = null;
 let partialPreviewFilter = "Todos";
 let showBranchPartialDetails = false;
@@ -191,6 +192,147 @@ function isCampaignOperationLocked(campaign = activeCampaign()) {
 
 function canEditCampaignData() {
   return !isCampaignOfficialClosed() || isOwnerUnlocked();
+}
+
+const ADMIN_ONLY_ACTIONS = new Set([
+  "createCampaign",
+  "updateCampaign",
+  "deleteCampaign",
+  "updateSeller",
+  "deleteSeller",
+  "updateBranch",
+  "deleteBranch",
+  "updateMetric",
+  "updateRules",
+  "updateDeflator",
+  "updatePassword",
+  "importGoals",
+  "importPartial",
+  "publishPartial",
+  "cancelPartial",
+  "replacePartial",
+  "deletePartial",
+  "exportBackup",
+  "importBackup",
+  "restoreBackup",
+  "restoreDefault",
+  "updateOfficialBusinessDays",
+  "updateOfficialElapsedDays",
+  "exportAudit",
+  "adminMutation",
+]);
+
+function normalizedPermissionProfile(profile = currentAuditProfile()) {
+  const value = String(profile || "").toLowerCase();
+  if (value.includes("desenvolvedor") || value.includes("proprietario")) return "owner";
+  if (value.includes("admin")) return "admin";
+  if (value.includes("dashboard")) return "dashboard";
+  if (value.includes("filial")) return "filial";
+  if (value.includes("vendedor") || value.includes("colaborador")) return "colaborador";
+  return "sistema";
+}
+
+function canAccessModule(profile, module) {
+  const normalized = normalizedPermissionProfile(profile);
+  const moduleKey = String(module || "").toLowerCase();
+  if (normalized === "owner" || normalized === "admin") return true;
+  if (moduleKey.includes("admin") || moduleKey.includes("seguranca") || moduleKey.includes("auditoria") || moduleKey.includes("backup")) return false;
+  if (normalized === "dashboard") return moduleKey.includes("dashboard") || moduleKey.includes("home");
+  if (normalized === "filial") return moduleKey.includes("filial") || moduleKey.includes("home");
+  if (normalized === "colaborador") return moduleKey.includes("vendedor") || moduleKey.includes("colaborador") || moduleKey.includes("home");
+  return moduleKey.includes("home");
+}
+
+function canPerformAction(profile, action) {
+  const normalized = normalizedPermissionProfile(profile);
+  if (normalized === "owner") return true;
+  if (ADMIN_ONLY_ACTIONS.has(action)) return normalized === "admin";
+  if (action === "updateSimulation") return normalized === "colaborador";
+  if (action === "readDashboard") return ["admin", "dashboard", "owner"].includes(normalized);
+  if (action === "readBranch") return ["admin", "filial", "owner"].includes(normalized);
+  if (action === "readOwnPartial") return ["admin", "colaborador", "owner"].includes(normalized);
+  return normalized === "admin";
+}
+
+function isReadOnlyProfile(profile = currentAuditProfile()) {
+  return ["dashboard", "filial"].includes(normalizedPermissionProfile(profile));
+}
+
+function logBlockedAttempt(action, module = "Sistema", message = "Acesso bloqueado por permissao.", extra = {}) {
+  logAccess({
+    status: "Bloqueado",
+    module,
+    action,
+    message,
+    ...extra,
+  }, { persist: true });
+}
+
+function requireAdminAction(action, module = "Admin", options = {}) {
+  if (canPerformAction(currentAuditProfile(), action)) return true;
+  const message = options.message || "Voce nao tem permissao para realizar esta acao.";
+  logBlockedAttempt(options.auditAction || "Tentativa bloqueada", module, message, { itemName: options.itemName || "" });
+  if (!options.silent) alert(message);
+  return false;
+}
+
+function criticalConfirm(message, options = {}) {
+  const lines = [message];
+  if (options.backup) lines.push("", "Recomendamos exportar um backup antes de continuar.");
+  if (options.irreversible) lines.push("", "Esta acao nao podera ser desfeita facilmente.");
+  return confirm(lines.join("\n"));
+}
+
+function campaignHasPublishedPartial(campaign = activeCampaign()) {
+  return Boolean(campaign && (campaign.partials || []).some((partial) => partial.status === PARTIAL_STATUS.PUBLISHED));
+}
+
+function criticalEditKey(target) {
+  if (!target) return "";
+  return [
+    target.id || "",
+    target.dataset?.sellerId || "",
+    target.dataset?.sellerField || "",
+    target.dataset?.metricGoal || "",
+    target.dataset?.metricRealized || "",
+    target.dataset?.catalogMetricArea || "",
+    target.dataset?.catalogMetricId || "",
+    target.dataset?.catalogMetricField || "",
+    target.dataset?.customMetricArea || "",
+    target.dataset?.customMetricId || "",
+    target.dataset?.customMetricField || "",
+    target.dataset?.ruleAt || "",
+    target.dataset?.ruleRate || "",
+    target.dataset?.deflatorId || "",
+    target.dataset?.deflatorField || "",
+    target.dataset?.branchName || "",
+    target.dataset?.campaignField || "",
+  ].join(":");
+}
+
+function targetAffectsPublishedCampaign(target) {
+  if (!campaignHasPublishedPartial()) return false;
+  return Boolean(target?.dataset?.metricGoal
+    || target?.dataset?.metricRealized
+    || target?.dataset?.catalogMetricField
+    || target?.dataset?.customMetricField
+    || target?.dataset?.ruleAt
+    || target?.dataset?.ruleRate
+    || target?.dataset?.deflatorField
+    || target?.dataset?.adjustment
+    || target?.dataset?.sellerField
+    || target?.dataset?.sellerExperience
+    || target?.dataset?.branchName
+    || target?.dataset?.campaignField);
+}
+
+function confirmPublishedCampaignEdit(target) {
+  if (!targetAffectsPublishedCampaign(target)) return true;
+  const key = criticalEditKey(target);
+  if (confirmedCriticalEditKeys.has(key)) return true;
+  const accepted = criticalConfirm("Esta campanha ja possui parcial publicada. Alterar este dado oficial pode afetar novas visualizacoes da campanha aberta. Deseja continuar?", { backup: true });
+  if (accepted) confirmedCriticalEditKeys.add(key);
+  return accepted;
 }
 
 function syncActiveCampaignFromRoot(options = {}) {
@@ -2201,7 +2343,14 @@ function savePendingPartial(status) {
   const campaign = activeCampaign();
   if (!campaign || !pendingPartialImport) return;
   if (pendingPartialImport._readOnly) return;
+  if (!requireAdminAction(status === PARTIAL_STATUS.PUBLISHED ? "publishPartial" : "importPartial", "Parciais")) return;
   if (campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
+    logBlockedAttempt(
+      status === PARTIAL_STATUS.PUBLISHED ? "Publicacao de parcial bloqueada" : "Salvamento de parcial bloqueado",
+      "Parciais",
+      "Tentativa de salvar/publicar parcial em campanha sem permissao operacional.",
+      { campaignId: campaign.id, campaignName: campaign.name },
+    );
     alert("Esta campanha nao permite salvar nova parcial neste status.");
     return;
   }
@@ -2231,7 +2380,14 @@ function publishPartial(partialId) {
   const campaign = activeCampaign();
   const partial = partialById(partialId, campaign);
   if (!campaign || !partial) return;
+  if (!requireAdminAction("publishPartial", "Parciais", { itemName: partial.name })) return;
   if (campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
+    logBlockedAttempt("Publicacao de parcial bloqueada", "Parciais", "Tentativa de publicar parcial em campanha encerrada.", {
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      itemId: partial.id,
+      itemName: partial.name,
+    });
     alert("Esta campanha nao permite publicar parcial neste status.");
     return;
   }
@@ -2239,7 +2395,7 @@ function publishPartial(partialId) {
     alert("Corrija os erros antes de publicar esta parcial.");
     return;
   }
-  if (!confirm("Voce esta publicando esta parcial para consulta dos vendedores, filiais e dashboard. A simulacao dos vendedores continuara separada e nao sera alterada. Deseja continuar?")) return;
+  if (!criticalConfirm("Voce esta publicando esta parcial para consulta dos vendedores, filiais e dashboard. A simulacao dos vendedores continuara separada e nao sera alterada. Deseja continuar?")) return;
   partial.status = PARTIAL_STATUS.PUBLISHED;
   partial.publishedAt = new Date().toISOString();
   logUpdate({
@@ -2260,6 +2416,14 @@ function updatePartialStatus(partialId, status) {
   const campaign = activeCampaign();
   const partial = partialById(partialId, campaign);
   if (!campaign || !partial) return;
+  const action = status === PARTIAL_STATUS.CANCELED ? "cancelPartial" : status === PARTIAL_STATUS.REPLACED ? "replacePartial" : "publishPartial";
+  if (!requireAdminAction(action, "Parciais", { itemName: partial.name })) return;
+  const statusImpact = status === PARTIAL_STATUS.CANCELED
+    ? "cancelando esta parcial. Ela deixara de ser usada como referencia publicada."
+    : status === PARTIAL_STATUS.REPLACED
+      ? "marcando esta parcial como substituida. Ela sera mantida no historico, mas nao deve ser usada como referencia atual."
+      : `alterando esta parcial para ${status}.`;
+  if (!criticalConfirm(`Voce esta ${statusImpact} Deseja continuar?`)) return;
   partial.status = status;
   logUpdate({
     action: `Atualizou parcial para ${status}`,
@@ -2279,11 +2443,12 @@ function deleteDraftPartial(partialId) {
   const campaign = activeCampaign();
   const partial = partialById(partialId, campaign);
   if (!campaign || !partial) return;
+  if (!requireAdminAction("deletePartial", "Parciais", { itemName: partial.name })) return;
   if (partial.status !== PARTIAL_STATUS.DRAFT) {
     alert("Somente parciais em rascunho podem ser excluidas.");
     return;
   }
-  if (!confirm(`Excluir o rascunho ${partial.name}?`)) return;
+  if (!criticalConfirm(`Excluir o rascunho ${partial.name}?`, { irreversible: true })) return;
   campaign.partials = partialsForCampaign(campaign).filter((item) => item.id !== partialId);
   logUpdate({
     action: "Excluiu rascunho de parcial",
@@ -3155,6 +3320,7 @@ function renderCampaignAdminPanel() {
 }
 
 function createCampaignFromActive(options = {}) {
+  if (!requireAdminAction("createCampaign", "Campanhas")) return;
   syncActiveCampaignFromRoot();
   const isDuplicate = Boolean(options.source);
   const reference = options.reference || "Novo periodo";
@@ -3183,6 +3349,7 @@ function createCampaignFromActive(options = {}) {
 }
 
 function duplicateCampaign(campaignId) {
+  if (!requireAdminAction("createCampaign", "Campanhas")) return;
   const source = state.campaigns.find((campaign) => campaign.id === campaignId) || activeCampaign();
   if (!source) return;
   createCampaignFromActive({
@@ -3193,6 +3360,7 @@ function duplicateCampaign(campaignId) {
 }
 
 function deleteCampaign(campaignId) {
+  if (!requireAdminAction("deleteCampaign", "Campanhas")) return;
   const campaign = state.campaigns.find((item) => item.id === campaignId);
   if (!campaign) return;
   if ((state.campaigns || []).length <= 1) {
@@ -3630,7 +3798,7 @@ function renderAuditLogs() {
       <td>${escapeHtml(log.module || "-")}</td>
       <td>${escapeHtml(log.action || "-")}</td>
       <td>${escapeHtml(log.campaignName || "-")}</td>
-      <td><span class="status ${log.status === "Falha" ? "bad" : "ok"}">${escapeHtml(log.status)}</span></td>
+      <td><span class="status ${log.status === "Sucesso" ? "ok" : log.status === "Bloqueado" ? "warn" : "bad"}">${escapeHtml(log.status)}</span></td>
       <td><button class="audit-row-button" data-audit-log-detail="${escapeHtml(log.id)}" type="button">Ver</button></td>
     </tr>
   `).join("") : `<tr><td colspan="8">Nenhum log encontrado para os filtros selecionados.</td></tr>`;
@@ -3638,6 +3806,7 @@ function renderAuditLogs() {
 }
 
 function exportAuditLogsCsv() {
+  if (!requireAdminAction("exportAudit", "Auditoria")) return;
   const rows = filteredAuditLogs().map((log) => [
     auditLogDisplayDate(log),
     log.type,
@@ -3655,7 +3824,8 @@ function exportAuditLogsCsv() {
 }
 
 function restoreDefaultState() {
-  if (!confirm("Restaurar os dados padrao?")) return;
+  if (!requireAdminAction("restoreDefault", "Importacao e Backup")) return;
+  if (!criticalConfirm("Restaurar os dados padrao? Esta acao substitui a base atual pelo modelo inicial e preserva os logs de auditoria.", { backup: true, irreversible: true })) return;
   const auditLogs = normalizeAuditLogs(state.auditLogs);
   state = seedState();
   state.auditLogs = auditLogs;
@@ -3669,6 +3839,7 @@ function restoreDefaultState() {
 }
 
 function exportBackupJson() {
+  if (!requireAdminAction("exportBackup", "Importacao e Backup")) return;
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -3678,6 +3849,135 @@ function exportBackupJson() {
   URL.revokeObjectURL(url);
   updateSaveStatus("Backup exportado");
   logUpdate({ action: "Exportou backup", module: "Importacao e Backup", message: "Backup JSON exportado." }, { persist: true });
+}
+
+function isSecurityPasswordTarget(target) {
+  return Boolean(target && (
+    target.id === "newAdminPassword"
+    || target.id === "newDashboardPassword"
+    || target.dataset?.sellerField === "password"
+    || target.dataset?.branchPassword
+  ));
+}
+
+function securityPasswordDescriptor(target) {
+  if (target.id === "newAdminPassword") return { label: "Admin", min: 4 };
+  if (target.id === "newDashboardPassword") return { label: "Dashboard", min: 4 };
+  if (target.dataset?.sellerField === "password") {
+    const seller = state.sellers.find((item) => item.id === target.dataset.sellerId);
+    return { label: `Vendedor ${seller?.name || ""}`.trim(), seller, min: 1 };
+  }
+  if (target.dataset?.branchPassword) return { label: `Filial ${target.dataset.branchPassword}`, branch: target.dataset.branchPassword, min: 1 };
+  return { label: "Acesso", min: 4 };
+}
+
+function updateSecurityPassword(target) {
+  if (!isSecurityPasswordTarget(target)) return false;
+  if (!requireAdminAction("updatePassword", "Seguranca")) {
+    renderAdminSecurityAccesses();
+    return true;
+  }
+  const descriptor = securityPasswordDescriptor(target);
+  const value = String(target.value || "").trim();
+  if (value.length < descriptor.min) {
+    alert(`A senha de ${descriptor.label} deve ter pelo menos ${descriptor.min} caractere${descriptor.min > 1 ? "s" : ""}.`);
+    renderAdminSecurityAccesses();
+    return true;
+  }
+  if (!criticalConfirm(`Voce esta alterando a senha de acesso de ${descriptor.label}. Deseja continuar?`)) {
+    renderAdminSecurityAccesses();
+    return true;
+  }
+  let itemName = descriptor.label;
+  if (target.id === "newAdminPassword") {
+    state.settings = { ...defaultSettings(), ...(state.settings || {}) };
+    state.settings.adminPassword = value;
+    localStorage.setItem(ADMIN_PASSWORD_KEY, value);
+    itemName = "Senha Admin";
+  } else if (target.id === "newDashboardPassword") {
+    state.settings = { ...defaultSettings(), ...(state.settings || {}) };
+    state.settings.dashboardPassword = value;
+    itemName = "Senha Dashboard";
+  } else if (descriptor.seller) {
+    descriptor.seller.password = value;
+    itemName = descriptor.seller.name;
+  } else if (descriptor.branch) {
+    state.branchPasswords = state.branchPasswords || {};
+    state.branchPasswords[descriptor.branch] = value;
+    itemName = descriptor.branch;
+  }
+  logUpdate({
+    type: "Seguranca",
+    action: "Senha alterada",
+    module: "Seguranca",
+    itemName,
+    previousValue: "Senha alterada",
+    newValue: "Senha alterada",
+    message: "Senha alterada.",
+  });
+  saveState("Senha salva");
+  renderAdminSecurityAccesses();
+  return true;
+}
+
+function isOfficialPeriodTarget(target) {
+  return Boolean(target && ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id));
+}
+
+function officialPeriodDraftFromInputs(target = null) {
+  const adminMonth = document.getElementById("adminPeriodMonth")?.value || state.period.month;
+  const adminDaysDone = document.getElementById("adminDaysDone")?.value;
+  const adminDaysTotal = document.getElementById("adminDaysTotal")?.value;
+  const topDaysDone = document.getElementById("daysDone")?.value;
+  const draft = {
+    month: adminMonth,
+    daysDone: Number(adminDaysDone ?? topDaysDone ?? state.period.daysDone) || 0,
+    daysTotal: Number(adminDaysTotal ?? state.period.daysTotal) || 1,
+  };
+  if (target?.id === "daysDone") draft.daysDone = Number(target.value) || 0;
+  if (target?.id === "adminDaysDone") draft.daysDone = Number(target.value) || 0;
+  if (target?.id === "adminDaysTotal") draft.daysTotal = Number(target.value) || 1;
+  if (target?.id === "adminPeriodMonth") draft.month = target.value || state.period.month;
+  return draft;
+}
+
+function commitOfficialPeriodChange(target = null, options = {}) {
+  if (!requireAdminAction("updateOfficialBusinessDays", "Campanhas")) {
+    renderAll();
+    return false;
+  }
+  const draft = officialPeriodDraftFromInputs(target);
+  if (Number(draft.daysTotal) <= 0) {
+    alert("Dias uteis deve ser maior que zero.");
+    renderAll();
+    return false;
+  }
+  if (Number(draft.daysDone) > Number(draft.daysTotal)) {
+    alert("Dias realizados nao pode ser maior que dias uteis.");
+    renderAll();
+    return false;
+  }
+  const previous = { ...state.period };
+  const changed = previous.month !== draft.month || Number(previous.daysDone) !== Number(draft.daysDone) || Number(previous.daysTotal) !== Number(draft.daysTotal);
+  if (!changed) return true;
+  if (!criticalConfirm("Voce esta alterando dias uteis/dias realizados oficiais da campanha. Esta informacao impacta a projecao oficial exibida para Dashboard, Filial e Vendedor. Deseja continuar?")) {
+    renderAll();
+    return false;
+  }
+  state.period.month = draft.month;
+  state.period.daysDone = draft.daysDone;
+  state.period.daysTotal = draft.daysTotal;
+  logUpdate({
+    action: options.action || "Alterou periodo oficial da campanha",
+    module: "Campanhas",
+    itemName: activeCampaign()?.name || "",
+    previousValue: previous,
+    newValue: draft,
+    message: "Admin alterou dias uteis/dias realizados oficiais da campanha.",
+  });
+  saveState("Periodo oficial salvo");
+  renderAll();
+  return true;
 }
 
 function auditRawElementValue(target) {
@@ -3769,7 +4069,7 @@ function rememberAuditPreviousValue(target) {
 function recordAuditFieldChange(target) {
   const descriptor = auditFieldDescriptor(target);
   if (!descriptor) return;
-  if ((target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") || ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) && !canEditCampaignData()) return;
+  if ((target.matches("[data-seller-field], [data-seller-experience], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") || ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) && !canEditCampaignData()) return;
   if (target.dataset.collabRealized && isCampaignOperationLocked()) return;
   const previousValue = target.dataset.auditPreviousValue || "";
   const newValue = auditRawElementValue(target);
@@ -3914,6 +4214,7 @@ function metricHasHistory(area, metricId) {
 }
 
 function setMetricActive(area, metricId, active) {
+  if (!requireAdminAction("updateMetric", "Metas e Indicadores")) return;
   const metric = editableMetricRecord(area, metricId);
   const previous = metric.active !== false ? "Ativo" : "Inativo";
   metric.active = active;
@@ -3931,6 +4232,7 @@ function setMetricActive(area, metricId, active) {
 }
 
 function duplicateMetric(area, metricId) {
+  if (!requireAdminAction("updateMetric", "Metas e Indicadores")) return;
   const original = metricsFor(area, state, { includeInactive: true }).find((metric) => metric.id === metricId);
   if (!original) return;
   const id = `custom_${makeId()}`;
@@ -3967,6 +4269,7 @@ function duplicateMetric(area, metricId) {
 }
 
 function removeOrInactivateMetric(area, metricId) {
+  if (!requireAdminAction("updateMetric", "Metas e Indicadores")) return;
   const metric = metricsFor(area, state, { includeInactive: true }).find((item) => item.id === metricId);
   if (!metric) return;
   const isSystem = metric.isCustom !== true;
@@ -3975,7 +4278,7 @@ function removeOrInactivateMetric(area, metricId) {
     setMetricActive(area, metricId, false);
     return;
   }
-  if (!confirm("Excluir definitivamente este indicador?")) return;
+  if (!criticalConfirm("Excluir definitivamente este indicador?", { backup: true, irreversible: true })) return;
   state.customMetrics[area] = (state.customMetrics[area] || []).filter((item) => item.id !== metricId);
   state.metricOrder[area] = (state.metricOrder[area] || []).filter((id) => id !== metricId);
   state.deflators[area] = (state.deflators[area] || []).filter((item) => item.metricId !== metricId);
@@ -3993,6 +4296,7 @@ function removeOrInactivateMetric(area, metricId) {
 }
 
 function updateMetricCatalogField(target) {
+  if (!requireAdminAction("updateMetric", "Metas e Indicadores")) return;
   const area = target.dataset.catalogMetricArea;
   const metricId = target.dataset.catalogMetricId;
   const field = target.dataset.catalogMetricField;
@@ -5258,6 +5562,7 @@ function renderAll() {
 }
 
 function updateSeller(id, field, value) {
+  if (!requireAdminAction(field === "password" ? "updatePassword" : "updateSeller", field === "password" ? "Seguranca" : "Vendedores")) return false;
   const seller = state.sellers.find((item) => item.id === id);
   if (!seller) return false;
   if (field === "area" && seller.area !== value) {
@@ -5378,6 +5683,9 @@ function openRouteView(options = {}) {
 function openView(view, options = {}) {
   if (!document.getElementById(`${view}View`)) view = "home";
   if (view === "admin" && !isAdminUnlocked()) {
+    if (!["Sistema", "Admin"].includes(currentAuditProfile())) {
+      logBlockedAttempt("Acesso bloqueado ao modulo Admin", "Admin", "Perfil sem permissao tentou acessar o modulo Admin.");
+    }
     showAccessLogin("admin");
     return;
   }
@@ -5444,6 +5752,51 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const protectedAdminClick = event.target.closest([
+    "#createCampaign",
+    "#duplicateActiveCampaign",
+    "[data-duplicate-campaign]",
+    "[data-delete-campaign]",
+    "[data-select-campaign]",
+    "[data-download-campaign]",
+    "[data-download-preview-campaign]",
+    "#downloadOfficialCampaignFile",
+    "#downloadPreviewCampaignFile",
+    "#operationalCloseCampaign",
+    "#reopenOperationalCampaign",
+    "#startAdministrativeClosing",
+    "#officialCloseCampaign",
+    "#savePeriodAdmin",
+    "#addBranch",
+    "[data-delete-branch]",
+    "#downloadGoalTemplate",
+    "#importGoalSheet",
+    "#goalSheetDropzone",
+    "#selectPartialCsv",
+    "#partialCsvDropzone",
+    "#savePartialDraft",
+    "#publishPendingPartial",
+    "[data-publish-partial]",
+    "[data-cancel-partial]",
+    "[data-replace-partial]",
+    "[data-delete-draft-partial]",
+    "#adminImportBackup",
+    "#adminExportBackup",
+    "#adminRestoreDefault",
+    "[data-move-metric-order]",
+    "[data-add-custom-metric]",
+    "[data-duplicate-metric]",
+    "[data-toggle-metric-active]",
+    "[data-remove-metric]",
+    "[data-delete-custom-metric]",
+    "[data-add-deflator]",
+    "[data-delete-deflator]",
+    "#addSeller",
+    "[data-delete-seller]",
+    "#saveNow",
+  ].join(","));
+  if (protectedAdminClick && !requireAdminAction("adminMutation", "Admin", { auditAction: "Tentativa de acao administrativa bloqueada" })) return;
+
   if (event.target.id === "createCampaign") {
     createCampaignFromActive();
     return;
@@ -5468,6 +5821,7 @@ document.addEventListener("click", async (event) => {
 
   const selectCampaignButton = event.target.closest("[data-select-campaign]");
   if (selectCampaignButton) {
+    if (!criticalConfirm("Voce esta alterando a campanha ativa do sistema. As telas passarao a consultar os dados desta campanha. Deseja continuar?")) return;
     setActiveCampaign(selectCampaignButton.dataset.selectCampaign);
     return;
   }
@@ -5497,7 +5851,7 @@ document.addEventListener("click", async (event) => {
   if (event.target.id === "operationalCloseCampaign") {
     const campaign = activeCampaign();
     if (!campaign || campaign.status !== CAMPAIGN_STATUS.OPEN) return;
-    if (!confirm("Voce esta encerrando esta campanha para operacao. Vendedores e filiais nao poderao mais alterar ou simular resultados desta campanha. Deseja continuar?")) return;
+    if (!criticalConfirm("Voce esta encerrando esta campanha para operacao. Vendedores e filiais nao poderao mais alterar ou simular resultados desta campanha. Deseja continuar?", { backup: true })) return;
     syncActiveCampaignFromRoot();
     campaign.status = CAMPAIGN_STATUS.OPERATIONAL_CLOSED;
     campaign.operationalCloseDate = campaign.operationalCloseDate || new Date().toISOString().slice(0, 10);
@@ -5518,7 +5872,7 @@ document.addEventListener("click", async (event) => {
   if (event.target.id === "reopenOperationalCampaign") {
     const campaign = activeCampaign();
     if (!campaign || ![CAMPAIGN_STATUS.OPERATIONAL_CLOSED, CAMPAIGN_STATUS.ADMIN_CLOSING].includes(campaign.status)) return;
-    if (!confirm("Voce esta descongelando esta campanha. Vendedores e filiais voltarao a poder alterar e simular resultados. Os estornos ja lancados serao mantidos. Deseja continuar?")) return;
+    if (!criticalConfirm("Voce esta descongelando esta campanha. Vendedores e filiais voltarao a poder alterar e simular resultados. Os estornos ja lancados serao mantidos. Deseja continuar?")) return;
     syncActiveCampaignFromRoot();
     campaign.status = CAMPAIGN_STATUS.OPEN;
     campaign.operationalCloseDate = "";
@@ -5562,6 +5916,7 @@ document.addEventListener("click", async (event) => {
 
   const protectedMutation = event.target.closest("#savePeriodAdmin,#addBranch,[data-delete-branch],[data-add-custom-metric],[data-delete-custom-metric],[data-duplicate-metric],[data-toggle-metric-active],[data-remove-metric],[data-add-deflator],[data-delete-deflator],#addSeller,[data-delete-seller],#importGoalSheet,#goalSheetDropzone,#adminImportBackup,#adminRestoreDefault");
   if (protectedMutation && !canEditCampaignData()) {
+    logBlockedAttempt("Alteracao bloqueada em campanha fechada", "Admin", "Tentativa de alterar dados oficiais em campanha fechada oficialmente.");
     alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
     return;
   }
@@ -5572,6 +5927,8 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "savePeriodAdmin") {
+    commitOfficialPeriodChange(null, { action: "Salvou periodo oficial da campanha" });
+    return;
     if (Number(state.period.daysTotal) <= 0) {
       alert("Dias úteis deve ser maior que zero.");
       return;
@@ -5648,7 +6005,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "publishPendingPartial") {
-    if (!confirm("Voce esta publicando esta parcial para consulta dos vendedores, filiais e dashboard. A simulacao dos vendedores continuara separada e nao sera alterada. Deseja continuar?")) return;
+    if (!criticalConfirm("Voce esta publicando esta parcial para consulta dos vendedores, filiais e dashboard. A simulacao dos vendedores continuara separada e nao sera alterada. Deseja continuar?")) return;
     savePendingPartial(PARTIAL_STATUS.PUBLISHED);
     return;
   }
@@ -5688,6 +6045,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "adminImportBackup") {
+    if (!criticalConfirm("Voce esta importando um backup. Esta acao pode substituir dados existentes do sistema.", { backup: true })) return;
     document.getElementById("importDataFile")?.click();
   }
 
@@ -5728,6 +6086,7 @@ document.addEventListener("click", async (event) => {
       alert("Esta filial esta vinculada a vendedor. Altere o cadastro antes de excluir.");
       return;
     }
+    if (!criticalConfirm(`Excluir a filial ${branch}?`, { backup: true, irreversible: true })) return;
     state.branches = state.branches.filter((item) => item !== branch);
     if (state.branchPasswords) delete state.branchPasswords[branch];
     logUpdate({
@@ -5781,7 +6140,9 @@ document.addEventListener("click", async (event) => {
 
   const toggleMetricButton = event.target.closest("[data-toggle-metric-active]");
   if (toggleMetricButton) {
-    setMetricActive(toggleMetricButton.dataset.catalogMetricArea, toggleMetricButton.dataset.toggleMetricActive, toggleMetricButton.dataset.nextActive === "true");
+    const willActivate = toggleMetricButton.dataset.nextActive === "true";
+    if (!willActivate && !criticalConfirm("Voce esta inativando um indicador. Se ele ja tiver historico, os dados serao preservados, mas ele deixara de aparecer como meta ativa. Deseja continuar?")) return;
+    setMetricActive(toggleMetricButton.dataset.catalogMetricArea, toggleMetricButton.dataset.toggleMetricActive, willActivate);
     return;
   }
 
@@ -5796,7 +6157,7 @@ document.addEventListener("click", async (event) => {
     const area = deleteMetricButton.dataset.customMetricArea;
     const metricId = deleteMetricButton.dataset.deleteCustomMetric;
     const metric = state.customMetrics[area]?.find((item) => item.id === metricId);
-    if (!confirm("Excluir este item de meta?")) return;
+    if (!criticalConfirm("Excluir este item de meta? Se houver historico, prefira inativar para preservar dados.", { backup: true, irreversible: true })) return;
     state.customMetrics[area] = state.customMetrics[area].filter((metric) => metric.id !== metricId);
     state.metricOrder = normalizeMetricOrder(state, state.customMetrics);
     state.metricOrder[area] = (state.metricOrder[area] || []).filter((id) => id !== metricId);
@@ -5837,6 +6198,7 @@ document.addEventListener("click", async (event) => {
   if (deleteDeflatorButton) {
     const area = deleteDeflatorButton.dataset.deflatorArea;
     const deflator = state.deflators[area]?.find((item) => item.id === deleteDeflatorButton.dataset.deleteDeflator);
+    if (!criticalConfirm(`Excluir o deflator ${deflator?.name || ""}? Esta regra pode impactar calculos administrativos futuros.`, { backup: true })) return;
     state.deflators[area] = state.deflators[area].filter((item) => item.id !== deleteDeflatorButton.dataset.deleteDeflator);
     logUpdate({
       action: "Excluiu deflator",
@@ -5960,7 +6322,7 @@ document.addEventListener("click", async (event) => {
       alert("Mantenha pelo menos um vendedor cadastrado.");
       return;
     }
-    if (!confirm(`Excluir o vendedor ${seller.name}?`)) return;
+    if (!criticalConfirm(`Excluir o vendedor ${seller.name}? Esta acao pode afetar historicos e filtros da campanha aberta.`, { backup: true, irreversible: true })) return;
     state.sellers = state.sellers.filter((item) => item.id !== sellerId);
     if (activeCollaboratorId === sellerId) {
       clearCollaboratorSession();
@@ -6110,6 +6472,14 @@ document.addEventListener("change", (event) => {
     renderAuditLogs();
     return;
   }
+  if (isSecurityPasswordTarget(event.target)) {
+    updateSecurityPassword(event.target);
+    return;
+  }
+  if (isOfficialPeriodTarget(event.target)) {
+    commitOfficialPeriodChange(event.target);
+    return;
+  }
   recordAuditFieldChange(event.target);
   if (event.target.dataset.catalogMetricField && event.target.tagName === "SELECT") {
     updateMetricCatalogField(event.target);
@@ -6129,10 +6499,20 @@ document.addEventListener("input", (event) => {
     sessionStorage.setItem("commission-collaborator-simulation-days-total", activeCollaboratorSimulationDaysTotal);
     return;
   }
-  const protectedInput = target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
+  if (isSecurityPasswordTarget(target) || isOfficialPeriodTarget(target)) return;
+  const protectedInput = target.matches("[data-seller-field], [data-seller-experience], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
     ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id);
+  if (protectedInput && !requireAdminAction("adminMutation", "Admin", { auditAction: "Tentativa de alteracao oficial bloqueada" })) {
+    renderAll();
+    return;
+  }
   if (protectedInput && !canEditCampaignData()) {
+    logBlockedAttempt("Alteracao bloqueada em campanha fechada", "Admin", "Tentativa de alterar dados oficiais em campanha fechada oficialmente.");
     alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
+    renderAll();
+    return;
+  }
+  if (protectedInput && !confirmPublishedCampaignEdit(target)) {
     renderAll();
     return;
   }
@@ -6152,10 +6532,18 @@ document.addEventListener("input", (event) => {
     return;
   }
   if (target.dataset.campaignField) {
+    if (!requireAdminAction("updateCampaign", "Campanhas", { auditAction: "Tentativa de alterar campanha bloqueada" })) {
+      renderCampaignAdminPanel();
+      return;
+    }
     const campaign = activeCampaign();
     if (!campaign) return;
     if (isCampaignOfficialClosed(campaign) && !isOwnerUnlocked()) {
       alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
+      renderCampaignAdminPanel();
+      return;
+    }
+    if (!confirmPublishedCampaignEdit(target)) {
       renderCampaignAdminPanel();
       return;
     }
@@ -6203,22 +6591,6 @@ document.addEventListener("input", (event) => {
     return;
   }
 
-  if (target.id === "newAdminPassword") {
-    if (target.value.trim().length >= 4) {
-      state.settings = { ...defaultSettings(), ...(state.settings || {}) };
-      state.settings.adminPassword = target.value.trim();
-      saveState("Senha admin salva");
-    }
-  }
-
-  if (target.id === "newDashboardPassword") {
-    if (target.value.trim().length >= 4) {
-      state.settings = { ...defaultSettings(), ...(state.settings || {}) };
-      state.settings.dashboardPassword = target.value.trim();
-      saveState("Senha dashboard salva");
-    }
-  }
-
   if (target.dataset.catalogMetricField && target.tagName !== "SELECT") {
     updateMetricCatalogField(target);
     return;
@@ -6244,13 +6616,6 @@ document.addEventListener("input", (event) => {
     return;
   }
 
-
-  if (target.dataset.branchPassword) {
-    state.branchPasswords = state.branchPasswords || {};
-    state.branchPasswords[target.dataset.branchPassword] = target.value || "1234";
-    saveState("Senha da filial salva");
-    return;
-  }
   if (target.dataset.branchName) {
     const oldBranch = target.dataset.branchName;
     const newBranch = target.value.trim() || oldBranch;
@@ -6369,7 +6734,12 @@ document.addEventListener("change", (event) => {
   }
 
   if (event.target.id === "goalSheetFile") {
+    if (!requireAdminAction("importGoals", "Importacao e Backup")) {
+      event.target.value = "";
+      return;
+    }
     if (!canEditCampaignData()) {
+      logBlockedAttempt("Importacao de metas bloqueada", "Importacao e Backup", "Tentativa de importar metas em campanha fechada oficialmente.");
       alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
       event.target.value = "";
       return;
@@ -6377,7 +6747,7 @@ document.addEventListener("change", (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const hasCampaignData = state.sellers.length || state.branches.length || Object.values(state.customMetrics || {}).some((items) => items?.length);
-    if (hasCampaignData && !confirm("A importacao CSV vai substituir vendedores, filiais e metas customizadas da campanha ativa. Isso evita duplicidade e faz a campanha respeitar o arquivo importado. Deseja continuar?")) {
+    if (hasCampaignData && !criticalConfirm("A importacao CSV vai substituir vendedores, filiais e metas customizadas da campanha ativa. Isso evita duplicidade e faz a campanha respeitar o arquivo importado. Deseja continuar?", { backup: true })) {
       event.target.value = "";
       return;
     }
@@ -6385,9 +6755,21 @@ document.addEventListener("change", (event) => {
       try {
         importGoalTemplateCsv(text);
       } catch (error) {
+        logUpdate({
+          status: "Erro",
+          action: "Erro na importacao de metas",
+          module: "Importacao e Backup",
+          message: error.message || "Nao foi possivel importar a planilha de metas.",
+        }, { persist: true });
         alert(error.message || "Nao foi possivel importar a planilha de metas.");
       }
     }).catch((error) => {
+      logUpdate({
+        status: "Erro",
+        action: "Erro na leitura do CSV de metas",
+        module: "Importacao e Backup",
+        message: error.message || "Nao foi possivel importar a planilha de metas.",
+      }, { persist: true });
       alert(error.message || "Nao foi possivel importar a planilha de metas.");
     }).finally(() => {
       event.target.value = "";
@@ -6396,13 +6778,29 @@ document.addEventListener("change", (event) => {
 
   if (event.target.id === "partialCsvFile") {
     const campaign = activeCampaign();
+    if (!requireAdminAction("importPartial", "Parciais")) {
+      event.target.value = "";
+      return;
+    }
     if (!campaign || campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
+      logBlockedAttempt("Importacao de parcial bloqueada", "Parciais", "Tentativa de importar parcial em campanha sem permissao operacional.", {
+        campaignId: campaign?.id || "",
+        campaignName: campaign?.name || "",
+      });
       alert("Esta campanha nao permite importar nova parcial neste status.");
       event.target.value = "";
       return;
     }
     const file = event.target.files?.[0];
     if (!file) return;
+    logUpdate({
+      action: "Iniciou importacao de parcial",
+      module: "Parciais",
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      itemName: file.name,
+      message: `Admin iniciou importacao do arquivo ${file.name}.`,
+    });
     readCsvFileText(file).then((text) => {
       const meta = {
         number: document.getElementById("partialNumber")?.value,
@@ -6422,6 +6820,15 @@ document.addEventListener("change", (event) => {
       });
       renderAdminPartialsPanel();
     }).catch((error) => {
+      logUpdate({
+        status: "Erro",
+        action: "Erro na importacao de parcial",
+        module: "Parciais",
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        itemName: file.name,
+        message: error.message || "Nao foi possivel importar a parcial.",
+      }, { persist: true });
       alert(error.message || "Nao foi possivel importar a parcial.");
     }).finally(() => {
       event.target.value = "";
@@ -6429,7 +6836,12 @@ document.addEventListener("change", (event) => {
   }
 
   if (event.target.id === "importDataFile") {
+    if (!requireAdminAction("importBackup", "Importacao e Backup")) {
+      event.target.value = "";
+      return;
+    }
     if (!canEditCampaignData()) {
+      logBlockedAttempt("Importacao de backup bloqueada", "Importacao e Backup", "Tentativa de importar backup em campanha fechada oficialmente.");
       alert("Esta campanha esta fechada oficialmente e nao permite importacao de backup.");
       event.target.value = "";
       return;
@@ -6451,6 +6863,12 @@ document.addEventListener("change", (event) => {
         saveState("Backup importado");
         renderAll();
       } catch (error) {
+        logUpdate({
+          status: "Erro",
+          action: "Erro na importacao de backup",
+          module: "Importacao e Backup",
+          message: error.message || "Nao foi possivel importar o backup.",
+        }, { persist: true });
         alert(error.message || "Nao foi possivel importar o backup.");
       } finally {
         event.target.value = "";
