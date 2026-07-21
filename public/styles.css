@@ -5859,7 +5859,7 @@ body[data-view="home"] .main > .view > * {
 
 /* Manual metric ordering in Admin > Metas. */
 #adminView .metric-row.metric-catalog-row {
-  grid-template-columns: 116px minmax(160px, 1.15fr) minmax(86px, .5fr) minmax(150px, .9fr) minmax(140px, .8fr) minmax(126px, .72fr) minmax(128px, .72fr) minmax(110px, .6fr) minmax(128px, auto);
+  grid-template-columns: 106px repeat(5, minmax(0, 1fr));
   align-items: end;
 }
 
@@ -5912,6 +5912,30 @@ body[data-view="home"] .main > .view > * {
   font-size: 12px;
   font-weight: 700;
   text-align: center;
+}
+
+.metric-catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: end;
+  grid-column: span 2;
+}
+
+.metric-catalog-actions .compact-action {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.metric-catalog-row.inactive {
+  border-style: dashed;
+  background: #fbf8f9;
+  opacity: .78;
+}
+
+.metric-catalog-row.inactive input,
+.metric-catalog-row.inactive select {
+  background: #fff;
 }
 
 .metric-catalog-row.system input:disabled,

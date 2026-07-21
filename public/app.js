@@ -29,6 +29,12 @@ const PARTIAL_STATUS = {
 const PRIMARY_METRIC_GROUPS = ["Produtos", "Servicos Movel", "Servicos Residencial"];
 const METRIC_GROUPS = [...PRIMARY_METRIC_GROUPS, "Informativo", "Sem bloco"];
 const METRIC_TYPES = ["volume", "receita", "percentual", "informativo"];
+const METRIC_FORMULA_TYPES = [
+  { value: "unit100", label: "Quantidade x taxa x 100" },
+  { value: "revenue", label: "Receita x taxa" },
+  { value: "deviceRevenue", label: "Receita de aparelho" },
+  { value: "deviceQty", label: "Quantidade de aparelho" },
+];
 
 function makeId() {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -128,6 +134,7 @@ function seedState() {
       { id: makeId(), name: "VENDEDOR", branch: "FILIAL", area: "Nao Cabo", adjustments: { quality: 0, insurance: 0, carousel: 0 }, password: "1234", emExperiencia: false, values: {} },
     ],
     rules: structuredClone(defaultRules),
+    metricCatalog: normalizeMetricCatalog(),
     customMetrics: { Cabo: [], "Nao Cabo": [] },
     metricOrder: {
       Cabo: areaMetrics.Cabo.map((metric) => metric.id),
@@ -515,21 +522,52 @@ function normalizeCustomMetrics(source) {
 }
 
 function normalizeCustomMetric(metric) {
-  const base = {
+  return normalizeMetricDefinition(metric, {
     id: metric?.id || `custom_${makeId()}`,
     name: metric?.name || "NOVA META",
     unit: metric?.unit || "Qtd.",
     type: metric?.type || "unit100",
     goal: Number(metric?.goal) || 0,
     sortOrder: Number(metric?.sortOrder) || 0,
+  });
+}
+
+function normalizeMetricDefinition(metric, fallback = {}) {
+  const merged = { ...(fallback || {}), ...(metric || {}) };
+  const base = {
+    id: merged.id || fallback.id || `custom_${makeId()}`,
+    name: String(merged.name || fallback.name || "NOVA META").trim() || "NOVA META",
+    unit: String(merged.unit || fallback.unit || "Qtd.").trim() || "Qtd.",
+    type: merged.type || fallback.type || "unit100",
+    goal: Number(merged.goal ?? fallback.goal) || 0,
+    sortOrder: Number(merged.sortOrder ?? fallback.sortOrder) || 0,
+    active: merged.active !== false,
+    importKey: String(merged.importKey || fallback.importKey || fallback.id || merged.id || merged.name || "").trim(),
+    observation: String(merged.observation || merged.notes || fallback.observation || "").trim(),
   };
   const inferred = metricClassification(base);
   return {
     ...base,
-    groupMeta: METRIC_GROUPS.includes(metric?.groupMeta) ? metric.groupMeta : inferred.groupMeta,
-    tipoIndicador: METRIC_TYPES.includes(metric?.tipoIndicador) ? metric.tipoIndicador : inferred.tipoIndicador,
-    participaAtingimento: typeof metric?.participaAtingimento === "boolean" ? metric.participaAtingimento : inferred.participaAtingimento,
+    groupMeta: METRIC_GROUPS.includes(merged.groupMeta) ? merged.groupMeta : inferred.groupMeta,
+    tipoIndicador: METRIC_TYPES.includes(merged.tipoIndicador) ? merged.tipoIndicador : inferred.tipoIndicador,
+    participaAtingimento: typeof merged.participaAtingimento === "boolean" ? merged.participaAtingimento : inferred.participaAtingimento,
   };
+}
+
+function normalizeMetricCatalog(source) {
+  const normalized = { Cabo: {}, "Nao Cabo": {} };
+  for (const area of ["Cabo", "Nao Cabo"]) {
+    const current = source?.[area];
+    const entries = Array.isArray(current)
+      ? current.map((item) => [item?.id, item])
+      : Object.entries(current && typeof current === "object" ? current : {});
+    for (const [id, config] of entries) {
+      if (!id) continue;
+      const fallback = areaMetrics[area]?.find((metric) => metric.id === id) || { id };
+      normalized[area][id] = normalizeMetricDefinition({ id, ...(config || {}) }, fallback);
+    }
+  }
+  return normalized;
 }
 
 function normalizePartialItem(item) {
@@ -623,7 +661,7 @@ function moveMetricOrder(area, metricId, direction) {
   const index = order.indexOf(metricId);
   const target = index + direction;
   if (index < 0 || target < 0 || target >= order.length) return;
-  const metric = metricsFor(area).find((item) => item.id === metricId);
+  const metric = metricsFor(area, state, { includeInactive: true }).find((item) => item.id === metricId);
   [order[index], order[target]] = [order[target], order[index]];
   state.metricOrder[area] = order;
   syncCustomMetricSortOrder(area);
@@ -702,6 +740,7 @@ function campaignPayloadFrom(source, options = {}) {
     period: cloneData(source.period || { month: "JUNHO", daysDone: 1, daysTotal: 1 }),
     sellers: cloneData(source.sellers || []),
     rules: cloneData(source.rules || defaultRules),
+    metricCatalog: normalizeMetricCatalog(source.metricCatalog),
     customMetrics: normalizeCustomMetrics(source.customMetrics),
     metricOrder: normalizeMetricOrder(source, normalizeCustomMetrics(source.customMetrics)),
     branches: cloneData(source.branches || []),
@@ -725,6 +764,7 @@ function emptyCampaignSource(reference = "Novo periodo") {
     period: { month: reference, daysDone: 0, daysTotal: Number(state?.period?.daysTotal) || 1 },
     sellers: [],
     rules: structuredClone(defaultRules),
+    metricCatalog: normalizeMetricCatalog(),
     customMetrics: { Cabo: [], "Nao Cabo": [] },
     metricOrder: {
       Cabo: areaMetrics.Cabo.map((metric) => metric.id),
@@ -775,6 +815,7 @@ function normalizeCampaign(campaign, fallback) {
   normalized.period = normalized.period || fallback.period || { month: "JUNHO", daysDone: 1, daysTotal: 1 };
   normalized.sellers = Array.isArray(normalized.sellers) ? normalized.sellers : cloneData(fallback.sellers || []);
   normalized.rules = normalized.rules || cloneData(fallback.rules || defaultRules);
+  normalized.metricCatalog = normalizeMetricCatalog(normalized.metricCatalog);
   normalized.customMetrics = normalizeCustomMetrics(normalized.customMetrics);
   normalized.metricOrder = normalizeMetricOrder(normalized, normalized.customMetrics);
   normalized.deflators = normalizeDeflators(normalized.deflators);
@@ -805,6 +846,7 @@ function applyCampaignToState(target, campaign) {
   target.period = cloneData(campaign.period);
   target.sellers = cloneData(campaign.sellers);
   target.rules = cloneData(campaign.rules);
+  target.metricCatalog = normalizeMetricCatalog(campaign.metricCatalog);
   target.customMetrics = normalizeCustomMetrics(campaign.customMetrics);
   target.metricOrder = normalizeMetricOrder(campaign, target.customMetrics);
   target.branches = normalizeBranches(cloneData(campaign.branches), target.sellers);
@@ -819,6 +861,7 @@ function normalizeState(candidate) {
   candidate.period = candidate.period || { month: "JUNHO", daysDone: 1, daysTotal: 1 };
   candidate.settings = { ...defaultSettings(), ...(candidate.settings || {}) };
   candidate.rules = candidate.rules || structuredClone(defaultRules);
+  candidate.metricCatalog = normalizeMetricCatalog(candidate.metricCatalog);
   candidate.customMetrics = normalizeCustomMetrics(candidate.customMetrics);
   candidate.metricOrder = normalizeMetricOrder(candidate, candidate.customMetrics);
   candidate.deflators = normalizeDeflators(candidate.deflators);
@@ -888,9 +931,14 @@ function flushSaveState(message = "Salvo no banco") {
   return saveStateToCloud(message);
 }
 
-function metricsFor(area, sourceState = state) {
-  const defaults = (areaMetrics[area] || []).map((metric) => ({ ...metric, isCustom: false }));
-  const custom = (sourceState?.customMetrics?.[area] || []).map((metric) => ({ ...metric, isCustom: true }));
+function metricsFor(area, sourceState = state, options = {}) {
+  const catalog = normalizeMetricCatalog(sourceState?.metricCatalog);
+  const defaults = (areaMetrics[area] || []).map((metric) => ({
+    ...normalizeMetricDefinition(catalog?.[area]?.[metric.id], metric),
+    id: metric.id,
+    isCustom: false,
+  }));
+  const custom = normalizeCustomMetrics(sourceState?.customMetrics)?.[area].map((metric) => ({ ...metric, isCustom: true }));
   const order = normalizeMetricOrder(sourceState, sourceState?.customMetrics)[area] || [];
   return [...defaults, ...custom]
     .map((metric) => {
@@ -904,6 +952,7 @@ function metricsFor(area, sourceState = state) {
         sortOrder: index >= 0 ? index + 1 : order.length + 1,
       };
     })
+    .filter((metric) => options.includeInactive || metric.active !== false)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 }
 
@@ -1608,18 +1657,24 @@ function metricComparableKeys(value) {
 }
 
 function metricNameMatches(metric, metricName) {
-  const metricKeys = metricComparableKeys(metric?.name || metric?.id || "");
+  const metricKeys = new Set([
+    ...metricComparableKeys(metric?.name || ""),
+    ...metricComparableKeys(metric?.importKey || ""),
+    ...metricComparableKeys(metric?.id || ""),
+  ]);
   const importedKeys = metricComparableKeys(metricName);
   for (const key of importedKeys) if (metricKeys.has(key)) return true;
   return false;
 }
 
-function findMetricByImportedName(area, metricName) {
-  const metrics = metricsFor(area);
+function findMetricByImportedName(area, metricName, options = {}) {
+  const metrics = metricsFor(area, state, options);
   const importedFull = normalizedKey(metricName).replace(/\s+/g, " ").trim();
   const importedAlias = metricAliasKey(metricName);
   return metrics.find((metric) => normalizedKey(metric.name).replace(/\s+/g, " ").trim() === importedFull)
+    || metrics.find((metric) => metric.importKey && normalizedKey(metric.importKey).replace(/\s+/g, " ").trim() === importedFull)
     || metrics.find((metric) => metricAliasKey(metric.name || metric.id) === importedAlias)
+    || metrics.find((metric) => metric.importKey && metricAliasKey(metric.importKey) === importedAlias)
     || metrics.find((metric) => metricNameMatches(metric, metricName))
     || null;
 }
@@ -1703,6 +1758,7 @@ function resetCampaignDataForGoalImport() {
   state.sellers = [];
   state.branches = [];
   state.branchPasswords = {};
+  state.metricCatalog = normalizeMetricCatalog();
   state.customMetrics = { Cabo: [], "Nao Cabo": [] };
   state.metricOrder = {
     Cabo: areaMetrics.Cabo.map((metric) => metric.id),
@@ -1884,8 +1940,8 @@ function findPartialMetric(area, metricName) {
 
 function partialItemMetric(item, seller) {
   const area = seller?.area || item?.area || "Nao Cabo";
-  const metrics = metricsFor(area);
-  const byName = item?.metricName ? findMetricByImportedName(area, item.metricName) : null;
+  const metrics = metricsFor(area, state, { includeInactive: true });
+  const byName = item?.metricName ? findMetricByImportedName(area, item.metricName, { includeInactive: true }) : null;
   const byId = item?.metricId ? metrics.find((candidate) => candidate.id === item.metricId) : null;
   if (byName) return byName;
   if (byId && (!item?.metricName || metricNameMatches(byId, item.metricName))) return byId;
@@ -3546,9 +3602,13 @@ function auditFieldDescriptor(target) {
     const metric = auditMetricName(seller?.area, target.dataset.collabRealized);
     return { action: "Alterou realizado pelo vendedor", module: "Vendedor", itemId: target.dataset.collabRealized, itemName: `${seller?.name || ""} / ${metric}`, field: "Realizado", profile: "Vendedor", userId: seller?.id || "", userName: seller?.name || "", sellerName: seller?.name || "", branchName: seller?.branch || "", message: `Vendedor ${seller?.name || ""} alterou realizado de ${metric}.` };
   }
+  if (target.dataset.catalogMetricField) {
+    const metric = metricsFor(target.dataset.catalogMetricArea, state, { includeInactive: true }).find((item) => item.id === target.dataset.catalogMetricId);
+    return { action: "Editou indicador", module: "Metas e Indicadores", itemId: metric?.id || "", itemName: metric?.name || "", field: target.dataset.catalogMetricField, message: `Admin editou o indicador ${metric?.name || ""}.` };
+  }
   if (target.dataset.customMetricField) {
     const metric = state.customMetrics?.[target.dataset.customMetricArea]?.find((item) => item.id === target.dataset.customMetricId);
-    return { action: "Editou meta", module: "Metas", itemId: metric?.id || "", itemName: metric?.name || "", field: target.dataset.customMetricField, message: `Admin editou a meta ${metric?.name || ""}.` };
+    return { action: "Editou meta", module: "Metas e Indicadores", itemId: metric?.id || "", itemName: metric?.name || "", field: target.dataset.customMetricField, message: `Admin editou a meta ${metric?.name || ""}.` };
   }
   if (target.dataset.ruleAt || target.dataset.ruleRate) {
     const area = document.getElementById("ruleAreaSelect")?.value || "";
@@ -3577,7 +3637,7 @@ function rememberAuditPreviousValue(target) {
 function recordAuditFieldChange(target) {
   const descriptor = auditFieldDescriptor(target);
   if (!descriptor) return;
-  if ((target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") || ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) && !canEditCampaignData()) return;
+  if ((target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") || ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) && !canEditCampaignData()) return;
   if (target.dataset.collabRealized && isCampaignOperationLocked()) return;
   const previousValue = target.dataset.auditPreviousValue || "";
   const newValue = auditRawElementValue(target);
@@ -3621,7 +3681,7 @@ function renderAdmin() {
   renderAdminMetrics();
   renderRules();
   renderBranchEditor();
-  renderMetricCatalogEditor();
+  renderEditableMetricCatalogEditor();
   renderDeflators();
   renderAuditLogs();
 }
@@ -3687,49 +3747,186 @@ function renderDeflators() {
   }).join("");
 }
 function metricOptions(area, selectedId) {
-  return metricsFor(area)
+  return metricsFor(area, state, { includeInactive: true })
+    .filter((metric) => metric.active !== false || metric.id === selectedId)
     .filter((metric) => metricParticipates(metric) || metric.id === selectedId)
-    .map((metric) => `<option value="${metric.id}" ${metric.id === selectedId ? "selected" : ""}>${metric.name}</option>`).join("");
+    .map((metric) => `<option value="${metric.id}" ${metric.id === selectedId ? "selected" : ""}>${escapeHtml(metric.name)}${metric.active === false ? " (inativo)" : ""}</option>`).join("");
+}
+
+function metricFormulaOptions(selectedType) {
+  return METRIC_FORMULA_TYPES.map((item) => `<option value="${item.value}" ${item.value === selectedType ? "selected" : ""}>${item.label}</option>`).join("");
+}
+
+function ensureMetricCatalogEntry(area, metricId) {
+  state.metricCatalog = normalizeMetricCatalog(state.metricCatalog);
+  state.metricCatalog[area] = state.metricCatalog[area] || {};
+  const fallback = areaMetrics[area]?.find((metric) => metric.id === metricId) || { id: metricId };
+  state.metricCatalog[area][metricId] = normalizeMetricDefinition(state.metricCatalog[area][metricId] || fallback, fallback);
+  return state.metricCatalog[area][metricId];
+}
+
+function editableMetricRecord(area, metricId) {
+  state.customMetrics = normalizeCustomMetrics(state.customMetrics);
+  const custom = state.customMetrics?.[area]?.find((metric) => metric.id === metricId);
+  return custom || ensureMetricCatalogEntry(area, metricId);
+}
+
+function metricHasHistory(area, metricId) {
+  const hasPartialHistory = (state.campaigns || []).some((campaign) => (
+    (campaign.partials || []).some((partial) => (partial.items || []).some((item) => item.metricId === metricId && normalizeAreaName(item.area || area) === area))
+  ));
+  const hasSellerValue = state.sellers.some((seller) => seller.area === area && seller.values?.[metricId] && (
+    Number(seller.values[metricId].realized)
+  ));
+  return hasPartialHistory || hasSellerValue;
+}
+
+function setMetricActive(area, metricId, active) {
+  const metric = editableMetricRecord(area, metricId);
+  const previous = metric.active !== false ? "Ativo" : "Inativo";
+  metric.active = active;
+  logUpdate({
+    action: active ? "Ativou indicador" : "Inativou indicador",
+    module: "Metas e Indicadores",
+    itemId: metricId,
+    itemName: metric.name || metricId,
+    previousValue: previous,
+    newValue: active ? "Ativo" : "Inativo",
+    message: `Admin ${active ? "ativou" : "inativou"} o indicador ${metric.name || metricId}.`,
+  });
+  saveState(active ? "Indicador ativado com sucesso." : "Indicador inativado com sucesso.");
+  renderAll();
+}
+
+function duplicateMetric(area, metricId) {
+  const original = metricsFor(area, state, { includeInactive: true }).find((metric) => metric.id === metricId);
+  if (!original) return;
+  const id = `custom_${makeId()}`;
+  const copy = normalizeCustomMetric({
+    ...original,
+    id,
+    name: `${original.name} COPIA`,
+    active: true,
+    importKey: `${original.importKey || original.id}_copia`,
+    sortOrder: metricOrderIndex(area, metricId) + 2,
+  });
+  state.customMetrics[area] = state.customMetrics[area] || [];
+  state.customMetrics[area].push(copy);
+  ensureMetricOrder(area);
+  const order = state.metricOrder[area].filter((item) => item !== id);
+  const sourceIndex = order.indexOf(metricId);
+  order.splice(sourceIndex >= 0 ? sourceIndex + 1 : order.length, 0, id);
+  state.metricOrder[area] = order;
+  syncCustomMetricSortOrder(area);
+  state.rules[area] = state.rules[area] || {};
+  state.rules[area][id] = structuredClone(state.rules[area]?.[metricId] || []);
+  for (const seller of state.sellers.filter((item) => item.area === area)) ensureSellerValues(seller);
+  logUpdate({
+    action: "Duplicou indicador",
+    module: "Metas e Indicadores",
+    itemId: id,
+    itemName: copy.name,
+    previousValue: original.name,
+    newValue: copy.name,
+    message: `Admin duplicou o indicador ${original.name}.`,
+  });
+  saveState("Indicador duplicado com sucesso.");
+  renderAll();
+}
+
+function removeOrInactivateMetric(area, metricId) {
+  const metric = metricsFor(area, state, { includeInactive: true }).find((item) => item.id === metricId);
+  if (!metric) return;
+  const isSystem = metric.isCustom !== true;
+  if (isSystem || metricHasHistory(area, metricId)) {
+    alert("Este indicador possui historico de uso. Para preservar os dados, ele sera inativado.");
+    setMetricActive(area, metricId, false);
+    return;
+  }
+  if (!confirm("Excluir definitivamente este indicador?")) return;
+  state.customMetrics[area] = (state.customMetrics[area] || []).filter((item) => item.id !== metricId);
+  state.metricOrder[area] = (state.metricOrder[area] || []).filter((id) => id !== metricId);
+  state.deflators[area] = (state.deflators[area] || []).filter((item) => item.metricId !== metricId);
+  delete state.rules[area]?.[metricId];
+  logUpdate({
+    action: "Excluiu indicador",
+    module: "Metas e Indicadores",
+    itemId: metricId,
+    itemName: metric.name,
+    previousValue: metric.name,
+    message: `Admin excluiu o indicador ${metric.name}.`,
+  });
+  saveState("Indicador excluido.");
+  renderAll();
+}
+
+function updateMetricCatalogField(target) {
+  const area = target.dataset.catalogMetricArea;
+  const metricId = target.dataset.catalogMetricId;
+  const field = target.dataset.catalogMetricField;
+  if (!area || !metricId || !field) return;
+  const metric = editableMetricRecord(area, metricId);
+  const previousName = metric.name || metricId;
+  if (field === "goal") metric.goal = Number(target.value) || 0;
+  else if (field === "participaAtingimento") metric.participaAtingimento = target.value === "true";
+  else if (field === "active") metric.active = target.value === "true";
+  else if (field === "name") metric.name = target.value.trim() || previousName;
+  else if (field === "unit") metric.unit = target.value.trim() || "Qtd.";
+  else if (field === "importKey") metric.importKey = target.value.trim();
+  else if (field === "observation") metric.observation = target.value.trim();
+  else metric[field] = target.value;
+  syncCustomMetricSortOrder(area);
+  state.rules[area] = state.rules[area] || {};
+  state.rules[area][metric.id] = state.rules[area][metric.id] || [];
+  for (const seller of state.sellers.filter((item) => item.area === area)) {
+    ensureSellerValues(seller);
+    if (field === "goal" && seller.values?.[metric.id]) seller.values[metric.id].goal = metric.goal;
+  }
+  if (field === "tipoIndicador" && metric.tipoIndicador === "informativo") metric.participaAtingimento = false;
+  saveState("Indicador atualizado com sucesso.");
+  renderDashboard();
+  renderAdminMetrics();
+  renderManager();
+  renderCollaborator();
 }
 
 function renderMetricCatalogEditor() {
   const container = document.getElementById("metricCatalogEditor");
   if (!container) return;
   const allowReorder = canReorderMetrics();
+  const allowEdit = canEditCampaignData();
   const lockMessage = metricOrderLockMessage();
   container.innerHTML = ["Cabo", "Nao Cabo"].map((area) => {
-    const metrics = metricsFor(area);
+    const metrics = metricsFor(area, state, { includeInactive: true });
     const rows = metrics.map((metric, index) => {
       const isCustom = metric.isCustom === true;
       const moveDisabledUp = !allowReorder || index === 0;
       const moveDisabledDown = !allowReorder || index === metrics.length - 1;
+      const disabledAttr = allowEdit ? "" : "disabled";
       const groupOptions = METRIC_GROUPS.map((group) => `<option value="${group}" ${metricGroup(metric) === group ? "selected" : ""}>${metricGroupDisplay(group)}</option>`).join("");
       const typeOptions = METRIC_TYPES.map((type) => `<option value="${type}" ${metricTypeKind(metric) === type ? "selected" : ""}>${metricTypeDisplay(type)}</option>`).join("");
+      const statusOptions = `<option value="true" ${metric.active !== false ? "selected" : ""}>Ativo</option><option value="false" ${metric.active === false ? "selected" : ""}>Inativo</option>`;
+      const dataAttrs = (field) => `data-catalog-metric-field="${field}" data-catalog-metric-area="${area}" data-catalog-metric-id="${metric.id}"`;
       return `
-        <div class="metric-row metric-catalog-row ${isCustom ? "custom" : "system"}">
+        <div class="metric-row metric-catalog-row ${metric.isCustom ? "custom" : "system"} ${metric.active === false ? "inactive" : ""}">
           <div class="metric-order-cell">
             <span>${metric.sortOrder}</span>
             <button class="ghost-button compact-action icon-order-button" data-move-metric-order="-1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" title="Mover para cima" aria-label="Mover ${escapeHtml(metric.name)} para cima" ${moveDisabledUp ? "disabled" : ""}>&#8593;</button>
             <button class="ghost-button compact-action icon-order-button" data-move-metric-order="1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" title="Mover para baixo" aria-label="Mover ${escapeHtml(metric.name)} para baixo" ${moveDisabledDown ? "disabled" : ""}>&#8595;</button>
           </div>
-          <label>Indicador<input ${isCustom ? `data-custom-metric-field="name" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"} value="${escapeHtml(metric.name)}"></label>
-          <label>Unidade<input ${isCustom ? `data-custom-metric-field="unit" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"} value="${escapeHtml(metric.unit || "Qtd.")}"></label>
+          <label>Indicador<input ${dataAttrs("name")} value="${escapeHtml(metric.name)}" ${disabledAttr}></label>
+          <label>Unidade<input ${dataAttrs("unit")} value="${escapeHtml(metric.unit || "Qtd.")}" ${disabledAttr}></label>
           <label>Tipo
-            <select ${isCustom ? `data-custom-metric-field="type" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"}>
-              <option value="unit100" ${metric.type === "unit100" ? "selected" : ""}>Quantidade x taxa x 100</option>
-              <option value="revenue" ${metric.type === "revenue" ? "selected" : ""}>Receita x taxa</option>
-              <option value="deviceRevenue" ${metric.type === "deviceRevenue" ? "selected" : ""}>Receita de aparelho</option>
-              <option value="deviceQty" ${metric.type === "deviceQty" ? "selected" : ""}>Quantidade de aparelho</option>
-            </select>
+            <select ${dataAttrs("type")} ${disabledAttr}>${metricFormulaOptions(metric.type)}</select>
           </label>
           <label>Bloco
-            <select ${isCustom ? `data-custom-metric-field="groupMeta" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"}>${groupOptions}</select>
+            <select ${dataAttrs("groupMeta")} ${disabledAttr}>${groupOptions}</select>
           </label>
           <label>Tipo indicador
-            <select ${isCustom ? `data-custom-metric-field="tipoIndicador" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"}>${typeOptions}</select>
+            <select ${dataAttrs("tipoIndicador")} ${disabledAttr}>${typeOptions}</select>
           </label>
           <label>Atingimento
-            <select ${isCustom ? `data-custom-metric-field="participaAtingimento" data-custom-metric-area="${area}" data-custom-metric-id="${metric.id}"` : "disabled"}>
+            <select ${dataAttrs("participaAtingimento")} ${disabledAttr}>
               <option value="true" ${metricParticipates(metric) ? "selected" : ""}>Participa</option>
               <option value="false" ${!metricParticipates(metric) ? "selected" : ""}>Informativo</option>
             </select>
@@ -3743,6 +3940,66 @@ function renderMetricCatalogEditor() {
     }).join("");
     const note = lockMessage ? `<p class="admin-inline-note warning">${lockMessage}</p>` : `<p class="admin-inline-note">Use Subir/Descer para definir a sequência das metas nesta campanha.</p>`;
     return `<div class="rule-card metric-catalog-card"><h4>${area}</h4>${note}${rows}<button class="ghost-button" data-add-custom-metric="${area}" type="button">Adicionar meta</button></div>`;
+  }).join("");
+}
+
+function renderEditableMetricCatalogEditor() {
+  const container = document.getElementById("metricCatalogEditor");
+  if (!container) return;
+  const allowReorder = canReorderMetrics();
+  const allowEdit = canEditCampaignData();
+  const lockMessage = metricOrderLockMessage();
+  container.innerHTML = ["Cabo", "Nao Cabo"].map((area) => {
+    const metrics = metricsFor(area, state, { includeInactive: true });
+    const rows = metrics.map((metric, index) => {
+      const moveDisabledUp = !allowReorder || index === 0;
+      const moveDisabledDown = !allowReorder || index === metrics.length - 1;
+      const disabledAttr = allowEdit ? "" : "disabled";
+      const groupOptions = METRIC_GROUPS.map((group) => `<option value="${group}" ${metricGroup(metric) === group ? "selected" : ""}>${metricGroupDisplay(group)}</option>`).join("");
+      const typeOptions = METRIC_TYPES.map((type) => `<option value="${type}" ${metricTypeKind(metric) === type ? "selected" : ""}>${metricTypeDisplay(type)}</option>`).join("");
+      const statusOptions = `<option value="true" ${metric.active !== false ? "selected" : ""}>Ativo</option><option value="false" ${metric.active === false ? "selected" : ""}>Inativo</option>`;
+      const dataAttrs = (field) => `data-catalog-metric-field="${field}" data-catalog-metric-area="${area}" data-catalog-metric-id="${metric.id}"`;
+      return `
+        <div class="metric-row metric-catalog-row ${metric.isCustom ? "custom" : "system"} ${metric.active === false ? "inactive" : ""}">
+          <div class="metric-order-cell">
+            <span>${metric.sortOrder}</span>
+            <button class="ghost-button compact-action icon-order-button" data-move-metric-order="-1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" title="Mover para cima" aria-label="Mover ${escapeHtml(metric.name)} para cima" ${moveDisabledUp ? "disabled" : ""}>&#8593;</button>
+            <button class="ghost-button compact-action icon-order-button" data-move-metric-order="1" data-metric-order-area="${area}" data-metric-order-id="${metric.id}" type="button" title="Mover para baixo" aria-label="Mover ${escapeHtml(metric.name)} para baixo" ${moveDisabledDown ? "disabled" : ""}>&#8595;</button>
+          </div>
+          <label>Indicador<input ${dataAttrs("name")} value="${escapeHtml(metric.name)}" ${disabledAttr}></label>
+          <label>Unidade<input ${dataAttrs("unit")} value="${escapeHtml(metric.unit || "Qtd.")}" ${disabledAttr}></label>
+          <label>Tipo
+            <select ${dataAttrs("type")} ${disabledAttr}>${metricFormulaOptions(metric.type)}</select>
+          </label>
+          <label>Bloco
+            <select ${dataAttrs("groupMeta")} ${disabledAttr}>${groupOptions}</select>
+          </label>
+          <label>Tipo indicador
+            <select ${dataAttrs("tipoIndicador")} ${disabledAttr}>${typeOptions}</select>
+          </label>
+          <label>Atingimento
+            <select ${dataAttrs("participaAtingimento")} ${disabledAttr}>
+              <option value="true" ${metricParticipates(metric) ? "selected" : ""}>Participa</option>
+              <option value="false" ${!metricParticipates(metric) ? "selected" : ""}>Informativo</option>
+            </select>
+          </label>
+          <label>Meta padrao<input ${dataAttrs("goal")} type="number" step="0.01" value="${metric.goal || 0}" ${disabledAttr}></label>
+          <label>Chave CSV<input ${dataAttrs("importKey")} value="${escapeHtml(metric.importKey || metric.id)}" ${disabledAttr}></label>
+          <label>Status
+            <select ${dataAttrs("active")} ${disabledAttr}>${statusOptions}</select>
+          </label>
+          <div class="metric-catalog-actions">
+            <button class="ghost-button compact-action" data-duplicate-metric="${metric.id}" data-catalog-metric-area="${area}" type="button" ${allowEdit ? "" : "disabled"}>Duplicar</button>
+            <button class="${metric.active === false ? "ghost-button" : "danger-button"} compact-action" data-toggle-metric-active="${metric.id}" data-catalog-metric-area="${area}" data-next-active="${metric.active === false ? "true" : "false"}" type="button" ${allowEdit ? "" : "disabled"}>${metric.active === false ? "Ativar" : "Inativar"}</button>
+            <button class="danger-button compact-action" data-remove-metric="${metric.id}" data-catalog-metric-area="${area}" type="button" ${allowEdit ? "" : "disabled"}>${metric.isCustom ? "Excluir" : "Inativar"}</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+    const editNote = allowEdit ? "Edite nome, unidade, tipo, bloco, participacao, meta padrao e chave CSV da campanha." : "Campanha fechada oficialmente. Indicadores congelados para edicao comum.";
+    const note = lockMessage ? `<p class="admin-inline-note warning">${lockMessage}</p>` : `<p class="admin-inline-note">Use Subir/Descer para definir a sequencia das metas nesta campanha. ${editNote}</p>`;
+    const empty = `<p class="muted-note">Nao ha metas ou indicadores cadastrados para esta campanha.</p>`;
+    return `<div class="rule-card metric-catalog-card"><h4>${area}</h4>${note}${rows || empty}<button class="ghost-button" data-add-custom-metric="${area}" type="button" ${allowEdit ? "" : "disabled"}>Criar novo indicador</button></div>`;
   }).join("");
 }
 
@@ -5158,7 +5415,7 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  const protectedMutation = event.target.closest("#savePeriodAdmin,#addBranch,[data-delete-branch],[data-add-custom-metric],[data-delete-custom-metric],[data-add-deflator],[data-delete-deflator],#addSeller,[data-delete-seller],#importGoalSheet,#goalSheetDropzone,#adminImportBackup,#adminRestoreDefault");
+  const protectedMutation = event.target.closest("#savePeriodAdmin,#addBranch,[data-delete-branch],[data-add-custom-metric],[data-delete-custom-metric],[data-duplicate-metric],[data-toggle-metric-active],[data-remove-metric],[data-add-deflator],[data-delete-deflator],#addSeller,[data-delete-seller],#importGoalSheet,#goalSheetDropzone,#adminImportBackup,#adminRestoreDefault");
   if (protectedMutation && !canEditCampaignData()) {
     alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
     return;
@@ -5353,7 +5610,9 @@ document.addEventListener("click", async (event) => {
   if (addMetricButton) {
     const area = addMetricButton.dataset.addCustomMetric;
     const id = `custom_${makeId()}`;
-    state.customMetrics[area].push({ id, name: "NOVA META", unit: "Qtd.", type: "unit100", goal: 1 });
+    state.customMetrics = normalizeCustomMetrics(state.customMetrics);
+    state.customMetrics[area] = state.customMetrics[area] || [];
+    state.customMetrics[area].push(normalizeCustomMetric({ id, name: "NOVA META", unit: "Qtd.", type: "unit100", goal: 1, active: true, importKey: id }));
     ensureMetricOrder(area);
     if (!state.metricOrder[area].includes(id)) state.metricOrder[area].push(id);
     syncCustomMetricSortOrder(area);
@@ -5367,6 +5626,24 @@ document.addEventListener("click", async (event) => {
     });
     saveState("Meta adicionada");
     renderAll();
+  }
+
+  const duplicateMetricButton = event.target.closest("[data-duplicate-metric]");
+  if (duplicateMetricButton) {
+    duplicateMetric(duplicateMetricButton.dataset.catalogMetricArea, duplicateMetricButton.dataset.duplicateMetric);
+    return;
+  }
+
+  const toggleMetricButton = event.target.closest("[data-toggle-metric-active]");
+  if (toggleMetricButton) {
+    setMetricActive(toggleMetricButton.dataset.catalogMetricArea, toggleMetricButton.dataset.toggleMetricActive, toggleMetricButton.dataset.nextActive === "true");
+    return;
+  }
+
+  const removeMetricButton = event.target.closest("[data-remove-metric]");
+  if (removeMetricButton) {
+    removeOrInactivateMetric(removeMetricButton.dataset.catalogMetricArea, removeMetricButton.dataset.removeMetric);
+    return;
   }
 
   const deleteMetricButton = event.target.closest("[data-delete-custom-metric]");
@@ -5689,6 +5966,11 @@ document.addEventListener("change", (event) => {
     return;
   }
   recordAuditFieldChange(event.target);
+  if (event.target.dataset.catalogMetricField && event.target.tagName === "SELECT") {
+    updateMetricCatalogField(event.target);
+    if (event.target.dataset.catalogMetricField === "active") renderEditableMetricCatalogEditor();
+    return;
+  }
 }, true);
 
 document.addEventListener("input", (event) => {
@@ -5702,7 +5984,7 @@ document.addEventListener("input", (event) => {
     sessionStorage.setItem("commission-collaborator-simulation-days-total", activeCollaboratorSimulationDaysTotal);
     return;
   }
-  const protectedInput = target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
+  const protectedInput = target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
     ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id);
   if (protectedInput && !canEditCampaignData()) {
     alert("Esta campanha esta fechada oficialmente e nao permite alteracoes.");
@@ -5792,6 +6074,10 @@ document.addEventListener("input", (event) => {
     }
   }
 
+  if (target.dataset.catalogMetricField && target.tagName !== "SELECT") {
+    updateMetricCatalogField(target);
+    return;
+  }
 
   if (target.dataset.customMetricField) {
     const area = target.dataset.customMetricArea;
@@ -6028,7 +6314,7 @@ document.addEventListener("change", (event) => {
     reader.readAsText(file);
   }
 
-  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-custom-metric-field], [data-branch-name], [data-branch-password]")) renderAll();
+  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password]")) renderAll();
   if (event.target.id === "adminSellerSelect") renderAdminMetrics();
   if (event.target.id === "collabSellerSelect") renderCollaborator();
   if (event.target.id === "ruleAreaSelect") renderRules();
@@ -6159,6 +6445,7 @@ window.addEventListener("popstate", () => {
 });
 
 for (const seller of state.sellers) ensureSellerValues(seller);
+state.metricCatalog = normalizeMetricCatalog(state.metricCatalog);
 state.customMetrics = normalizeCustomMetrics(state.customMetrics);
 state.metricOrder = normalizeMetricOrder(state, state.customMetrics);
 for (const area of ["Cabo", "Nao Cabo"]) syncCustomMetricSortOrder(area);
