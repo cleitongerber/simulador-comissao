@@ -3662,7 +3662,7 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
 .admin-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -3695,6 +3695,9 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 .admin-summary-card.store > span::before { content: "F"; }
 .admin-summary-card.target > span::before { content: "M"; }
 .admin-summary-card.percent > span::before { content: "%"; }
+.admin-summary-card.calendar > span::before { content: "C"; }
+.admin-summary-card.status > span::before { content: "S"; }
+.admin-summary-card.partial > span::before { content: "P"; }
 
 .admin-summary-card small,
 .admin-summary-card em {
@@ -3719,6 +3722,34 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
 .admin-tab-panel.active {
   display: block;
+}
+
+.admin-subsection-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.admin-subsection-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #eee2e4;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+  text-decoration: none;
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-subsection-tabs a:hover,
+.admin-subsection-tabs a:focus-visible {
+  border-color: #efb8bf;
+  color: var(--teal);
 }
 
 .admin-section-grid {
@@ -4126,7 +4157,7 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
 .campaign-kpi-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin: 0 0 14px;
 }
