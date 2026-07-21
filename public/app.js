@@ -1320,19 +1320,36 @@ function generateOfficialCommissionCsv(snapshot) {
   lines.push(["Data/hora fechamento", dateTime.format(new Date(snapshot.closedAt))]);
   lines.push(["Total vendedores", snapshot.totalSellers]);
   lines.push(["Total filiais", snapshot.totalBranches]);
-  lines.push(["Comissao bruta total", snapshot.commissionGrossTotal]);
-  lines.push(["Deflatores totais", snapshot.deflatorTotal]);
-  lines.push(["Estornos totais", snapshot.estornosTotal]);
-  lines.push(["Comissao final total", snapshot.commissionFinalTotal]);
+  lines.push(["Comissao bruta total", csvMoney(snapshot.commissionGrossTotal)]);
+  lines.push(["Deflatores totais", csvMoney(snapshot.deflatorTotal)]);
+  lines.push(["Estornos totais", csvDiscountMoney(snapshot.estornosTotal)]);
+  lines.push(["Comissao final total", csvMoney(snapshot.commissionFinalTotal)]);
   lines.push(["Status", snapshot.status]);
   lines.push([]);
   lines.push(["Detalhe por vendedor"]);
   lines.push(["Campanha", "Mes/ano", "Vendedor", "Filial", "Area", "Vendedor em experiencia", "Comissao bruta", "Deflator aplicado", "Motivo do deflator", "Impacto financeiro do deflator", "Estorno Qualidade", "Estorno Seguro", "Estorno Carrossel", "Total de estornos", "Comissao final", "Status do fechamento"]);
-  for (const row of snapshot.sellers) lines.push([snapshot.campaignName, snapshot.reference, row.name, row.branch, row.area, row.emExperiencia ? "Sim" : "Nao", row.commissionGross, row.deflator, row.deflatorReason, row.deflatorImpact, row.estornoQuality, row.estornoInsurance, row.estornoCarousel, row.estornosTotal, row.commissionFinal, row.status]);
+  for (const row of snapshot.sellers) lines.push([
+    snapshot.campaignName,
+    snapshot.reference,
+    row.name,
+    row.branch,
+    row.area,
+    row.emExperiencia ? "Sim" : "Nao",
+    csvMoney(row.commissionGross),
+    csvMoney(row.deflator),
+    row.deflatorReason,
+    csvMoney(row.deflatorImpact),
+    csvDiscountMoney(row.estornoQuality),
+    csvDiscountMoney(row.estornoInsurance),
+    csvDiscountMoney(row.estornoCarousel),
+    csvDiscountMoney(row.estornosTotal),
+    csvMoney(row.commissionFinal),
+    row.status,
+  ]);
   lines.push([]);
   lines.push(["Detalhe por indicador"]);
   lines.push(["Campanha", "Mes/ano", "Vendedor", "Filial", "Bloco", "Indicador", "Tipo", "Participa atingimento", "Meta", "Realizado", "% atual", "Falta", "Projetado", "% projetado", "Comissao do indicador", "Deflator do indicador", "Status"]);
-  for (const row of snapshot.indicators) lines.push([snapshot.campaignName, snapshot.reference, row.seller, row.branch, row.groupMeta || "", row.metric, row.tipoIndicador || "", row.participaAtingimento ? "Sim" : "Nao", row.goal, row.realized, row.participaAtingimento ? pct.format(row.currentPercent) : "-", row.missing, row.projected, row.participaAtingimento ? pct.format(row.projectedPercent) : "-", row.commission, row.deflator, row.status]);
+  for (const row of snapshot.indicators) lines.push([snapshot.campaignName, snapshot.reference, row.seller, row.branch, row.groupMeta || "", row.metric, row.tipoIndicador || "", row.participaAtingimento ? "Sim" : "Nao", row.goal, row.realized, row.participaAtingimento ? pct.format(row.currentPercent) : "-", row.missing, row.projected, row.participaAtingimento ? pct.format(row.projectedPercent) : "-", csvMoney(row.commission), row.deflator, row.status]);
   lines.push([]);
   lines.push(["Desenvolvido por Cleiton Gerber"]);
   return `\uFEFF${lines.map((line) => line.map(csvCell).join(";")).join("\n")}`;
@@ -1481,6 +1498,14 @@ function exportCriticalGoalsExcel() {
 }
 function csvCell(value) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function csvMoney(value) {
+  return money.format(Number(value) || 0).replace(/\u00a0/g, " ");
+}
+
+function csvDiscountMoney(value) {
+  return discountMoney(value).replace(/\u00a0/g, " ");
 }
 
 function downloadGoalTemplateCsv() {
