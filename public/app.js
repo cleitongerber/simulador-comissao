@@ -176,7 +176,7 @@ let activeManagerSellerId = "";
 let activeManagerIndicator = "Todos";
 let activeManagerPartialId = "latest";
 let activeCollaboratorPartialId = "latest";
-let activeCollaboratorSimulationDaysTotal = sessionStorage.getItem("commission-collaborator-simulation-days-total") || "";
+let activeCollaboratorSimulationDaysDone = sessionStorage.getItem("commission-collaborator-simulation-days-done") || "";
 let activeCollaboratorTab = "resumo";
 let activeAdminTab = "visao";
 let pendingAccessView = "dashboard";
@@ -6420,12 +6420,12 @@ function collaboratorSimulationPeriod() {
   const partial = getVisiblePartial("colaborador");
   const official = partialPeriodInfo(partial);
   const officialTotal = official.daysTotal || campaignPlannedBusinessDays(activeCampaign()) || 1;
-  const requestedTotal = Number(activeCollaboratorSimulationDaysTotal) || officialTotal;
-  const daysDone = Math.max(1, official.daysDone || 1);
+  const requestedDaysDone = Number(activeCollaboratorSimulationDaysDone) || official.daysDone || 1;
+  const daysDone = Math.max(1, Math.min(officialTotal, requestedDaysDone));
   return {
     month: official.month || activeCampaign()?.reference || state.period.month,
     daysDone,
-    daysTotal: Math.max(daysDone, requestedTotal),
+    daysTotal: officialTotal,
     source: "simulation",
   };
 }
@@ -6435,12 +6435,12 @@ function collaboratorSimulationPeriodMarkup() {
   const official = partialPeriodInfo(getVisiblePartial("colaborador"));
   return `<section class="collab-card collab-simulation-period-card">
     <div class="collab-card-head">
-      <div><h3>Dias da simulação</h3><p>Este campo altera apenas a simulação. Os dias úteis oficiais da campanha só podem ser alterados pelo Admin.</p></div>
+      <div><h3>Dias da simulação</h3><p>Este campo altera apenas a simulação. Os dias oficiais da parcial são definidos pelo Admin na aba Parciais.</p></div>
     </div>
     <div class="collab-month-grid">
       <span>Dias realizados oficiais<strong>${official.daysDone ? num.format(official.daysDone) : "-"}</strong></span>
       <span>Dias uteis da parcial<strong>${official.daysTotal ? num.format(official.daysTotal) : "-"}</strong></span>
-      <label>Dias úteis para simulação<input id="collabSimulationDaysTotal" type="number" min="1" value="${period.daysTotal}"></label>
+      <label>Dias realizados para simulação<input id="collabSimulationDaysDone" type="number" min="1" max="${official.daysTotal || ""}" value="${period.daysDone}"></label>
     </div>
   </section>`;
 }
@@ -7742,9 +7742,9 @@ document.addEventListener("input", (event) => {
     renderAuditLogs();
     return;
   }
-  if (target.id === "collabSimulationDaysTotal") {
-    activeCollaboratorSimulationDaysTotal = target.value;
-    sessionStorage.setItem("commission-collaborator-simulation-days-total", activeCollaboratorSimulationDaysTotal);
+  if (target.id === "collabSimulationDaysDone") {
+    activeCollaboratorSimulationDaysDone = target.value;
+    sessionStorage.setItem("commission-collaborator-simulation-days-done", activeCollaboratorSimulationDaysDone);
     return;
   }
   if (isSecurityPasswordTarget(target) || isOfficialPeriodTarget(target)) return;
@@ -8199,18 +8199,18 @@ document.addEventListener("change", (event) => {
     }, { persist: true });
     renderCollaborator();
   }
-  if (event.target.id === "collabSimulationDaysTotal") {
-    activeCollaboratorSimulationDaysTotal = event.target.value;
-    sessionStorage.setItem("commission-collaborator-simulation-days-total", activeCollaboratorSimulationDaysTotal);
+  if (event.target.id === "collabSimulationDaysDone") {
+    activeCollaboratorSimulationDaysDone = event.target.value;
+    sessionStorage.setItem("commission-collaborator-simulation-days-done", activeCollaboratorSimulationDaysDone);
     const seller = selectedCollabSeller();
     logUpdate({
-      action: "Alterou dias uteis da simulacao",
+      action: "Alterou dias realizados da simulacao",
       module: "Vendedor",
       itemId: seller?.id || "",
       itemName: seller?.name || "",
       sellerName: seller?.name || "",
       newValue: event.target.value,
-      message: `${seller?.name || "Vendedor"} alterou dias uteis apenas na simulacao.`,
+      message: `${seller?.name || "Vendedor"} alterou dias realizados apenas na simulacao.`,
     }, { persist: true });
     renderCollaborator();
   }
