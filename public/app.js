@@ -938,7 +938,8 @@ function metricsFor(area, sourceState = state, options = {}) {
     id: metric.id,
     isCustom: false,
   }));
-  const custom = normalizeCustomMetrics(sourceState?.customMetrics)?.[area].map((metric) => ({ ...metric, isCustom: true }));
+  const customMetrics = normalizeCustomMetrics(sourceState?.customMetrics);
+  const custom = (customMetrics[area] || []).map((metric) => ({ ...metric, isCustom: true }));
   const order = normalizeMetricOrder(sourceState, sourceState?.customMetrics)[area] || [];
   return [...defaults, ...custom]
     .map((metric) => {
@@ -1064,11 +1065,38 @@ function rateFor(area, metricId, percent) {
   return band ? Number(band.rate) : 0;
 }
 
+function finiteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function validGoalValue(value) {
+  const goal = Number(value);
+  return Number.isFinite(goal) && goal > 0 ? goal : null;
+}
+
+function periodCalculationInfo(period = projectionPeriodOverride || state.period) {
+  const daysDone = Number(period?.daysDone);
+  const daysTotal = Number(period?.daysTotal);
+  const hasDaysDone = Number.isFinite(daysDone) && daysDone > 0;
+  const hasDaysTotal = Number.isFinite(daysTotal) && daysTotal > 0;
+  return {
+    daysDone: hasDaysDone ? daysDone : 0,
+    daysTotal: hasDaysTotal ? daysTotal : 0,
+    daysRemaining: hasDaysTotal ? Math.max(daysTotal - (hasDaysDone ? daysDone : 0), 0) : 0,
+    periodPercent: hasDaysDone && hasDaysTotal ? daysDone / daysTotal : null,
+    canProject: hasDaysDone && hasDaysTotal,
+  };
+}
+
+function projectionForPeriod(realized, period = projectionPeriodOverride || state.period) {
+  const info = periodCalculationInfo(period);
+  if (!info.canProject) return null;
+  return finiteNumber(realized) / info.daysDone * info.daysTotal;
+}
+
 function projected(realized) {
-  const source = projectionPeriodOverride || state.period;
-  const done = Math.max(1, Number(source.daysDone) || 1);
-  const total = Math.max(done, Number(source.daysTotal) || done);
-  return (Number(realized) || 0) / done * total;
+  return projectionForPeriod(realized) ?? 0;
 }
 
 let projectionPeriodOverride = null;
@@ -1086,13 +1114,14 @@ function withProjectionPeriod(period, callback) {
 function metricCommission(seller, metric, mode) {
   ensureSellerValues(seller);
   const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
-  const goal = Number(value.goal) || 0;
-  const realized = mode === "projected" ? projected(value.realized) : Number(value.realized) || 0;
+  const goal = metricGoalForSeller(seller, metric);
+  const realized = mode === "projected" ? (projectionForPeriod(value.realized) ?? 0) : finiteNumber(value.realized);
   if (metric.type === "deviceRevenue") {
     const qtyMetric = metricsFor(seller.area).find((item) => item.id === "aparelhos_qtd");
     const qtyValue = seller.values.aparelhos_qtd || { goal: qtyMetric?.goal || 0, realized: 0 };
-    const qtyRealized = mode === "projected" ? projected(qtyValue.realized) : Number(qtyValue.realized) || 0;
-    const qtyPercent = qtyRealized / (Number(qtyValue.goal) || 1);
+    const qtyGoal = metricGoalForSeller(seller, qtyMetric);
+    const qtyRealized = mode === "projected" ? (projectionForPeriod(qtyValue.realized) ?? 0) : finiteNumber(qtyValue.realized);
+    const qtyPercent = qtyGoal ? qtyRealized / qtyGoal : 0;
     return realized * rateFor(seller.area, "aparelhos_qtd", qtyPercent);
   }
   if (metric.type === "deviceQty") return 0;
@@ -1102,13 +1131,45 @@ function metricCommission(seller, metric, mode) {
   return realized * rate;
 }
 
+function metricGoalForSeller(seller, metric) {
+  if (!seller || !metric) return null;
+  const value = seller.values?.[metric.id];
+  const rawGoal = value?.goal !== undefined && value.goal !== "" ? value.goal : metric.goal;
+  return validGoalValue(rawGoal);
+}
+
+function indicatorCalculation({ metric, goal, realized, projectedValue = null, participates = true }) {
+  const officialRealized = finiteNumber(realized);
+  const eligibleGoal = participates ? validGoalValue(goal) : null;
+  const canCalculate = Boolean(metric) && participates && eligibleGoal !== null;
+  const projection = projectedValue === null || projectedValue === undefined ? null : finiteNumber(projectedValue, null);
+  const currentPercent = canCalculate ? officialRealized / eligibleGoal : null;
+  const projectedPercent = canCalculate && projection !== null ? projection / eligibleGoal : null;
+  const gap = canCalculate ? Math.max(eligibleGoal - officialRealized, 0) : null;
+  const status = !metric
+    ? { label: "Meta nao configurada", cls: "neutral", action: "Revisar meta" }
+    : !participates
+      ? { label: "Informativo", cls: "neutral", action: "Consulta" }
+      : eligibleGoal
+        ? partialStatusFromProjected(projectedPercent, currentPercent)
+        : { label: "Meta nao configurada", cls: "neutral", action: "Revisar meta" };
+  return { goal: eligibleGoal, realized: officialRealized, projectedValue: projection, currentPercent, projectedPercent, gap, status, canCalculate };
+}
+
+function metricAttainmentForSeller(seller, metricId, useProjected) {
+  if (!seller) return null;
+  const metric = metricsFor(seller?.area).find((item) => item.id === metricId);
+  if (!metric || !metricParticipates(metric)) return null;
+  const value = seller.values?.[metricId] || { goal: metric.goal, realized: 0 };
+  const goal = metricGoalForSeller(seller, metric);
+  if (!goal) return null;
+  const realized = useProjected ? projectionForPeriod(value.realized) : finiteNumber(value.realized);
+  if (realized === null) return null;
+  return realized / goal;
+}
+
 function percentFor(seller, metricId, useProjected) {
-  const metric = metricsFor(seller.area).find((item) => item.id === metricId);
-  if (!metric || !metricParticipates(metric)) return 0;
-  const value = seller.values[metricId] || { goal: metric.goal, realized: 0 };
-  const goal = Number(value.goal) || 0;
-  const realized = useProjected ? projected(value.realized) : Number(value.realized) || 0;
-  return goal ? realized / goal : 0;
+  return metricAttainmentForSeller(seller, metricId, useProjected) ?? 0;
 }
 
 function achievementClass(percent) {
@@ -1128,6 +1189,7 @@ function metricIsMoney(metric) {
 }
 
 function formatMetricAmount(metric, value) {
+  if (value === null || value === undefined || value === "") return "-";
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   if (metricIsMoney(metric)) return money.format(number);
@@ -1135,14 +1197,31 @@ function formatMetricAmount(metric, value) {
 }
 
 function formatMetricPace(metric, value) {
+  if (value === null || value === undefined || value === "") return "-";
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   if (metricIsMoney(metric)) return `${money.format(number)}/dia`;
   return `${num1.format(number)}/dia`;
 }
 
+function formatGoalLabel(metric, goal, participates = true) {
+  if (!participates) return "Informativo";
+  return validGoalValue(goal) === null ? "Meta nao configurada" : formatMetricAmount(metric, goal);
+}
+
+function formatPercent(value) {
+  return value === null || value === undefined || !Number.isFinite(Number(value)) ? "-" : pct.format(Number(value));
+}
+
+function effectiveAttainmentPercent(item) {
+  const projectedPercent = Number(item?.projectedPercent);
+  if (Number.isFinite(projectedPercent)) return projectedPercent;
+  const currentPercent = Number(item?.currentPercent ?? item?.percent);
+  return Number.isFinite(currentPercent) ? currentPercent : null;
+}
+
 function metricGoalApplies(item) {
-  return Boolean(item?.participates) && Number(item?.goal) > 0 && Number.isFinite(Number(item?.projectedPercent));
+  return Boolean(item?.participates) && validGoalValue(item?.goal) !== null && effectiveAttainmentPercent(item) !== null;
 }
 
 function goalCompletionStatus(percent) {
@@ -1154,9 +1233,9 @@ function goalCompletionStatus(percent) {
 
 function goalCompletionStats(items) {
   const applicable = items.filter(metricGoalApplies);
-  const met = applicable.filter((item) => Number(item.projectedPercent) >= 1);
-  const critical = applicable.filter((item) => Number(item.projectedPercent) < 0.8);
-  const projectedAverage = applicable.length ? applicable.reduce((sum, item) => sum + Number(item.projectedPercent || 0), 0) / applicable.length : null;
+  const met = applicable.filter((item) => effectiveAttainmentPercent(item) >= 1);
+  const critical = applicable.filter((item) => effectiveAttainmentPercent(item) < 0.8);
+  const projectedAverage = applicable.length ? applicable.reduce((sum, item) => sum + effectiveAttainmentPercent(item), 0) / applicable.length : null;
   const metPercent = applicable.length ? met.length / applicable.length : null;
   return {
     applicable,
@@ -1174,14 +1253,14 @@ function goalCompletionStats(items) {
 function criticalMetricList(items, limit = 3) {
   return items
     .filter(metricGoalApplies)
-    .filter((item) => Number(item.projectedPercent) < 0.8)
-    .sort((a, b) => Number(a.projectedPercent || 0) - Number(b.projectedPercent || 0))
+    .filter((item) => effectiveAttainmentPercent(item) < 0.8)
+    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b))
     .slice(0, limit);
 }
 
 function criticalMetricNames(items, limit = 3) {
   const rows = criticalMetricList(items, limit);
-  return rows.map((item) => `${item.metric?.name || item.item?.metricName || item.key}: ${pct.format(Number(item.projectedPercent) || 0)}`).join(", ");
+  return rows.map((item) => `${item.metric?.name || item.item?.metricName || item.key}: ${formatPercent(effectiveAttainmentPercent(item))}`).join(", ");
 }
 
 function groupItems(items, keyFn) {
@@ -1251,14 +1330,16 @@ function totalAttainmentForSellers(sellers, mode = "projected") {
     for (const metric of metricsFor(seller.area)) {
       if (!metricParticipates(metric)) continue;
       const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
-      const goal = Number(value.goal) || 0;
-      if (goal <= 0) continue;
+      const goal = metricGoalForSeller(seller, metric);
+      if (!goal) continue;
+      const realized = mode === "projected" ? projectionForPeriod(value.realized) : finiteNumber(value.realized);
+      if (realized === null) continue;
       acc.goal += goal;
-      acc.value += mode === "projected" ? projected(value.realized) : Number(value.realized) || 0;
+      acc.value += realized;
     }
     return acc;
   }, { goal: 0, value: 0 });
-  return totals.goal ? totals.value / totals.goal : 0;
+  return totals.goal ? totals.value / totals.goal : null;
 }
 
 function deflatorFor(seller, subtotal, useProjected) {
@@ -1271,7 +1352,8 @@ function deflatorFor(seller, subtotal, useProjected) {
   const penaltyRate = rules.reduce((max, rule) => {
     const min = Number(rule.min) || 0;
     const metric = metricsFor(seller.area).find((item) => item.id === rule.metricId);
-    if (!rule.metricId || !metric || !metricParticipates(metric) || percentFor(seller, rule.metricId, useProjected) >= min) return max;
+    const percent = metricAttainmentForSeller(seller, rule.metricId, useProjected);
+    if (!rule.metricId || !metric || !metricParticipates(metric) || percent === null || percent >= min) return max;
     return Math.max(max, Number(rule.penaltyRate) || 0);
   }, 0);
   return penaltyRate ? -subtotal * penaltyRate : 0;
@@ -1292,8 +1374,13 @@ function sellerResult(seller) {
 
 function statusFor(seller) {
   const result = sellerResult(seller);
+  const metricPercents = metricsFor(seller.area)
+    .filter(metricParticipates)
+    .map((metric) => ({ metric, percent: metricAttainmentForSeller(seller, metric.id, true) }))
+    .filter((item) => item.percent !== null);
+  if (!metricPercents.length) return { label: "Sem metas", cls: "neutral" };
   if (result.projected <= 0) return { label: "Critico", cls: "bad" };
-  const lowMetrics = metricsFor(seller.area).filter((metric) => metricParticipates(metric) && percentFor(seller, metric.id, true) < 0.8);
+  const lowMetrics = metricPercents.filter((item) => item.percent < 0.8);
   if (lowMetrics.length === 0) return { label: "Meta batida", cls: "ok" };
   return lowMetrics.length <= 2 ? { label: "Em risco", cls: "warn" } : { label: "Critico", cls: "bad" };
 }
@@ -1303,8 +1390,9 @@ function sellerClosingRecord(seller) {
   const metrics = collaboratorMetricRows(seller);
   const estornos = sellerEstornos(seller);
   const preview = projectedDeflatorPreview(seller);
-  const currentPercent = metrics.totals.currentPercent || 0;
-  const status = seller.emExperiencia ? { label: "Em experiencia" } : branchStatusFromPercent(currentPercent);
+  const currentPercent = metrics.totals.currentPercent;
+  const projectedPercent = metrics.totals.projectedPercent ?? null;
+  const status = seller.emExperiencia ? { label: "Em experiencia" } : branchStatusFromPercent(projectedPercent ?? currentPercent);
   return {
     sellerId: seller.id,
     name: seller.name,
@@ -1316,7 +1404,7 @@ function sellerClosingRecord(seller) {
     currentPercent,
     missing: metrics.totals.missing,
     projected: metrics.totals.projected,
-    projectedPercent: metrics.totals.projectedPercent || 0,
+    projectedPercent,
     commissionGross: result.projectedSubtotal,
     deflator: result.projectedDeflator,
     deflatorReason: preview.triggered.map((item) => item.metric?.name).filter(Boolean).join(", ") || "Sem deflator",
@@ -1336,10 +1424,10 @@ function sellerClosingRecord(seller) {
       participaAtingimento: row.participates,
       goal: row.goal,
       realized: row.realized,
-      currentPercent: row.currentPercent || 0,
+      currentPercent: row.currentPercent ?? null,
       missing: row.missing,
       projected: row.projectedValue,
-      projectedPercent: row.projectedPercent || 0,
+      projectedPercent: row.projectedPercent ?? null,
       commission: row.commission,
       deflator: row.deflator,
       status: row.status.label,
@@ -1370,15 +1458,15 @@ function buildCampaignSnapshot(campaign = activeCampaign(), options = {}) {
     totalBranches: branchesList.length,
     totalGoal,
     totalRealized,
-    currentPercent: totalGoal ? totalRealized / totalGoal : 0,
+    currentPercent: totalGoal ? totalRealized / totalGoal : null,
     totalProjected,
-    projectedPercent: totalGoal ? totalProjected / totalGoal : 0,
+    projectedPercent: totalGoal ? totalProjected / totalGoal : null,
     commissionGrossTotal: sellerRows.reduce((sum, row) => sum + row.commissionGross, 0),
     deflatorTotal: sellerRows.reduce((sum, row) => sum + row.deflator, 0),
     estornosTotal: sellerRows.reduce((sum, row) => sum + row.estornosTotal, 0),
     commissionFinalTotal: sellerRows.reduce((sum, row) => sum + row.commissionFinal, 0),
-    riskSellers: sellerRows.filter((row) => row.currentPercent < 0.7).length,
-    highlightSellers: sellerRows.filter((row) => row.currentPercent >= 1).length,
+    riskSellers: sellerRows.filter((row) => row.currentPercent !== null && row.currentPercent < 0.7).length,
+    highlightSellers: sellerRows.filter((row) => row.currentPercent !== null && row.currentPercent >= 1).length,
     riskBranches,
     sellers: sellerRows,
     indicators: indicatorRows,
@@ -1432,7 +1520,7 @@ function generateOfficialCommissionCsv(snapshot) {
   lines.push([]);
   lines.push(["Detalhe por indicador"]);
   lines.push(["Campanha", "Mes/ano", "Vendedor", "Filial", "Bloco", "Indicador", "Tipo", "Participa atingimento", "Meta", "Realizado", "% atual", "Falta", "Projetado", "% projetado", "Comissao do indicador", "Deflator do indicador", "Status"]);
-  for (const row of snapshot.indicators) lines.push([snapshot.campaignName, snapshot.reference, row.seller, row.branch, row.groupMeta || "", row.metric, row.tipoIndicador || "", row.participaAtingimento ? "Sim" : "Nao", row.goal, row.realized, row.participaAtingimento ? pct.format(row.currentPercent) : "-", row.missing, row.projected, row.participaAtingimento ? pct.format(row.projectedPercent) : "-", csvMoney(row.commission), row.deflator, row.status]);
+  for (const row of snapshot.indicators) lines.push([snapshot.campaignName, snapshot.reference, row.seller, row.branch, row.groupMeta || "", row.metric, row.tipoIndicador || "", row.participaAtingimento ? "Sim" : "Nao", row.goal || "-", row.realized, row.participaAtingimento ? formatPercent(row.currentPercent) : "-", row.missing ?? "-", row.projected ?? "-", row.participaAtingimento ? formatPercent(row.projectedPercent) : "-", csvMoney(row.commission), row.deflator, row.status]);
   lines.push([]);
   lines.push(["Desenvolvido por Cleiton Gerber"]);
   return `\uFEFF${lines.map((line) => line.map(csvCell).join(";")).join("\n")}`;
@@ -1460,13 +1548,21 @@ function metricAttainmentRows(sellers) {
   for (const seller of sellers) {
     for (const metric of metricsFor(seller.area).filter(metricParticipates)) {
       const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
+      const goal = metricGoalForSeller(seller, metric);
+      const realized = finiteNumber(value.realized);
+      const projectedValue = projectionForPeriod(value.realized);
+      if (!goal) continue;
+      const projectedPercent = projectedValue === null ? null : projectedValue / goal;
+      const currentPercent = realized / goal;
       rows.push({
         seller,
         metric,
-        percent: percentFor(seller, metric.id, true),
-        goal: Number(value.goal) || 0,
-        realized: Number(value.realized) || 0,
-        projected: projected(value.realized),
+        percent: projectedPercent ?? currentPercent,
+        currentPercent,
+        projectedPercent,
+        goal,
+        realized,
+        projected: projectedValue,
       });
     }
   }
@@ -1479,7 +1575,7 @@ function sellerRankCard(seller, index, cls = "") {
   const status = statusFor(seller);
   return `<div class="rank-card ${cls}">
     <strong>${index + 1}. ${escapeHtml(seller.name)}</strong><br>
-    <span>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)} - ${pct.format(attainment)} - ${money.format(result.projected)} - <span class="status ${status.cls}">${status.label}</span></span>
+    <span>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)} - ${formatPercent(attainment)} - ${money.format(result.projected)} - <span class="status ${status.cls}">${status.label}</span></span>
   </div>`;
 }
 
@@ -1487,7 +1583,7 @@ function renderAchievementBars(sellers) {
   const container = document.getElementById("achievementBars");
   if (!container) return;
   const highlights = [...sellers]
-    .filter((seller) => sellerAttainment(seller) >= 1)
+    .filter((seller) => (sellerAttainment(seller) ?? -1) >= 1)
     .sort((a, b) => sellerAttainment(b) - sellerAttainment(a));
   container.innerHTML = highlights.map((seller, index) => sellerRankCard(seller, index, "ok-card")).join("") || `<p class="muted-note">Nenhum vendedor com meta batida no filtro atual.</p>`;
 }
@@ -1498,7 +1594,7 @@ function renderDashboardInsights(sellers) {
   if (!offendersContainer || !goals) return;
 
   const offenders = [...sellers]
-    .filter((seller) => sellerAttainment(seller) < 1)
+    .filter((seller) => sellerAttainment(seller) !== null && sellerAttainment(seller) < 1)
     .sort((a, b) => sellerAttainment(a) - sellerAttainment(b));
   offendersContainer.innerHTML = offenders.map((seller, index) => sellerRankCard(seller, index, "bad-card")).join("") || `<p class="muted-note">Todos os vendedores do filtro bateram meta.</p>`;
 
@@ -1513,10 +1609,12 @@ function renderDashboardInsights(sellers) {
 function criticalGoalRows(sellers) {
   const grouped = new Map();
   for (const row of metricAttainmentRows(sellers)) {
-    const goal = Number(row.goal) || 0;
-    const projectedValue = Number(row.projected) || 0;
-    const percent = goal ? projectedValue / goal : 0;
-    if (goal <= 0 || percent >= 1) continue;
+    const goal = validGoalValue(row.goal);
+    const projectedValue = row.projected === null ? null : Number(row.projected);
+    const percent = effectiveAttainmentPercent(row);
+    if (!goal || percent === null) continue;
+    if (percent >= 0.8) continue;
+    const referenceValue = projectedValue === null || !Number.isFinite(projectedValue) ? finiteNumber(row.realized) : projectedValue;
     const key = `${row.seller.area}::${row.metric.id}`;
     const current = grouped.get(key) || {
       area: row.seller.area,
@@ -1530,8 +1628,8 @@ function criticalGoalRows(sellers) {
     current.sellerCount += 1;
     current.goal += goal;
     current.realized += Number(row.realized) || 0;
-    current.projected += projectedValue;
-    current.missing += Math.max(goal - projectedValue, 0);
+    current.projected += referenceValue;
+    current.missing += Math.max(goal - referenceValue, 0);
     grouped.set(key, current);
   }
   return [...grouped.values()]
@@ -1566,9 +1664,9 @@ function exportDashboardExcel() {
     const estornos = result.estornos ?? result.adjustments ?? 0;
     const finalProjected = result.finalProjected ?? result.projected;
     const status = typeof dashboardStatusFromPercent === "function" ? dashboardStatusFromPercent(currentPercent) : statusFor(seller);
-    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${money.format(result.current)}</td><td>${pct.format(currentPercent)}</td><td>${money.format(projectedNoDeflator)}</td><td>${pct.format(projectedPercent)}</td><td>${money.format(deflator)}</td><td>${discountMoney(estornos)}</td><td>${money.format(finalProjected)}</td><td>${escapeHtml(status.label)}</td></tr>`;
+    return `<tr><td>${escapeHtml(seller.name)}</td><td>${escapeHtml(seller.branch)}</td><td>${escapeHtml(seller.area)}</td><td>${money.format(result.current)}</td><td>${formatPercent(currentPercent)}</td><td>${money.format(projectedNoDeflator)}</td><td>${formatPercent(projectedPercent)}</td><td>${money.format(deflator)}</td><td>${discountMoney(estornos)}</td><td>${money.format(finalProjected)}</td><td>${escapeHtml(status.label)}</td></tr>`;
   }).join("");
-  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>% atual</th><th>Comissao bruta</th><th>% projetado</th><th>Deflator</th><th>Estornos</th><th>Comissao final</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const html = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr><th>Vendedor</th><th>Filial</th><th>Area</th><th>Atual</th><th>% atual</th><th>Comissao bruta</th><th>% projetado</th><th>Deflator</th><th>Estornos</th><th>Comissao estimada</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
   downloadFile(`resultado-vendedores-${new Date().toISOString().slice(0, 10)}.xls`, "application/vnd.ms-excel;charset=utf-8", html);
   logUpdate({ action: "Exportou resultado por vendedor", module: "Dashboard", message: "Relatorio do Dashboard exportado em Excel." }, { persist: true });
 }
@@ -1962,26 +2060,18 @@ function partialMetricGoal(metric, seller) {
 }
 
 function partialPeriodInfo() {
-  const daysDone = Math.max(0, Number(state.period.daysDone) || 0);
-  const daysTotal = Math.max(0, Number(state.period.daysTotal) || 0);
-  return {
-    daysDone,
-    daysTotal,
-    daysRemaining: Math.max(daysTotal - daysDone, 0),
-    periodPercent: daysTotal ? daysDone / daysTotal : null,
-  };
+  return periodCalculationInfo(state.period);
 }
 
 function partialProjectionFor(realized) {
-  const { daysDone, daysTotal } = partialPeriodInfo();
-  if (!daysDone || !daysTotal) return null;
-  return (Number(realized) || 0) / daysDone * daysTotal;
+  return projectionForPeriod(realized, state.period);
 }
 
 function partialPaceNeeded(goal, realized) {
   const { daysRemaining } = partialPeriodInfo();
-  if (!daysRemaining || !goal) return null;
-  return Math.max((Number(goal) || 0) - (Number(realized) || 0), 0) / daysRemaining;
+  const safeGoal = validGoalValue(goal);
+  if (!daysRemaining || !safeGoal) return null;
+  return Math.max(safeGoal - finiteNumber(realized), 0) / daysRemaining;
 }
 
 function partialStatusFromProjected(projectedPercent, fallbackPercent = null) {
@@ -2000,18 +2090,22 @@ function partialMetricContext(item, seller) {
   const goal = participates ? partialMetricGoal(metric, seller) : null;
   const realized = Number(item?.realized) || 0;
   const projectedValue = participates ? partialProjectionFor(realized) : null;
-  const percent = participates && goal ? realized / goal : null;
-  const projectedPercent = participates && goal && projectedValue !== null ? projectedValue / goal : null;
-  const gap = participates && goal ? Math.max(goal - realized, 0) : null;
+  const calc = indicatorCalculation({ metric, goal, realized, projectedValue, participates });
   const paceNeeded = participates && goal ? partialPaceNeeded(goal, realized) : null;
-  const status = !metric
-    ? { label: "Meta nao configurada", cls: "neutral" }
-    : !participates
-      ? { label: "Informativo", cls: "neutral" }
-      : goal
-        ? partialStatusFromProjected(projectedPercent, percent)
-        : { label: "Meta nao configurada", cls: "neutral" };
-  return { metric, goal, realized, projectedValue, percent, projectedPercent, gap, paceNeeded, status, participates, groupMeta, tipoIndicador };
+  return {
+    metric,
+    goal: calc.goal,
+    realized: calc.realized,
+    projectedValue: calc.projectedValue,
+    percent: calc.currentPercent,
+    projectedPercent: calc.projectedPercent,
+    gap: calc.gap,
+    paceNeeded,
+    status: calc.status,
+    participates,
+    groupMeta,
+    tipoIndicador,
+  };
 }
 
 function validatePartialCsv(text, meta = {}) {
@@ -2292,8 +2386,15 @@ function partialRecordTotals(records) {
     if (record.participates && record.goal) {
       acc.goal += record.goal || 0;
       acc.realized += record.realized || 0;
-      acc.projected += record.projectedValue || 0;
+      if (record.projectedValue !== null && record.projectedValue !== undefined) {
+        acc.projected += record.projectedValue || 0;
+        acc.withProjection += 1;
+      }
       acc.withGoal += 1;
+    } else if (record.participates) {
+      acc.withoutGoal += 1;
+    } else {
+      acc.informative += 1;
     }
     const sellerId = record.seller?.id || record.sellerId || "";
     const branch = record.seller?.branch || record.item?.branch || record.branch || "";
@@ -2302,24 +2403,35 @@ function partialRecordTotals(records) {
     if (branch) acc.branches.add(branch);
     if (metricKey) acc.metrics.add(metricKey);
     return acc;
-  }, { goal: 0, realized: 0, projected: 0, withGoal: 0, sellerIds: new Set(), branches: new Set(), metrics: new Set() });
+  }, { goal: 0, realized: 0, projected: 0, withGoal: 0, withoutGoal: 0, informative: 0, withProjection: 0, sellerIds: new Set(), branches: new Set(), metrics: new Set() });
   const percent = totals.goal ? totals.realized / totals.goal : null;
-  const projectedPercent = totals.goal ? totals.projected / totals.goal : null;
+  const projectedPercent = totals.goal && totals.withProjection ? totals.projected / totals.goal : null;
   const gap = totals.goal ? Math.max(totals.goal - totals.realized, 0) : null;
   const paceNeeded = totals.goal ? partialPaceNeeded(totals.goal, totals.realized) : null;
-  return { ...totals, percent, projectedPercent, gap, paceNeeded, status: percent === null ? { label: "Meta nao configurada", cls: "neutral", action: "Revisar meta" } : partialStatusFromProjected(projectedPercent, percent) };
+  const status = totals.withGoal
+    ? partialStatusFromProjected(projectedPercent, percent)
+    : totals.withoutGoal
+      ? { label: "Meta nao configurada", cls: "neutral", action: "Revisar meta" }
+      : records.length
+        ? { label: "Informativo", cls: "neutral", action: "Consulta" }
+        : { label: "Sem dados", cls: "neutral", action: "Sem dados" };
+  return { ...totals, percent, projectedPercent, gap, paceNeeded, status };
 }
 
 function groupedPartialRows(records, keyFn) {
   const map = new Map();
   for (const record of records) {
     const key = keyFn(record);
-    const row = map.get(key) || { key, goal: 0, realized: 0, projected: 0, infoRealized: 0, count: 0, participatingCount: 0, sellerIds: new Set(), metricIds: new Set(), branchIds: new Set() };
+    const row = map.get(key) || { key, goal: 0, realized: 0, projected: 0, infoRealized: 0, count: 0, participatingCount: 0, eligibleCount: 0, projectedCount: 0, sellerIds: new Set(), metricIds: new Set(), branchIds: new Set() };
+    if (record.participates) row.participatingCount += 1;
     if (record.participates && record.goal) {
       row.goal += record.goal || 0;
       row.realized += record.realized || 0;
-      row.projected += record.projectedValue || 0;
-      row.participatingCount += 1;
+      if (record.projectedValue !== null && record.projectedValue !== undefined) {
+        row.projected += record.projectedValue || 0;
+        row.projectedCount += 1;
+      }
+      row.eligibleCount += 1;
     } else {
       row.infoRealized += record.realized || 0;
     }
@@ -2331,7 +2443,7 @@ function groupedPartialRows(records, keyFn) {
   }
   return [...map.values()].map((row) => {
     const percent = row.goal ? row.realized / row.goal : null;
-    const projectedPercent = row.goal ? row.projected / row.goal : null;
+    const projectedPercent = row.goal && row.projectedCount ? row.projected / row.goal : null;
     const gap = row.goal ? Math.max(row.goal - row.realized, 0) : null;
     const paceNeeded = row.goal ? partialPaceNeeded(row.goal, row.realized) : null;
     const status = row.goal
@@ -2354,6 +2466,8 @@ function partialBlockRows(records) {
       infoRealized: 0,
       count: 0,
       participatingCount: 0,
+      eligibleCount: 0,
+      projectedCount: 0,
       sellerIds: new Set(),
       branchIds: new Set(),
       metricIds: new Set(),
@@ -2405,7 +2519,9 @@ function renderDashboardPartialPanel() {
   const records = officialPartialRecords(partial, dashboardBaseSellers(), { metricName: activeDashboardIndicator });
   const totals = partialRecordTotals(records);
   const blockRows = goalCompletionBlocksFromRecords(records);
-  const metricRows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName).filter((row) => row.projectedPercent !== null && row.projectedPercent < 0.8).sort((a, b) => (a.projectedPercent ?? 999) - (b.projectedPercent ?? 999)).slice(0, 8);
+  const metricRows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
+    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
+    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b)).slice(0, 8);
   const branchRows = [...groupItems(records, (record) => record.seller.branch || record.item.branch).entries()].map(([branch, items]) => {
     const stats = goalCompletionStats(items);
     const branchTotals = partialRecordTotals(items);
@@ -2461,37 +2577,39 @@ function renderDashboardPartialPanel() {
 }
 
 function partialDashboardRowMarkup(row) {
-  const percent = Number(row.projectedPercent);
+  const percent = effectiveAttainmentPercent(row);
   const width = Number.isFinite(percent) ? Math.min(100, Math.max(3, percent * 100)) : 0;
   const cls = achievementClass(Number.isFinite(percent) ? percent : null);
-  const label = row.projectedPercent === null || !Number.isFinite(percent) ? "-" : pct.format(percent);
+  const label = !Number.isFinite(percent) ? "-" : `${formatPercent(percent)} ${row.projectedPercent === null ? "atual" : "proj."}`;
   return `<div class="partial-dashboard-row ${cls}">
     <strong title="${escapeHtml(row.key)}">${escapeHtml(row.key)}<small>${row.sellerIds?.size || 0} vendedor(es) | ${row.branchIds?.size || 0} filial(is)</small></strong>
     <span class="partial-dashboard-track"><i style="width:${width}%"></i></span>
-    <em>${label} proj.</em>
+    <em>${label}</em>
   </div>`;
 }
 
 function branchRankingRowMarkup(row, index) {
-  const percent = Number(row.stats.metPercent);
+  const percent = row.stats.metPercent === null ? null : Number(row.stats.metPercent);
   const width = Number.isFinite(percent) ? Math.min(100, Math.max(2, percent * 100)) : 0;
-  const critical = row.critical.map((item) => `${item.metric?.name || item.item.metricName}: ${pct.format(item.projectedPercent)}`).join(", ") || "Nenhum";
+  const critical = row.critical.map((item) => `${item.metric?.name || item.item.metricName}: ${formatPercent(effectiveAttainmentPercent(item))}`).join(", ") || "Nenhum";
   return `<div class="dashboard-branch-ranking-row ${achievementClass(percent)}">
     <strong>${index + 1}</strong>
-    <span class="dashboard-branch-ranking-name">${escapeHtml(row.branch)}<small>${row.stats.metCount}/${row.stats.applicableCount} metas | Proj. ${row.totals.projectedPercent === null ? "-" : pct.format(row.totals.projectedPercent)}</small></span>
+    <span class="dashboard-branch-ranking-name">${escapeHtml(row.branch)}<small>${row.stats.metCount}/${row.stats.applicableCount} metas | Proj. ${formatPercent(row.totals.projectedPercent)}</small></span>
     <span class="dashboard-branch-ranking-track"><i style="width:${width}%"></i></span>
-    <em>${row.stats.metPercent === null ? "-" : pct.format(row.stats.metPercent)}</em>
+    <em>${formatPercent(row.stats.metPercent)}</em>
     <small class="dashboard-branch-ranking-critical">Críticos: ${escapeHtml(critical)}</small>
   </div>`;
 }
 function dashboardStatusFromPercent(percent) {
+  if (percent === null || percent === undefined || !Number.isFinite(Number(percent))) return { label: "Sem metas", cls: "neutral", action: "Revisar meta" };
   if (percent >= 1) return { label: "Acima da meta", cls: "ok", action: "Acompanhamento" };
   if (percent >= 0.8) return { label: "Em atenção", cls: "warn", action: "Plano de ação" };
   return { label: "Crítico", cls: "bad", action: "Ação imediata" };
 }
 
 function sellerDashboardStatus(seller) {
-  return dashboardStatusFromPercent(dashboardSellerSummaryResult(seller).currentPercent);
+  const result = dashboardSellerSummaryResult(seller);
+  return dashboardStatusFromPercent(result.projectedPercent ?? result.currentPercent);
 }
 
 function sellerHasProjectedDeflator(seller) {
@@ -2516,8 +2634,8 @@ function dashboardSellerSummaryResult(seller) {
       deflator: result.projectedDeflator,
       estornos,
       finalProjected: projectedNoDeflator + result.projectedDeflator - estornos,
-      currentPercent: percentFor(seller, metric.id, false),
-      projectedPercent: percentFor(seller, metric.id, true),
+      currentPercent: metricAttainmentForSeller(seller, metric.id, false),
+      projectedPercent: metricAttainmentForSeller(seller, metric.id, true),
     };
   }
   const projectedNoDeflator = result.projectedSubtotal;
@@ -2553,8 +2671,8 @@ function branchDashboardRows(sellers) {
     realized: row.realized,
     projectedValue: row.projected,
     commissionProjected: row.projected,
-    currentPercent: row.percent || 0,
-    projectedPercent: row.projectedPercent || 0,
+    currentPercent: row.percent,
+    projectedPercent: row.projectedPercent,
     gap: row.gap,
     status: row.status,
   }));
@@ -2569,7 +2687,7 @@ function dashboardTotals(sellers) {
 function dashboardAttainmentForSellers(sellers, mode) {
   const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
   const totals = partialRecordTotals(records);
-  return mode === "projected" ? totals.projectedPercent || 0 : totals.percent || 0;
+  return mode === "projected" ? totals.projectedPercent : totals.percent;
 }
 
 function renderDashboard() {
@@ -2589,13 +2707,15 @@ function renderDashboard() {
   const totalCurrentPercent = dashboardAttainmentForSellers(sellers, "current");
   const totalProjectedPercent = dashboardAttainmentForSellers(sellers, "projected");
   const branchRows = branchDashboardRows(sellers);
-  const riskBranches = branchRows.filter((row) => row.projectedPercent < 0.8).length;
+  const riskBranches = branchRows.filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8).length;
   const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
   const sellerRows = sellerRecordAnalyticRows(records);
   const completion = goalCompletionStats(records);
-  const highlightSellers = sellerRows.filter((row) => (row.metPercent || 0) >= 1).length;
+  const highlightSellers = sellerRows.filter((row) => (row.metPercent ?? -1) >= 1).length;
   const deflatorCounts = { withDeflator: 0, withoutDeflator: sellerRows.length };
-  const offender = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName).filter((row) => row.projectedPercent !== null && row.projectedPercent < 0.8).sort((a, b) => (a.projectedPercent || 0) - (b.projectedPercent || 0))[0];
+  const offender = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
+    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
+    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b))[0];
 
   renderDashboardExecutiveCards(totals, totalCurrentPercent, totalProjectedPercent, riskBranches, highlightSellers, deflatorCounts, offender, completion);
   renderExecutiveSummary(sellers, branchRows, totalCurrentPercent, totalProjectedPercent, riskBranches, completion);
@@ -2612,11 +2732,11 @@ function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent,
   if (!container) return;
   const cards = [
     ["Vendedores", String(totals.partial?.sellerIds?.size || 0), "com parcial oficial", "star", 1],
-    ["% metas atingidas", completion.metPercent === null ? "-" : pct.format(completion.metPercent), `${completion.metCount}/${completion.applicableCount} metas`, "percent", completion.metPercent],
-    ["% projetado geral", pct.format(projectedPercent), "Projecao ate o fechamento", "trend", projectedPercent],
+    ["% metas atingidas", formatPercent(completion.metPercent), `${completion.metCount}/${completion.applicableCount} metas`, "percent", completion.metPercent],
+    ["% projetado geral", formatPercent(projectedPercent), "Projecao ate o fechamento", "trend", projectedPercent],
     ["Gap geral", totals.gap === null ? "-" : num.format(totals.gap), "Falta para meta", "alert", totals.gap ? 0 : 1],
     ["Filiais criticas", String(riskBranches), "Abaixo de 80% projetado", "alert", riskBranches ? 0 : 1],
-    ["Principal ofensor", offender?.key || "-", offender?.projectedPercent !== null && offender ? `${pct.format(offender.projectedPercent)} projetado` : "Sem indicador", "target", offender?.projectedPercent ?? null],
+    ["Principal ofensor", offender?.key || "-", offender?.projectedPercent !== null && offender ? `${formatPercent(offender.projectedPercent)} projetado` : "Sem indicador", "target", offender?.projectedPercent ?? null],
   ];
   const financialComposition = `<article class="dashboard-kpi dashboard-finance-composition">
     <span aria-hidden="true"></span>
@@ -2625,8 +2745,8 @@ function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent,
       <div class="finance-mini-grid">
         <strong><b>Realizado</b>${num.format(totals.current)}</strong>
         <strong><b>Projetado</b>${totals.projected ? num.format(totals.projected) : "-"}</strong>
-        <strong><b>% parcial</b>${pct.format(currentPercent)}</strong>
-        <strong><b>% projetado</b>${pct.format(projectedPercent)}</strong>
+        <strong><b>% parcial</b>${formatPercent(currentPercent)}</strong>
+        <strong><b>% projetado</b>${formatPercent(projectedPercent)}</strong>
       </div>
     </div>
   </article>`;
@@ -2643,12 +2763,15 @@ function renderExecutiveSummary(sellers, branchRows, currentPercent, projectedPe
     container.textContent = "Ainda nao ha dados suficientes para gerar um resumo executivo da parcial oficial.";
     return;
   }
-  const bestBranch = [...branchRows].sort((a, b) => b.projectedPercent - a.projectedPercent)[0];
-  const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
-  const lowSellers = groupedPartialRows(records, (record) => record.seller.id).filter((row) => (row.projectedPercent || 0) < 0.8).length;
-  const health = projectedPercent >= 1 ? "acima da meta projetada" : "abaixo da meta projetada";
-  const branchText = bestBranch ? `${bestBranch.branch} lidera com ${pct.format(bestBranch.projectedPercent)} de projecao.` : "";
-  container.innerHTML = `A parcial oficial esta com <strong>${completion.metPercent === null ? "-" : pct.format(completion.metPercent)}</strong> das metas projetadas como atingidas e <strong>${pct.format(projectedPercent)}</strong> de projeção consolidada, ficando ${health}. ${branchText} ${riskBranches} filial(is) critica(s) e ${lowSellers} vendedor(es) abaixo de 80% projetado exigem atencao.`;
+  {
+    const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
+    const bestBranch = [...branchRows].filter((row) => row.projectedPercent !== null).sort((a, b) => b.projectedPercent - a.projectedPercent)[0];
+    const lowSellers = groupedPartialRows(records, (record) => record.seller.id).filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8).length;
+    const health = projectedPercent === null ? "sem projecao consolidada" : projectedPercent >= 1 ? "acima da meta projetada" : "abaixo da meta projetada";
+    const branchText = bestBranch ? `${bestBranch.branch} lidera com ${formatPercent(bestBranch.projectedPercent)} de projecao.` : "";
+    container.innerHTML = `A parcial oficial esta com <strong>${formatPercent(completion.metPercent)}</strong> das metas projetadas como atingidas e <strong>${formatPercent(projectedPercent)}</strong> de projecao consolidada, ficando ${health}. ${branchText} ${riskBranches} filial(is) critica(s) e ${lowSellers} vendedor(es) abaixo de 80% projetado exigem atencao.`;
+    return;
+  }
 }
 
 function renderSellerSummary(sellers) {
@@ -2690,6 +2813,7 @@ function dashboardSellerDetailMarkup(records) {
 }
 
 function chartTone(percent) {
+  if (percent === null || percent === undefined || !Number.isFinite(Number(percent))) return "neutral";
   if (percent >= 1) return "ok";
   if (percent >= 0.8) return "warn";
   return "bad";
@@ -2730,8 +2854,8 @@ function renderBranchAttainmentBars(records) {
     const sample = items[0];
     const totals = partialRecordTotals(items);
     return { group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals, sample };
-  }).filter((row) => row.totals.projectedPercent !== null)
-    .sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group) || (a.totals.projectedPercent || 0) - (b.totals.projectedPercent || 0));
+  }).filter((row) => effectiveAttainmentPercent(row.totals) !== null)
+    .sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group) || effectiveAttainmentPercent(a.totals) - effectiveAttainmentPercent(b.totals));
   container.innerHTML = `
     <div class="dashboard-detail-table-head">
       <div><h4>Detalhes por indicador</h4><p>${escapeHtml(detailScope)} consolidado por indicador, no mesmo padrão da tela Filial.</p></div>
@@ -2745,8 +2869,8 @@ function dashboardBranchDetailMarkup(records) {
     const sample = items[0];
     const totals = partialRecordTotals(items);
     return { group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals, sample };
-  }).filter((row) => row.totals.projectedPercent !== null)
-    .sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group) || (a.totals.projectedPercent || 0) - (b.totals.projectedPercent || 0));
+  }).filter((row) => effectiveAttainmentPercent(row.totals) !== null)
+    .sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group) || effectiveAttainmentPercent(a.totals) - effectiveAttainmentPercent(b.totals));
   return `<div class="dashboard-detail-card-grid">${detailRows.map((row) => `<article class="dashboard-detail-card ${row.totals.status.cls}">
     <span>${escapeHtml(metricGroupDisplay(row.group))}</span>
     <strong>${escapeHtml(row.metricName)}</strong>
@@ -2767,10 +2891,16 @@ function renderBranchCommissionBars(records) {
   if (!container) return;
   const blockRows = goalCompletionBlocksFromRecords(records).filter((row) => row.applicableCount);
   const priorities = blockRows
-    .filter((row) => (row.totals.projectedPercent ?? 1) < 1 || row.criticalCount)
-    .sort((a, b) => (a.totals.projectedPercent || 0) - (b.totals.projectedPercent || 0))
+    .filter((row) => {
+      const percent = effectiveAttainmentPercent(row.totals);
+      return (percent !== null && percent < 1) || row.criticalCount;
+    })
+    .sort((a, b) => (effectiveAttainmentPercent(a.totals) ?? 999) - (effectiveAttainmentPercent(b.totals) ?? 999))
     .slice(0, 3);
-  container.innerHTML = priorities.map((row, index) => `<div class="attention-row ${row.totals.projectedPercent < 0.8 ? "bad" : "warn"}"><strong>${index + 1}. Atuar em ${escapeHtml(metricGroupDisplay(row.key))}</strong><span>${row.criticalCount} indicador(es) abaixo de 80%; projeção do bloco ${achievementPill(row.totals.projectedPercent)}.</span></div>`).join("") || `<p class="muted-note">Nenhuma prioridade critica no filtro atual.</p>`;
+  container.innerHTML = priorities.map((row, index) => {
+    const percent = effectiveAttainmentPercent(row.totals);
+    return `<div class="attention-row ${percent !== null && percent < 0.8 ? "bad" : "warn"}"><strong>${index + 1}. Atuar em ${escapeHtml(metricGroupDisplay(row.key))}</strong><span>${row.criticalCount} indicador(es) abaixo de 80%; projeção do bloco ${achievementPill(row.totals.projectedPercent)}.</span></div>`;
+  }).join("") || `<p class="muted-note">Nenhuma prioridade critica no filtro atual.</p>`;
 }
 
 function renderRanking(sellers) {
@@ -2793,7 +2923,9 @@ function renderCriticalGoals(sellers) {
   const container = document.getElementById("goalOffenderList");
   if (!container) return;
   const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
-  const rows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName).filter((row) => row.projectedPercent !== null && row.projectedPercent < 0.8).sort((a, b) => (a.projectedPercent || 0) - (b.projectedPercent || 0)).slice(0, 8);
+  const rows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
+    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
+    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b)).slice(0, 8);
   container.innerHTML = rows.map((row) => {
     const status = partialStatusFromProjected(row.projectedPercent, row.percent);
     return `<div class="critical-row">
@@ -2812,13 +2944,13 @@ function renderAttentionPoints(sellers, branchRows, currentPercent, projectedPer
   if (!container) return;
   const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
   const criticalMetrics = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
-    .filter((row) => row.projectedPercent !== null && row.projectedPercent < 0.8)
-    .sort((a, b) => b.branchIds.size - a.branchIds.size || (a.projectedPercent || 0) - (b.projectedPercent || 0))
+    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
+    .sort((a, b) => b.branchIds.size - a.branchIds.size || effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b))
     .slice(0, 5);
   const points = [];
   for (const row of criticalMetrics) points.push({ cls: "bad", title: `${row.key}: abaixo de 80% em ${row.branchIds.size} filial(is)`, detail: `${achievementPill(row.projectedPercent)} projetado | ${row.sellerIds.size} vendedor(es) impactado(s).` });
-  if (projectedPercent < 1 && !points.length) points.push({ cls: "warn", title: "Projecao consolidada abaixo de 100%", detail: `Atingimento projetado em ${pct.format(projectedPercent)}.` });
-  if (!points.length && sellers.length) points.push({ cls: "ok", title: "Nenhum indicador critico abaixo de 80%", detail: `Parcial oficial com ${pct.format(projectedPercent)} projetado.` });
+  if (projectedPercent !== null && projectedPercent < 1 && !points.length) points.push({ cls: "warn", title: "Projecao consolidada abaixo de 100%", detail: `Atingimento projetado em ${formatPercent(projectedPercent)}.` });
+  if (!points.length && sellers.length) points.push({ cls: "ok", title: "Nenhum indicador critico abaixo de 80%", detail: `Parcial oficial com ${formatPercent(projectedPercent)} projetado.` });
   container.innerHTML = points.map((point) => `<div class="attention-row ${point.cls}"><strong>${escapeHtml(point.title)}</strong><span>${point.detail}</span></div>`).join("") || `<p class="muted-note">Nenhum dado disponivel.</p>`;
 }
 function branchOptions(selected) {
@@ -4009,26 +4141,33 @@ function branchMetricRows(sellers) {
     ensureSellerValues(seller);
     for (const metric of metricsFor(seller.area).filter(metricParticipates)) {
       const key = `${seller.area}::${metric.id}`;
-      const current = byMetric.get(key) || { id: metric.id, area: seller.area, name: `${metric.name} (${seller.area})`, goal: 0, realized: 0, projected: 0, hasGoal: false };
+      const current = byMetric.get(key) || { id: metric.id, area: seller.area, name: `${metric.name} (${seller.area})`, goal: 0, realized: 0, projected: 0, hasGoal: false, hasProjection: false };
       const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
-      current.goal += Number(value.goal) || 0;
-      current.hasGoal = current.hasGoal || Number(value.goal) > 0;
-      current.realized += Number(value.realized) || 0;
-      current.projected += projected(value.realized);
+      const goal = metricGoalForSeller(seller, metric);
+      if (!goal) continue;
+      current.goal += goal;
+      current.hasGoal = true;
+      current.realized += finiteNumber(value.realized);
+      const projectedValue = projectionForPeriod(value.realized);
+      if (projectedValue !== null) {
+        current.projected += projectedValue;
+        current.hasProjection = true;
+      }
       byMetric.set(key, current);
     }
   }
   return [...byMetric.values()].map((row) => ({
     ...row,
     currentPercent: row.goal ? row.realized / row.goal : null,
-    projectedPercent: row.goal ? row.projected / row.goal : null,
-    status: branchStatusFromPercent(row.goal ? row.realized / row.goal : 0),
+    projectedPercent: row.goal && row.hasProjection ? row.projected / row.goal : null,
+    status: partialStatusFromProjected(row.goal && row.hasProjection ? row.projected / row.goal : null, row.goal ? row.realized / row.goal : null),
   })).sort((a, b) => metricOrderIndex(a.area, a.id) - metricOrderIndex(b.area, b.id) || a.area.localeCompare(b.area));
 }
 
 function branchStatusFromPercent(percent) {
+  if (percent === null || percent === undefined || !Number.isFinite(Number(percent))) return { label: "Sem metas", cls: "neutral", action: "Revisar meta" };
   if (percent >= 1) return { label: "Acima da meta", cls: "ok", action: "Acompanhamento" };
-  if (percent >= 0.7) return { label: "Em atenção", cls: "warn", action: "Plano de ação" };
+  if (percent >= 0.8) return { label: "Em atenção", cls: "warn", action: "Plano de ação" };
   return { label: "Crítico", cls: "bad", action: "Ação imediata" };
 }
 
@@ -4039,7 +4178,7 @@ function sellerBranchSummary(seller) {
   const final = result.projected;
   const currentPercent = totalAttainmentForSellers([seller], "current");
   const projectedPercent = totalAttainmentForSellers([seller], "projected");
-  const status = seller.emExperiencia ? { label: "Em experiencia", cls: "neutral", action: "Acompanhamento" } : branchStatusFromPercent(currentPercent);
+  const status = seller.emExperiencia ? { label: "Em experiencia", cls: "neutral", action: "Acompanhamento" } : branchStatusFromPercent(projectedPercent ?? currentPercent);
   return { result, gross, final, estornos, currentPercent, projectedPercent, status, deflator: result.projectedDeflator };
 }
 
@@ -4054,12 +4193,12 @@ function projectedDeflatorPreview(seller) {
     .map((rule) => {
       const metric = metricsFor(seller.area).find((item) => item.id === rule.metricId);
       const min = Number(rule.min) || 0;
-      const percent = metric ? percentFor(seller, metric.id, true) : 1;
+      const percent = metric ? metricAttainmentForSeller(seller, metric.id, true) : null;
       return {
         ...rule,
         metric,
         percent,
-        triggered: Boolean(metric && metricParticipates(metric) && min > 0 && percent < min),
+        triggered: Boolean(metric && metricParticipates(metric) && min > 0 && percent !== null && percent < min),
         rate: Number(rule.penaltyRate) || 0,
       };
     })
@@ -4093,8 +4232,8 @@ function branchTotals(sellers) {
     totalGoal,
     realized,
     projectedTotal,
-    currentPercent: totalGoal ? realized / totalGoal : 0,
-    projectedPercent: totalGoal ? projectedTotal / totalGoal : 0,
+    currentPercent: totalGoal ? realized / totalGoal : null,
+    projectedPercent: totalGoal ? projectedTotal / totalGoal : null,
     commissionGross,
     commissionFinal,
     deflatorImpact,
@@ -4108,7 +4247,7 @@ function branchKpiCards(branch, sellers, totals) {
     ["Realizado", num.format(totals.realized), "Resultado atual", "trend", totals.currentPercent],
     ["% atual", pct.format(totals.currentPercent), "Atingimento atual", "percent", totals.currentPercent],
     ["Projetado", `${num.format(totals.projectedTotal)} (${pct.format(totals.projectedPercent)})`, "Projeção / meta", "trend", totals.projectedPercent],
-    ["Comissão final", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)} | Estornos ${discountMoney(totals.estornosTotal)}`, "money", null],
+    ["Comissão estimada", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)} | Estornos ${discountMoney(totals.estornosTotal)}`, "money", null],
   ];
   return `<div class="branch-kpi-grid">${cards.map(([label, value, detail, icon, percent]) => `<article class="branch-kpi ${icon}"><span aria-hidden="true"></span><div><small>${label}</small><strong>${value}</strong><em class="${achievementClass(percent)}">${detail}</em></div></article>`).join("")}</div>`;
 }
@@ -4150,7 +4289,7 @@ function branchTeamTable(sellers) {
       <td><button class="ghost-button compact-action" data-manager-seller-detail="${seller.id}" type="button">Ver detalhes</button></td>
     </tr>`;
   }).join("");
-  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissão bruta, deflator, estornos e comissão final por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissão bruta</th><th>Deflator</th><th>Estornos</th><th>Comissão final</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows || `<tr><td colspan="11">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
+  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissão bruta, deflator, estornos e comissão estimada por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissão bruta</th><th>Deflator</th><th>Estornos</th><th>Comissão estimada</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows || `<tr><td colspan="11">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function branchSellerFilter(sellers) {
@@ -4201,31 +4340,11 @@ function sellerIndicatorDetailRows(seller) {
 }
 
 function sellerIndicatorDetailRowsGrouped(seller) {
-  ensureSellerValues(seller);
-  let totalGoal = 0;
-  let totalRealized = 0;
-  let totalProjected = 0;
-  const detailRows = metricsFor(seller.area).map((metric) => {
-    const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
-    const participates = metricParticipates(metric);
-    const goal = Number(value.goal) || 0;
-    const realized = Number(value.realized) || 0;
-    const projectedValue = projected(realized);
-    if (participates) {
-      totalGoal += goal;
-      totalRealized += realized;
-      totalProjected += projectedValue;
-    }
-    const currentPercent = participates && goal ? realized / goal : null;
-    const projectedPercent = participates && goal ? projectedValue / goal : null;
-    const status = participates ? partialStatusFromProjected(projectedPercent, currentPercent) : { label: "Informativo", cls: "neutral" };
-    return { metric, groupMeta: metricGroup(metric), participates, goal, realized, projectedValue, currentPercent, projectedPercent, status };
-  });
+  const { rows: detailRows, totals } = collaboratorMetricRows(seller);
   const rows = metricGroupHeaderRows(detailRows, 9, (row) => `<tr>
-    <td>${escapeHtml(row.metric.name)}</td><td>${row.participates && row.goal ? num.format(row.goal) : row.participates ? "-" : "Informativo"}</td><td>${num.format(row.realized)}</td><td>${achievementPill(row.currentPercent)}</td><td>${row.participates ? num.format(Math.max(row.goal - row.realized, 0)) : "-"}</td><td>${num.format(row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${row.participates ? metricDeflatorLabel(seller, row.metric) : "Informativo"}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td>
+    <td>${escapeHtml(row.metric.name)}</td><td>${formatGoalLabel(row.metric, row.goal, row.participates)}</td><td>${formatMetricAmount(row.metric, row.realized)}</td><td>${achievementPill(row.currentPercent)}</td><td>${row.missing === null ? "-" : formatMetricAmount(row.metric, row.missing)}</td><td>${row.projectedValue === null ? "-" : formatMetricAmount(row.metric, row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${row.participates ? metricDeflatorLabel(seller, row.metric) : "Informativo"}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td>
   </tr>`);
-  const totalStatus = branchStatusFromPercent(totalGoal ? totalRealized / totalGoal : 0);
-  return `${rows}<tr class="total-row"><td>Total</td><td>${num.format(totalGoal)}</td><td>${num.format(totalRealized)}</td><td>${achievementPill(totalGoal ? totalRealized / totalGoal : null)}</td><td>${num.format(Math.max(totalGoal - totalRealized, 0))}</td><td>${num.format(totalProjected)}</td><td>${achievementPill(totalGoal ? totalProjected / totalGoal : null)}</td><td>-</td><td><span class="status ${totalStatus.cls}">${totalStatus.label}</span></td></tr>`;
+  return `${rows}<tr class="total-row"><td>Total</td><td>${totals.goalCompletion.metCount}/${totals.goalCompletion.applicableCount} metas</td><td>${formatMetricAmount(null, totals.realized)}</td><td>${achievementPill(totals.currentPercent)}</td><td>${formatMetricAmount(null, totals.missing)}</td><td>${totals.projectedPercent === null ? "-" : formatMetricAmount(null, totals.projected)}</td><td>${achievementPill(totals.projectedPercent)}</td><td>-</td><td><span class="status ${totals.goalCompletion.status.cls}">${totals.goalCompletion.status.label}</span></td></tr>`;
 }
 
 function sellerDeflatorImpactCard(seller) {
@@ -4234,15 +4353,15 @@ function sellerDeflatorImpactCard(seller) {
   const reason = preview.triggered[0]?.metric?.name ? `${preview.triggered[0].metric.name} abaixo da meta minima` : "Sem motivo de deflator";
   const list = preview.triggered.length ? preview.triggered.map((rule) => `<li>Deflator ${escapeHtml(rule.metric.name)}: -${pct.format(rule.rate)} (${pct.format(rule.percent)} atual proj.)</li>`).join("") : `<li>Nenhum deflator aplicado para este vendedor.</li>`;
   const ignored = preview.ignored ? `<p class="admin-inline-note warning">Aplicacao: ignorado por vendedor em experiencia.</p>` : "";
-  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Impacto dos deflatores</h3><p>Impacto financeiro previsto no resultado do vendedor.</p></div></div><div class="deflator-impact-grid"><span>Comissao bruta<strong>${money.format(summary.gross)}</strong></span><span>Deflator aplicado<strong>${preview.rate ? `-${pct.format(preview.rate)}` : "0,0%"}</strong></span><span>Impacto financeiro<strong>${money.format(preview.ignored ? preview.previewImpact : summary.deflator)}</strong></span><span>Comissao final projetada<strong>${money.format(summary.final)}</strong></span></div><strong class="deflator-reason">Motivo principal: ${escapeHtml(reason)}</strong><ul class="deflator-list">${list}</ul>${ignored}</section>`;
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Impacto dos deflatores</h3><p>Impacto financeiro previsto no resultado do vendedor.</p></div></div><div class="deflator-impact-grid"><span>Comissao bruta<strong>${money.format(summary.gross)}</strong></span><span>Deflator aplicado<strong>${preview.rate ? `-${pct.format(preview.rate)}` : "0,0%"}</strong></span><span>Impacto financeiro<strong>${money.format(preview.ignored ? preview.previewImpact : summary.deflator)}</strong></span><span>Comissao estimada<strong>${money.format(summary.final)}</strong></span></div><strong class="deflator-reason">Motivo principal: ${escapeHtml(reason)}</strong><ul class="deflator-list">${list}</ul>${ignored}</section>`;
 }
 
 function sellerEstornoImpactCard(seller) {
   const summary = sellerBranchSummary(seller);
   const estornos = sellerEstornos(seller);
   const rows = estornos.items.map((item) => `<li>${escapeHtml(item.label)}: <strong>${discountMoney(item.value)}</strong></li>`).join("");
-  if (!estornos.total) return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Estornos</h3><p>Valores descontados da comissao final.</p></div></div><p class="muted-note">Nenhum estorno aplicado.</p></section>`;
-  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Estornos</h3><p>Valores descontados da comissao final.</p></div></div><ul class="deflator-list">${rows}</ul><div class="deflator-impact-grid"><span>Total de estornos<strong>${discountMoney(estornos.total)}</strong></span><span>Comissao final<strong>${money.format(summary.final)}</strong></span></div></section>`;
+  if (!estornos.total) return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Estornos</h3><p>Valores descontados da comissao estimada.</p></div></div><p class="muted-note">Nenhum estorno aplicado.</p></section>`;
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Estornos</h3><p>Valores descontados da comissao estimada.</p></div></div><ul class="deflator-list">${rows}</ul><div class="deflator-impact-grid"><span>Total de estornos<strong>${discountMoney(estornos.total)}</strong></span><span>Comissao estimada<strong>${money.format(summary.final)}</strong></span></div></section>`;
 }
 
 function sellerRecommendedAction(seller) {
@@ -4250,13 +4369,24 @@ function sellerRecommendedAction(seller) {
   const preview = projectedDeflatorPreview(seller);
   const gaps = metricsFor(seller.area).filter(metricParticipates).map((metric) => {
     const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
-    const missing = Math.max((Number(value.goal) || 0) - projected(value.realized), 0);
-    return { metric, missing, percent: percentFor(seller, metric.id, true) };
-  }).filter((item) => item.missing > 0).sort((a, b) => a.percent - b.percent).slice(0, 2);
+    const goal = metricGoalForSeller(seller, metric);
+    const projectedValue = projectionForPeriod(value.realized);
+    if (!goal || projectedValue === null) return null;
+    const missing = Math.max(goal - projectedValue, 0);
+    return { metric, missing, percent: projectedValue / goal };
+  }).filter((item) => item && item.missing > 0).sort((a, b) => a.percent - b.percent).slice(0, 2);
+  {
+    let safeText = "Ainda nao ha dados suficientes para gerar recomendacao.";
+    if (summary.currentPercent !== null && summary.currentPercent >= 1 && !preview.triggered.length) safeText = "O vendedor esta acima da meta e sem deflatores aplicados. Mantenha o acompanhamento para proteger o resultado ate o fechamento.";
+    else if (summary.currentPercent !== null && summary.currentPercent < 0.7) safeText = `O vendedor esta em situacao critica, com atingimento atual de ${formatPercent(summary.currentPercent)}. Priorizar plano de acao nos indicadores ${gaps.map((item) => item.metric.name).join(" e ") || "com maior falta"}.`;
+    else if (preview.triggered.length) safeText = `O vendedor esta projetado para ${formatPercent(summary.projectedPercent)}, porem possui deflator de -${pct.format(preview.rate)} causado por ${preview.triggered[0].metric.name}. A recuperacao deste indicador pode elevar a comissao projetada para ${money.format(summary.gross)}.`;
+    if (seller.emExperiencia && preview.triggered.length) safeText = `O vendedor esta em experiencia. Existe deflator previsto de -${pct.format(preview.rate)}, mas a aplicacao esta ignorada; acompanhe os indicadores ${preview.triggered.map((item) => item.metric.name).join(", ")} para evolucao.`;
+    return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Acao recomendada</h3><p>Orientacao automatica para atuacao do gerente.</p></div></div><p class="recommended-action">${escapeHtml(safeText)}</p></section>`;
+  }
   let text = "Ainda não há dados suficientes para gerar recomendação.";
   if (summary.currentPercent >= 1 && !preview.triggered.length) text = "O vendedor está acima da meta e sem deflatores aplicados. Mantenha o acompanhamento para proteger o resultado até o fechamento.";
-  else if (summary.currentPercent < 0.7) text = `O vendedor está em situação crítica, com atingimento atual de ${pct.format(summary.currentPercent)}. Priorizar plano de ação nos indicadores ${gaps.map((item) => item.metric.name).join(" e ") || "com maior falta"}.`;
-  else if (preview.triggered.length) text = `O vendedor está projetado para ${pct.format(summary.projectedPercent)}, porém possui deflator de -${pct.format(preview.rate)} causado por ${preview.triggered[0].metric.name}. A recuperação deste indicador pode elevar a comissão projetada para ${money.format(summary.gross)}.`;
+  else if (summary.currentPercent < 0.7) text = `O vendedor está em situação crítica, com atingimento atual de ${formatPercent(summary.currentPercent)}. Priorizar plano de ação nos indicadores ${gaps.map((item) => item.metric.name).join(" e ") || "com maior falta"}.`;
+  else if (preview.triggered.length) text = `O vendedor está projetado para ${formatPercent(summary.projectedPercent)}, porém possui deflator de -${pct.format(preview.rate)} causado por ${preview.triggered[0].metric.name}. A recuperação deste indicador pode elevar a comissão projetada para ${money.format(summary.gross)}.`;
   if (seller.emExperiencia && preview.triggered.length) text = `O vendedor está em experiência. Existe deflator previsto de -${pct.format(preview.rate)}, mas a aplicação está ignorada; acompanhe os indicadores ${preview.triggered.map((item) => item.metric.name).join(", ")} para evolução.`;
   return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Ação recomendada</h3><p>Orientação automática para atuação do gerente.</p></div></div><p class="recommended-action">${escapeHtml(text)}</p></section>`;
 }
@@ -4264,7 +4394,7 @@ function sellerRecommendedAction(seller) {
 function sellerDetailPanel(seller) {
   if (!seller) return "";
   const summary = sellerBranchSummary(seller);
-  return `<section class="branch-detail-grid"><section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhamento por vendedor</h3><p>${escapeHtml(seller.name)} - ${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</p></div></div><div class="seller-detail-kpis"><article><span>Realizado</span><strong>${money.format(summary.result.current)}</strong></article><article><span>% atual</span><strong>${pct.format(summary.currentPercent)}</strong></article><article><span>Projetado</span><strong>${money.format(summary.gross)}</strong></article><article><span>% projetado</span><strong>${pct.format(summary.projectedPercent)}</strong></article><article><span>Comissao bruta</span><strong>${money.format(summary.gross)}</strong></article><article><span>Deflator</span><strong>${money.format(summary.deflator)}</strong></article><article><span>Estornos</span><strong>${discountMoney(summary.estornos)}</strong></article><article><span>Comissao final</span><strong>${money.format(summary.final)}</strong></article><article><span>Status</span><strong><span class="status ${summary.status.cls}">${summary.status.label}</span></strong></article></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${sellerIndicatorDetailRowsGrouped(seller)}</tbody></table></div></section><div>${sellerDeflatorImpactCard(seller)}${sellerEstornoImpactCard(seller)}${sellerRecommendedAction(seller)}</div></section>`;
+  return `<section class="branch-detail-grid"><section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhamento por vendedor</h3><p>${escapeHtml(seller.name)} - ${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</p></div></div><div class="seller-detail-kpis"><article><span>Realizado</span><strong>${money.format(summary.result.current)}</strong></article><article><span>% atual</span><strong>${formatPercent(summary.currentPercent)}</strong></article><article><span>Projetado</span><strong>${money.format(summary.gross)}</strong></article><article><span>% projetado</span><strong>${formatPercent(summary.projectedPercent)}</strong></article><article><span>Comissao bruta</span><strong>${money.format(summary.gross)}</strong></article><article><span>Deflator</span><strong>${money.format(summary.deflator)}</strong></article><article><span>Estornos</span><strong>${discountMoney(summary.estornos)}</strong></article><article><span>Comissao estimada</span><strong>${money.format(summary.final)}</strong></article><article><span>Status</span><strong><span class="status ${summary.status.cls}">${summary.status.label}</span></strong></article></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${sellerIndicatorDetailRowsGrouped(seller)}</tbody></table></div></section><div>${sellerDeflatorImpactCard(seller)}${sellerEstornoImpactCard(seller)}${sellerRecommendedAction(seller)}</div></section>`;
 }
 
 function branchAttentionPoints(sellers) {
@@ -4272,8 +4402,8 @@ function branchAttentionPoints(sellers) {
   for (const seller of sellers) {
     const summary = sellerBranchSummary(seller);
     const preview = projectedDeflatorPreview(seller);
-    if (summary.currentPercent < 0.7) points.push({ cls: "bad", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Crítico` });
-    else if (summary.currentPercent < 1) points.push({ cls: "warn", text: `${seller.name} - ${pct.format(summary.currentPercent)} da meta - Em atenção` });
+    if (summary.currentPercent < 0.7) points.push({ cls: "bad", text: `${seller.name} - ${formatPercent(summary.currentPercent)} da meta - Crítico` });
+    else if (summary.currentPercent < 1) points.push({ cls: "warn", text: `${seller.name} - ${formatPercent(summary.currentPercent)} da meta - Em atenção` });
     if (preview.triggered.length) points.push({ cls: preview.ignored ? "neutral" : "bad", text: `${seller.name} - Deflator -${pct.format(preview.rate)} - ${preview.triggered[0].metric.name} abaixo do minimo${preview.ignored ? " (ignorado)" : ""}` });
     if (summary.estornos > 0) points.push({ cls: "warn", text: `${seller.name} possui ${money.format(summary.estornos)} em estornos aplicados no fechamento.` });
     if (seller.emExperiencia) points.push({ cls: "neutral", text: `${seller.name} - Em experiencia - Deflator ignorado` });
@@ -4283,12 +4413,16 @@ function branchAttentionPoints(sellers) {
 
 function branchRankingCard(sellers) {
   const ranked = [...sellers].sort((a, b) => sellerBranchSummary(b).currentPercent - sellerBranchSummary(a).currentPercent).slice(0, 8);
-  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Ranking interno</h3><p>Ranking dos vendedores da filial.</p></div></div><div class="executive-list">${ranked.map((seller, index) => { const summary = sellerBranchSummary(seller); return `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(seller.name)}<small>${pct.format(summary.currentPercent)} atual - ${pct.format(summary.projectedPercent)} proj.</small></span><em>${money.format(summary.final)}</em></div>`; }).join("") || `<p class="muted-note">Nenhum vendedor para ranking.</p>`}</div></section>`;
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Ranking interno</h3><p>Ranking dos vendedores da filial.</p></div></div><div class="executive-list">${ranked.map((seller, index) => { const summary = sellerBranchSummary(seller); return `<div class="executive-list-row"><strong>${index + 1}</strong><span>${escapeHtml(seller.name)}<small>${formatPercent(summary.currentPercent)} atual - ${formatPercent(summary.projectedPercent)} proj.</small></span><em>${money.format(summary.final)}</em></div>`; }).join("") || `<p class="muted-note">Nenhum vendedor para ranking.</p>`}</div></section>`;
 }
 
 function branchIndicatorAchievementCard(sellers) {
   const rows = branchMetricRows(sellers);
-  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Atingimento por indicador da filial</h3><p>Indicadores consolidados da filial.</p></div></div><div class="branch-indicator-list">${rows.map((row) => `<div class="branch-chart-row ${achievementClass(row.currentPercent)}"><div class="branch-chart-label"><strong>${escapeHtml(row.name)}</strong><span>${achievementPill(row.currentPercent)} ${achievementPill(row.projectedPercent)}</span></div><div class="branch-chart-track"><i style="width:${Math.min(140, Math.max(2, (row.currentPercent || 0) * 100))}%"></i></div><small>Meta ${num.format(row.goal)} | Realizado ${num.format(row.realized)} | Projetado ${num.format(row.projected)} | <span class="status ${row.status.cls}">${row.status.label}</span></small></div>`).join("") || `<p class="muted-note">Nenhum indicador encontrado.</p>`}</div></section>`;
+  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Atingimento por indicador da filial</h3><p>Indicadores consolidados da filial.</p></div></div><div class="branch-indicator-list">${rows.map((row) => {
+    const percent = effectiveAttainmentPercent(row);
+    const width = percent === null ? 0 : Math.min(140, Math.max(2, percent * 100));
+    return `<div class="branch-chart-row ${achievementClass(percent)}"><div class="branch-chart-label"><strong>${escapeHtml(row.name)}</strong><span>${achievementPill(row.currentPercent)} ${achievementPill(row.projectedPercent)}</span></div><div class="branch-chart-track"><i style="width:${width}%"></i></div><small>Meta ${num.format(row.goal)} | Realizado ${num.format(row.realized)} | Projetado ${row.projectedPercent === null ? "-" : num.format(row.projected)} | <span class="status ${row.status.cls}">${row.status.label}</span></small></div>`;
+  }).join("") || `<p class="muted-note">Nenhum indicador encontrado.</p>`}</div></section>`;
 }
 
 function branchDeflatorSummary(sellers) {
@@ -4312,14 +4446,14 @@ function branchPartialSellerRows(records) {
 
 function partialCriticalMetric(records) {
   return groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
-    .filter((row) => row.projectedPercent !== null)
-    .sort((a, b) => (a.projectedPercent || 0) - (b.projectedPercent || 0) || (b.gap || 0) - (a.gap || 0))[0] || null;
+    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
+    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b) || (b.gap || 0) - (a.gap || 0))[0] || null;
 }
 
 function partialCriticalBlock(records) {
   return partialBlockRows(records)
-    .filter((row) => row.projectedPercent !== null)
-    .sort((a, b) => (a.projectedPercent || 0) - (b.projectedPercent || 0))[0] || null;
+    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
+    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b))[0] || null;
 }
 
 function partialOpportunityText(records, scope = "filial") {
@@ -4327,8 +4461,8 @@ function partialOpportunityText(records, scope = "filial") {
   const metric = partialCriticalMetric(records);
   if (!records.length) return `Nenhuma parcial publicada para gerar oportunidades da ${scope}.`;
   if (!block && !metric) return "Ainda nao ha metas suficientes para calcular oportunidades.";
-  if (block?.projectedPercent >= 1) return `${metricGroupDisplay(block.key)} esta dentro do ritmo. Mantenha acompanhamento e proteja os indicadores com maior gap.`;
-  return `Priorizar ${metricGroupDisplay(block?.key || "Sem bloco")}: ${metric?.key || "indicador critico"} esta com ${metric?.projectedPercent !== null && metric ? pct.format(metric.projectedPercent) : "-"} projetado e gap de ${metric?.gap !== null && metric ? num.format(metric.gap) : "-"}.`;
+  if (effectiveAttainmentPercent(block) >= 1) return `${metricGroupDisplay(block.key)} esta dentro do ritmo. Mantenha acompanhamento e proteja os indicadores com maior gap.`;
+  return `Priorizar ${metricGroupDisplay(block?.key || "Sem bloco")}: ${metric?.key || "indicador critico"} esta com ${formatPercent(effectiveAttainmentPercent(metric))} projetado e gap de ${metric?.gap !== null && metric ? num.format(metric.gap) : "-"}.`;
 }
 
 function branchOfficialPartialCard(branch, sellers) {
@@ -4339,7 +4473,7 @@ function branchOfficialPartialCard(branch, sellers) {
   const blockRows = goalCompletionBlocksFromRecords(records);
   const completion = goalCompletionStats(records);
   const sellerRows = branchPartialSellerRows(records);
-  const riskSellers = sellerRows.filter((row) => (row.metPercent ?? 0) < 0.8 || (row.projectedAverage ?? 1) < 0.8).length;
+  const riskSellers = sellerRows.filter((row) => (row.metPercent !== null && row.metPercent < 0.8) || (row.projectedAverage !== null && row.projectedAverage < 0.8)).length;
   const criticalMetric = partialCriticalMetric(records);
   return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Resultado parcial oficial</h3><p>${escapeHtml(partial.name)} - data base ${escapeHtml(partial.baseDate || "-")}.</p></div>${partialVisibilityBadge(partial)}</div>
     ${partialHistoryMessage(partial)}
@@ -4394,10 +4528,10 @@ function branchPartialDetails(branch, sellers) {
 function branchPartialAttention(branch, sellers) {
   const records = branchPartialRecords(getVisiblePartial("filial"), branch, sellers);
   const rows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
-    .filter((row) => row.projectedPercent !== null && row.projectedPercent < 0.8)
-    .sort((a, b) => (a.projectedPercent || 0) - (b.projectedPercent || 0))
+    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
+    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b))
     .slice(0, 8);
-  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Pontos de atencao</h3><p>Indicadores abaixo de 80% projetado.</p></div></div><div class="branch-attention-list">${rows.map((row) => `<div class="attention-row bad"><strong>${escapeHtml(row.key)} - ${pct.format(row.projectedPercent)} projetado</strong><span>${row.sellerIds.size} vendedor${row.sellerIds.size === 1 ? "" : "es"} abaixo do ritmo</span></div>`).join("") || `<p class="muted-note">Nenhum indicador critico abaixo de 80%.</p>`}</div></section>`;
+  return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Pontos de atencao</h3><p>Indicadores abaixo de 80% projetado.</p></div></div><div class="branch-attention-list">${rows.map((row) => `<div class="attention-row bad"><strong>${escapeHtml(row.key)} - ${formatPercent(effectiveAttainmentPercent(row))} projetado</strong><span>${row.sellerIds.size} vendedor${row.sellerIds.size === 1 ? "" : "es"} abaixo do ritmo</span></div>`).join("") || `<p class="muted-note">Nenhum indicador critico abaixo de 80%.</p>`}</div></section>`;
 }
 
 function branchPartialRanking(branch, sellers) {
@@ -4510,7 +4644,7 @@ function legacyRenderCollaborator() {
     <div class="hero-number"><span>${seller.branch} - ${seller.area}</span><strong>${seller.name}</strong></div>
     <div class="hero-number"><span>Comissão total proj.</span><strong>${money.format(projectedTotalBeforeDeflator)}</strong></div>
     <div class="hero-number"><span>Deflator</span><strong>${money.format(result.projectedDeflator)}</strong></div>
-    <div class="hero-number"><span>Comissão final proj.</span><strong>${money.format(result.projected)}</strong></div>
+    <div class="hero-number"><span>Comissão estimada</span><strong>${money.format(result.projected)}</strong></div>
     <div class="hero-number"><span>Status</span><strong><span class="status ${status.cls}">${status.label}</span></strong></div>
     <button id="collabLogout" class="ghost-button" type="button">Trocar vendedor</button>
   `;
@@ -4539,25 +4673,23 @@ function collaboratorMetricRows(seller) {
   const rows = metricsFor(seller.area).map((metric) => {
     const value = seller.values[metric.id] || { goal: metric.goal, realized: 0 };
     const participates = metricParticipates(metric);
-    const goal = Number(value.goal) || 0;
-    const realized = Number(value.realized) || 0;
-    const projectedValue = projected(realized);
-    const currentPercent = participates && goal ? realized / goal : null;
-    const projectedPercent = participates && goal ? projectedValue / goal : null;
-    const missing = participates ? Math.max(goal - realized, 0) : 0;
-    const status = participates ? partialStatusFromProjected(projectedPercent, currentPercent) : { label: "Informativo", cls: "neutral" };
+    const goal = metricGoalForSeller(seller, metric);
+    const realized = finiteNumber(value.realized);
+    const projectedValue = participates ? projectionForPeriod(realized) : null;
+    const calc = indicatorCalculation({ metric, goal, realized, projectedValue, participates });
+    const missing = calc.gap;
     return {
       metric,
       groupMeta: metricGroup(metric),
       tipoIndicador: metricTypeKind(metric),
       participates,
-      goal,
-      realized,
-      projectedValue,
-      currentPercent,
-      projectedPercent,
+      goal: calc.goal,
+      realized: calc.realized,
+      projectedValue: calc.projectedValue,
+      currentPercent: calc.currentPercent,
+      projectedPercent: calc.projectedPercent,
       missing,
-      status,
+      status: calc.status,
       commission: metricCommission(seller, metric, "projected"),
       deflator: metricDeflatorLabel(seller, metric),
     };
@@ -4568,16 +4700,25 @@ function collaboratorMetricRows(seller) {
       acc.commission += row.commission;
       return acc;
     }
+    if (!row.goal) {
+      acc.withoutGoal += 1;
+      acc.commission += row.commission;
+      return acc;
+    }
     acc.goal += row.goal;
     acc.realized += row.realized;
-    acc.projected += row.projectedValue;
-    acc.missing += row.missing;
+    if (row.projectedValue !== null) {
+      acc.projected += row.projectedValue;
+      acc.withProjection += 1;
+    }
+    acc.missing += row.missing || 0;
     acc.commission += row.commission;
+    acc.withGoal += 1;
     return acc;
-  }, { goal: 0, realized: 0, projected: 0, missing: 0, commission: 0, infoRealized: 0 });
+  }, { goal: 0, realized: 0, projected: 0, missing: 0, commission: 0, infoRealized: 0, withGoal: 0, withoutGoal: 0, withProjection: 0 });
   totals.currentPercent = totals.goal ? totals.realized / totals.goal : null;
-  totals.projectedPercent = totals.goal ? totals.projected / totals.goal : null;
-  totals.status = partialStatusFromProjected(totals.projectedPercent, totals.currentPercent);
+  totals.projectedPercent = totals.goal && totals.withProjection ? totals.projected / totals.goal : null;
+  totals.status = totals.withGoal ? partialStatusFromProjected(totals.projectedPercent, totals.currentPercent) : totals.withoutGoal ? { label: "Meta nao configurada", cls: "neutral", action: "Revisar meta" } : { label: "Sem metas", cls: "neutral", action: "Revisar meta" };
   totals.goalCompletion = goalCompletionByMetricRows(rows);
   return { rows, totals };
 }
@@ -4590,7 +4731,7 @@ function collaboratorSummary(seller) {
   const final = result.projected;
   const preview = projectedDeflatorPreview(seller);
   const status = seller.emExperiencia ? { label: "Em experiencia", cls: "neutral", action: "Acompanhamento" } : metrics.totals.goalCompletion.status;
-  return { result, metrics, gross, estornos, final, preview, status, currentPercent: metrics.totals.currentPercent || 0, projectedPercent: metrics.totals.projectedPercent || 0, goalCompletion: metrics.totals.goalCompletion };
+  return { result, metrics, gross, estornos, final, preview, status, currentPercent: metrics.totals.currentPercent, projectedPercent: metrics.totals.projectedPercent, goalCompletion: metrics.totals.goalCompletion };
 }
 
 function collaboratorLoginMarkup(seller) {
@@ -4605,28 +4746,36 @@ function collaboratorLoginMarkup(seller) {
 
 function collaboratorGuidance(seller) {
   const summary = collaboratorSummary(seller);
-  const weak = [...summary.metrics.rows].filter((row) => row.participates && row.goal > 0).sort((a, b) => (a.currentPercent || 0) - (b.currentPercent || 0)).slice(0, 2);
-  const missingTotal = Math.ceil(summary.metrics.totals.missing || 0);
-  if (!summary.metrics.rows.length) return "Ainda não há dados suficientes para gerar uma orientação.";
-  if (summary.preview.triggered.length && !summary.preview.ignored) return `Você possui deflator aplicado no momento. Atue no indicador ${summary.preview.triggered[0].metric.name} para recuperar parte da comissão.`;
-  if (summary.projectedPercent >= 1 && summary.currentPercent >= 1) return "Você está acima da meta. Continue protegendo seus indicadores para evitar deflatores.";
-  if (summary.projectedPercent < 1) return `Atenção: sua projeção está abaixo da meta. Priorize ${weak.map((item) => item.metric.name).join(" e ") || "os indicadores críticos"} para recuperar sua comissão.`;
-  return `Faltam ${num.format(missingTotal)} pontos de meta para atingir 100%. Mantenha o ritmo atual para alcançar sua projeção.`;
+  {
+    const weak = [...summary.metrics.rows].filter(metricGoalApplies).sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b)).slice(0, 2);
+    const missingTotal = Math.ceil(summary.metrics.totals.missing || 0);
+    if (!summary.metrics.rows.length) return "Ainda nao ha dados suficientes para gerar uma orientacao.";
+    if (!summary.goalCompletion.applicableCount) return "Nenhuma meta aplicavel configurada para calcular atingimento.";
+    if (summary.preview.triggered.length && !summary.preview.ignored) return `Voce possui deflator aplicado no momento. Atue no indicador ${summary.preview.triggered[0].metric.name} para recuperar parte da comissao.`;
+    if (summary.projectedPercent !== null && summary.currentPercent !== null && summary.projectedPercent >= 1 && summary.currentPercent >= 1) return "Voce esta acima da meta. Continue protegendo seus indicadores para evitar deflatores.";
+    if (summary.projectedPercent !== null && summary.projectedPercent < 1) return `Atencao: sua projecao esta abaixo da meta. Priorize ${weak.map((item) => item.metric.name).join(" e ") || "os indicadores criticos"} para recuperar sua comissao.`;
+    return `Faltam ${num.format(missingTotal)} pontos de meta para atingir 100%. Mantenha o ritmo atual para alcancar sua projecao.`;
+  }
 }
 
 function collaboratorOpportunity(seller) {
   const summary = collaboratorSummary(seller);
-  const weak = [...summary.metrics.rows].filter((row) => row.participates && row.goal > 0).sort((a, b) => (a.projectedPercent || 0) - (b.projectedPercent || 0))[0];
-  if (!summary.metrics.rows.length) return "Ainda não há dados suficientes para calcular oportunidades de ganho.";
-  if (summary.preview.triggered.length) {
-    const trigger = summary.preview.triggered[0];
-    const value = seller.values[trigger.metric.id] || { goal: trigger.metric.goal, realized: 0 };
-    const neededProjected = Math.ceil((Number(value.goal) || 0) * (Number(trigger.min) || 0));
-    const needed = Math.max(neededProjected - projected(value.realized), 0);
-    return `Venda mais ${num.format(needed)} em ${trigger.metric.name} para remover o deflator de -${pct.format(summary.preview.rate)}. Isso pode aumentar sua comissão projetada em ${money.format(Math.abs(summary.preview.previewImpact))}.`;
+  {
+    const weak = [...summary.metrics.rows].filter(metricGoalApplies).sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b))[0];
+    if (!summary.metrics.rows.length) return "Ainda nao ha dados suficientes para calcular oportunidades de ganho.";
+    if (!summary.goalCompletion.applicableCount) return "Configure metas aplicaveis para calcular oportunidades.";
+    if (summary.preview.triggered.length) {
+      const trigger = summary.preview.triggered[0];
+      const value = seller.values[trigger.metric.id] || { goal: trigger.metric.goal, realized: 0 };
+      const goal = metricGoalForSeller(seller, trigger.metric);
+      const projectedValue = projectionForPeriod(value.realized);
+      const neededProjected = Math.ceil((goal || 0) * (Number(trigger.min) || 0));
+      const needed = projectedValue === null ? 0 : Math.max(neededProjected - projectedValue, 0);
+      return `Venda mais ${num.format(needed)} em ${trigger.metric.name} para remover o deflator de -${pct.format(summary.preview.rate)}. Isso pode aumentar sua comissao projetada em ${money.format(Math.abs(summary.preview.previewImpact))}.`;
+    }
+    if (summary.currentPercent !== null && summary.currentPercent >= 1) return "Voce esta acima da meta e sem deflatores. Continue mantendo o ritmo ate o fechamento.";
+    return `Seu melhor caminho e acelerar ${weak?.metric?.name || "os indicadores abaixo da meta"}, que esta abaixo do ritmo necessario para atingir a meta.`;
   }
-  if (summary.currentPercent >= 1) return "Você está acima da meta e sem deflatores. Continue mantendo o ritmo até o fechamento.";
-  return `Seu melhor caminho é acelerar ${weak?.metric?.name || "os indicadores abaixo da meta"}, que está abaixo do ritmo necessário para atingir a meta.`;
 }
 
 function collaboratorKpiMarkup(seller) {
@@ -4643,11 +4792,11 @@ function collaboratorKpiMarkup(seller) {
   return `<section class="collab-card collab-main-kpi">
     <div class="collab-card-head"><h3>Minha comissao estimada</h3><span class="status ${summary.status.cls}">${summary.status.label}</span></div>
     <strong class="collab-money">${money.format(summary.final)}</strong>
-    <div class="collab-kpi-line"><span>Metas atingidas: <b>${summary.goalCompletion.metCount}/${summary.goalCompletion.applicableCount}</b></span><span>% metas atingidas: <b>${summary.goalCompletion.metPercent === null ? "-" : pct.format(summary.goalCompletion.metPercent)}</b></span></div>
+    <div class="collab-kpi-line"><span>Metas atingidas: <b>${summary.goalCompletion.metCount}/${summary.goalCompletion.applicableCount}</b></span><span>% metas atingidas: <b>${formatPercent(summary.goalCompletion.metPercent)}</b></span></div>
     ${blockSummary}
-    <div class="collab-commission-breakdown"><span>Comissao bruta <strong>${money.format(summary.gross)}</strong></span><span>Deflatores <strong>${money.format(summary.result.projectedDeflator)}</strong></span><span>Estornos <strong>${discountMoney(summary.estornos)}</strong></span><span>Comissao final <strong>${money.format(summary.final)}</strong></span></div>
+    <div class="collab-commission-breakdown"><span>Comissao bruta <strong>${money.format(summary.gross)}</strong></span><span>Deflatores <strong>${money.format(summary.result.projectedDeflator)}</strong></span><span>Estornos <strong>${discountMoney(summary.estornos)}</strong></span><span>Comissao estimada <strong>${money.format(summary.final)}</strong></span></div>
     <div class="collab-progress"><span style="width:${progress}%"></span></div>
-    <div class="collab-progress-meta"><small>${summary.goalCompletion.metPercent === null ? "-" : pct.format(summary.goalCompletion.metPercent)} das metas</small><small>Meta 100%</small></div>
+    <div class="collab-progress-meta"><small>${formatPercent(summary.goalCompletion.metPercent)} das metas</small><small>Meta 100%</small></div>
   </section>`;
 }
 
@@ -4661,8 +4810,8 @@ function collaboratorMonthMarkup() {
 function collaboratorDeflatorMarkup(seller) {
   const summary = collaboratorSummary(seller);
   const items = summary.preview.triggered.map((item) => `<li>Deflator ${escapeHtml(item.metric.name)}: -${pct.format(item.rate)} | Motivo: abaixo de ${pct.format(item.min)}</li>`).join("");
-  if (seller.emExperiencia && summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status neutral">Ignorado</span></div><p><strong>Vendedor em experiencia.</strong> Deflator previsto: -${pct.format(summary.preview.rate)}.</p><p>Aplicacao: ignorado por periodo de experiencia.</p><p>Estornos aplicados: <strong>${discountMoney(summary.estornos)}</strong></p><p>Comissao final: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
-  if (summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status bad">Aplicado</span></div><p>Deflator aplicado: <strong>-${pct.format(summary.preview.rate)}</strong></p><p>Impacto financeiro: <strong>${money.format(summary.result.projectedDeflator)}</strong></p><p>Comissao bruta: <strong>${money.format(summary.gross)}</strong></p><p>Estornos: <strong>${discountMoney(summary.estornos)}</strong></p><p>Comissao final: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
+  if (seller.emExperiencia && summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status neutral">Ignorado</span></div><p><strong>Vendedor em experiencia.</strong> Deflator previsto: -${pct.format(summary.preview.rate)}.</p><p>Aplicacao: ignorado por periodo de experiencia.</p><p>Estornos aplicados: <strong>${discountMoney(summary.estornos)}</strong></p><p>Comissao estimada: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
+  if (summary.preview.triggered.length) return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status bad">Aplicado</span></div><p>Deflator aplicado: <strong>-${pct.format(summary.preview.rate)}</strong></p><p>Impacto financeiro: <strong>${money.format(summary.result.projectedDeflator)}</strong></p><p>Comissao bruta: <strong>${money.format(summary.gross)}</strong></p><p>Estornos: <strong>${discountMoney(summary.estornos)}</strong></p><p>Comissao estimada: <strong>${money.format(summary.final)}</strong></p><ul>${items}</ul></section>`;
   return `<section class="collab-card collab-deflator-card"><div class="collab-card-head"><h3>Deflatores</h3><span class="status ok">Sem desconto</span></div><p>Nenhum deflator aplicado no momento.</p><p>Sua comissao projetada nao possui desconto de deflator.</p></section>`;
 }
 
@@ -4670,7 +4819,7 @@ function collaboratorEstornosMarkup(seller) {
   const summary = collaboratorSummary(seller);
   const estornos = sellerEstornos(seller);
   if (!estornos.total) return `<section class="collab-card collab-estornos-card"><div class="collab-card-head"><h3>Estornos</h3><span class="status ok">Sem estorno</span></div><p>Nenhum estorno aplicado.</p></section>`;
-  return `<section class="collab-card collab-estornos-card"><div class="collab-card-head"><h3>Estornos</h3><span class="status warn">Desconto</span></div><dl class="estorno-breakdown">${estornos.items.map((item) => `<dt>${escapeHtml(item.label)}</dt><dd>${discountMoney(item.value)}</dd>`).join("")}<dt>Total de estornos</dt><dd><strong>${discountMoney(estornos.total)}</strong></dd><dt>Comissao final</dt><dd><strong>${money.format(summary.final)}</strong></dd></dl></section>`;
+  return `<section class="collab-card collab-estornos-card"><div class="collab-card-head"><h3>Estornos</h3><span class="status warn">Desconto</span></div><dl class="estorno-breakdown">${estornos.items.map((item) => `<dt>${escapeHtml(item.label)}</dt><dd>${discountMoney(item.value)}</dd>`).join("")}<dt>Total de estornos</dt><dd><strong>${discountMoney(estornos.total)}</strong></dd><dt>Comissao estimada</dt><dd><strong>${money.format(summary.final)}</strong></dd></dl></section>`;
 }
 
 function sellerWithPartialValues(seller, records) {
@@ -4683,9 +4832,10 @@ function sellerWithPartialValues(seller, records) {
   for (const record of records) {
     if (!record.metric) continue;
     const current = clone.values[record.metric.id] || { goal: record.metric.goal, realized: 0 };
+    const goal = record.goal !== null && record.goal !== undefined ? record.goal : (current.goal !== undefined && current.goal !== "" ? current.goal : record.metric.goal);
     clone.values[record.metric.id] = {
       ...current,
-      goal: record.goal || current.goal || record.metric.goal || 0,
+      goal,
       realized: record.realized,
     };
   }
@@ -4814,22 +4964,15 @@ function collaboratorOfficialPartialMarkup(seller) {
 }
 
 function collaboratorIndicatorTable(seller) {
-  const { rows, totals } = collaboratorMetricRows(seller);
-  const locked = isCampaignOperationLocked();
-  const disabled = locked ? "disabled" : "";
-  const body = rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${num.format(row.goal)}</td><td><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></td><td>${achievementPill(row.currentPercent)}</td><td>${num.format(row.missing)}</td><td>${num.format(row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${escapeHtml(row.deflator)}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td></tr>`).join("");
-  const cards = rows.map((row) => `<article class="collab-indicator-card"><div><strong>${escapeHtml(row.metric.name)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div><dl><dt>Meta</dt><dd>${num.format(row.goal)}</dd><dt>Realizado</dt><dd><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></dd><dt>% atual</dt><dd>${pct.format(row.currentPercent || 0)}</dd><dt>Falta</dt><dd>${num.format(row.missing)}</dd><dt>Projetado</dt><dd>${num.format(row.projectedValue)}</dd><dt>% projetado</dt><dd>${pct.format(row.projectedPercent || 0)}</dd><dt>Comissão</dt><dd>${money.format(row.commission)}</dd><dt>Deflator</dt><dd>${escapeHtml(row.deflator)}</dd></dl></article>`).join("");
-  const helper = locked ? "Esta campanha está encerrada e não permite novas alterações." : "Use esta área para simular cenários. A simulação não altera o resultado parcial oficial.";
-  const note = locked ? `<p class="admin-inline-note warning">Esta campanha está encerrada e não permite novas alterações.</p>` : "";
-  return `<section class="collab-card collab-results-card"><div class="collab-card-head"><h3>Minha simulação</h3><p>${helper}</p></div>${note}<div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comissão</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body}<tr class="total-row"><td>Total</td><td>${num.format(totals.goal)}</td><td>${num.format(totals.realized)}</td><td>${achievementPill(totals.currentPercent)}</td><td>${num.format(totals.missing)}</td><td>${num.format(totals.projected)}</td><td>${achievementPill(totals.projectedPercent)}</td><td>${money.format(collaboratorSummary(seller).final)}</td><td>-</td><td><span class="status ${totals.status.cls}">${totals.status.label}</span></td></tr></tbody></table></div><div class="collab-indicator-cards">${cards}</div></section>`;
+  return collaboratorIndicatorTableGrouped(seller);
 }
 
 function collaboratorIndicatorTableGrouped(seller) {
   const { rows, totals } = collaboratorMetricRows(seller);
   const locked = isCampaignOperationLocked();
   const disabled = locked ? "disabled" : "";
-  const body = metricGroupHeaderRows(rows, 10, (row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${row.participates ? formatMetricAmount(row.metric, row.goal) : "Informativo"}</td><td><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></td><td>${achievementPill(row.currentPercent)}</td><td>${row.participates ? formatMetricAmount(row.metric, row.missing) : "-"}</td><td>${formatMetricAmount(row.metric, row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${row.participates ? escapeHtml(row.deflator) : "Informativo"}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td></tr>`);
-  const cards = rows.map((row) => `<article class="collab-indicator-card"><div><strong>${escapeHtml(row.metric.name)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div><small class="metric-block-label">${escapeHtml(metricGroupDisplay(row.groupMeta))}</small><dl><dt>Meta</dt><dd>${row.participates ? formatMetricAmount(row.metric, row.goal) : "Informativo"}</dd><dt>Realizado</dt><dd><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></dd><dt>% atual</dt><dd>${row.currentPercent === null ? "-" : pct.format(row.currentPercent)}</dd><dt>Falta</dt><dd>${row.participates ? formatMetricAmount(row.metric, row.missing) : "-"}</dd><dt>Projetado</dt><dd>${formatMetricAmount(row.metric, row.projectedValue)}</dd><dt>% projetado</dt><dd>${row.projectedPercent === null ? "-" : pct.format(row.projectedPercent)}</dd><dt>Comissao</dt><dd>${money.format(row.commission)}</dd><dt>Deflator</dt><dd>${row.participates ? escapeHtml(row.deflator) : "Informativo"}</dd></dl></article>`).join("");
+  const body = metricGroupHeaderRows(rows, 10, (row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${formatGoalLabel(row.metric, row.goal, row.participates)}</td><td><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></td><td>${achievementPill(row.currentPercent)}</td><td>${row.participates ? formatMetricAmount(row.metric, row.missing) : "-"}</td><td>${formatMetricAmount(row.metric, row.projectedValue)}</td><td>${achievementPill(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${row.participates ? escapeHtml(row.deflator) : "Informativo"}</td><td><span class="status ${row.status.cls}">${row.status.label}</span></td></tr>`);
+  const cards = rows.map((row) => `<article class="collab-indicator-card"><div><strong>${escapeHtml(row.metric.name)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div><small class="metric-block-label">${escapeHtml(metricGroupDisplay(row.groupMeta))}</small><dl><dt>Meta</dt><dd>${formatGoalLabel(row.metric, row.goal, row.participates)}</dd><dt>Realizado</dt><dd><input data-collab-realized="${row.metric.id}" type="number" value="${row.realized}" ${disabled}></dd><dt>% atual</dt><dd>${formatPercent(row.currentPercent)}</dd><dt>Falta</dt><dd>${row.participates ? formatMetricAmount(row.metric, row.missing) : "-"}</dd><dt>Projetado</dt><dd>${formatMetricAmount(row.metric, row.projectedValue)}</dd><dt>% projetado</dt><dd>${formatPercent(row.projectedPercent)}</dd><dt>Comissao</dt><dd>${money.format(row.commission)}</dd><dt>Deflator</dt><dd>${row.participates ? escapeHtml(row.deflator) : "Informativo"}</dd></dl></article>`).join("");
   const helper = locked ? "Esta campanha está encerrada e não permite novas alterações." : "Use esta área para simular cenários. A simulação não altera o resultado parcial oficial.";
   const note = locked ? `<p class="admin-inline-note warning">Esta campanha está encerrada e não permite novas alterações.</p>` : "";
   const infoNote = `<p class="metric-info-note">Receita de aparelhos e indicadores informativos nao compoem o atingimento de metas. Apenas o volume de aparelhos entra no calculo.</p>`;
@@ -4851,7 +4994,7 @@ function collaboratorScenarioMarkup(seller) {
   const current = summary.result.current;
   const simulated = summary.final;
   const diff = simulated - current;
-  return `<section class="collab-card collab-scenario-card"><div class="collab-card-head"><h3>Simular novo cenário</h3><span>${diff >= 0 ? "+" : ""}${money.format(diff)}</span></div><div class="collab-scenario-grid"><span>Cenário atual<strong>${money.format(current)}</strong></span><span>Cenário simulado<strong>${money.format(simulated)}</strong></span><span>Novo % projetado<strong>${pct.format(summary.projectedPercent)}</strong></span><span>Deflator previsto<strong>${summary.preview.rate ? `-${pct.format(summary.preview.rate)}` : "Sem deflator"}</strong></span></div><p>Altere os valores em Resultado por indicador para atualizar automaticamente o cenário.</p></section>`;
+  return `<section class="collab-card collab-scenario-card"><div class="collab-card-head"><h3>Simular novo cenário</h3><span>${diff >= 0 ? "+" : ""}${money.format(diff)}</span></div><div class="collab-scenario-grid"><span>Cenário atual<strong>${money.format(current)}</strong></span><span>Cenário simulado<strong>${money.format(simulated)}</strong></span><span>Novo % projetado<strong>${formatPercent(summary.projectedPercent)}</strong></span><span>Deflator previsto<strong>${summary.preview.rate ? `-${pct.format(summary.preview.rate)}` : "Sem deflator"}</strong></span></div><p>Altere os valores em Resultado por indicador para atualizar automaticamente o cenário.</p></section>`;
 }
 
 function collaboratorSimulationPeriod() {
@@ -4906,10 +5049,10 @@ function collaboratorReportHtml(seller) {
   const exportedAt = dateTime.format(new Date());
   const campaign = activeCampaign();
   const campaignStatus = campaignShortStatus(campaign?.status);
-  const deflatorText = summary.preview.triggered.length ? `Deflator aplicado: -${pct.format(summary.preview.rate)} | Impacto financeiro: ${money.format(summary.result.projectedDeflator)} | Comissão bruta: ${money.format(summary.gross)} | Estornos: ${discountMoney(summary.estornos)} | Comissão final: ${money.format(summary.final)}` : "Nenhum deflator aplicado no momento.";
+  const deflatorText = summary.preview.triggered.length ? `Deflator aplicado: -${pct.format(summary.preview.rate)} | Impacto financeiro: ${money.format(summary.result.projectedDeflator)} | Comissão bruta: ${money.format(summary.gross)} | Estornos: ${discountMoney(summary.estornos)} | Comissão estimada: ${money.format(summary.final)}` : "Nenhum deflator aplicado no momento.";
   const experienceText = seller.emExperiencia && summary.preview.triggered.length ? "Vendedor em experiência - deflator previsto ignorado." : "";
   const estornoText = estornos.total ? estornos.items.map((item) => `${item.label}: ${discountMoney(item.value)}`).join(" | ") + ` | Total de estornos: ${discountMoney(estornos.total)}` : "Nenhum estorno aplicado.";
-  const tableRows = rows.rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${escapeHtml(metricGroupDisplay(row.groupMeta))}</td><td>${row.participates ? num.format(row.goal) : "Informativo"}</td><td>${num.format(row.realized)}</td><td>${row.currentPercent === null ? "-" : pct.format(row.currentPercent)}</td><td>${row.participates ? num.format(row.missing) : "-"}</td><td>${num.format(row.projectedValue)}</td><td>${row.projectedPercent === null ? "-" : pct.format(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${row.participates ? escapeHtml(row.deflator) : "Informativo"}</td><td>${row.status.label}</td></tr>`).join("");
+  const tableRows = rows.rows.map((row) => `<tr><td>${escapeHtml(row.metric.name)}</td><td>${escapeHtml(metricGroupDisplay(row.groupMeta))}</td><td>${formatGoalLabel(row.metric, row.goal, row.participates)}</td><td>${formatMetricAmount(row.metric, row.realized)}</td><td>${formatPercent(row.currentPercent)}</td><td>${row.missing === null ? "-" : formatMetricAmount(row.metric, row.missing)}</td><td>${formatMetricAmount(row.metric, row.projectedValue)}</td><td>${formatPercent(row.projectedPercent)}</td><td>${money.format(row.commission)}</td><td>${row.participates ? escapeHtml(row.deflator) : "Informativo"}</td><td>${row.status.label}</td></tr>`).join("");
   return `<div class="report-page print-report">
     <header class="print-header">
       <div>
@@ -4935,14 +5078,14 @@ function collaboratorReportHtml(seller) {
       <span>Comiss&atilde;o bruta<strong>${money.format(summary.gross)}</strong></span>
       <span>Deflatores<strong>${money.format(summary.result.projectedDeflator)}</strong></span>
       <span>Estornos<strong>${discountMoney(summary.estornos)}</strong></span>
-      <span>Comiss&atilde;o final<strong>${money.format(summary.final)}</strong></span>
+      <span>Comiss&atilde;o estimada<strong>${money.format(summary.final)}</strong></span>
       <span>Status performance<strong>${escapeHtml(summary.status.label)}</strong></span>
-      <span>Atingimento atual<strong>${pct.format(summary.currentPercent)}</strong></span>
-      <span>Atingimento projetado<strong>${pct.format(summary.projectedPercent)}</strong></span>
+      <span>Atingimento atual<strong>${formatPercent(summary.currentPercent)}</strong></span>
+      <span>Atingimento projetado<strong>${formatPercent(summary.projectedPercent)}</strong></span>
     </section>
     <table class="print-table">
       <thead><tr><th>Indicador</th><th>Bloco</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Comiss&atilde;o</th><th>Deflator</th><th>Status</th></tr></thead>
-      <tbody>${tableRows}<tr class="total-row"><td>Total</td><td>-</td><td>${num.format(rows.totals.goal)}</td><td>${num.format(rows.totals.realized)}</td><td>${pct.format(rows.totals.currentPercent || 0)}</td><td>${num.format(rows.totals.missing)}</td><td>${num.format(rows.totals.projected)}</td><td>${pct.format(rows.totals.projectedPercent || 0)}</td><td>${money.format(summary.final)}</td><td>-</td><td>${escapeHtml(rows.totals.status.label)}</td></tr></tbody>
+      <tbody>${tableRows}<tr class="total-row"><td>Total</td><td>-</td><td>${rows.totals.goalCompletion.metCount}/${rows.totals.goalCompletion.applicableCount} metas</td><td>${formatMetricAmount(null, rows.totals.realized)}</td><td>${formatPercent(rows.totals.currentPercent)}</td><td>${formatMetricAmount(null, rows.totals.missing)}</td><td>${formatMetricAmount(null, rows.totals.projected)}</td><td>${formatPercent(rows.totals.projectedPercent)}</td><td>${money.format(summary.final)}</td><td>-</td><td>${escapeHtml(rows.totals.status.label)}</td></tr></tbody>
     </table>
     <section class="print-notes">
       <div class="report-block"><h2>Deflatores</h2><p>${escapeHtml(experienceText || deflatorText)}</p></div>
