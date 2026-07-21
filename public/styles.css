@@ -3210,6 +3210,35 @@ body[data-view="home"] .sidebar .nav-button.active::after {
   min-height: 38px;
 }
 
+.collab-official-extract-card {
+  border-color: #d7f0df;
+  background: #fbfffd;
+}
+
+.official-extract-meta span,
+.official-extract-finance article {
+  min-width: 0;
+}
+
+.official-extract-finance {
+  margin: 14px 0;
+}
+
+.official-extract-finance article strong {
+  overflow-wrap: anywhere;
+}
+
+.official-extract-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 14px;
+}
+
+.official-extract-breakdown .partial-meta-line {
+  margin: 0;
+}
+
 .collab-empty-state {
   padding: 32px;
   color: var(--muted);
@@ -3279,6 +3308,10 @@ body[data-view="home"] .sidebar .nav-button.active::after {
   .collab-indicator-cards {
     display: grid;
     gap: 12px;
+  }
+
+  .official-extract-breakdown {
+    grid-template-columns: 1fr;
   }
 }
 

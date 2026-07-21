@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260721-evolucao1-fechamento";
+const CACHE_NAME = "comissao-pwa-v20260721-evolucao2-extrato";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260721-evolucao1-fechamento",
-  "/app.js?v=20260721-evolucao1-fechamento",
+  "/styles.css?v=20260721-evolucao2-extrato",
+  "/app.js?v=20260721-evolucao2-extrato",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

@@ -1828,13 +1828,23 @@ function officialClosingForCampaign(campaign = activeCampaign()) {
   return closingsForCampaign(campaign).find(closingIsOfficial) || null;
 }
 
+function closingExtractsPublished(closing) {
+  return normalizeClosingStatus(closing?.status) === CLOSING_STATUS.PUBLISHED;
+}
+
+function publishedOfficialClosingForCampaign(campaign = activeCampaign()) {
+  const closing = officialClosingForCampaign(campaign);
+  return closing && closingExtractsPublished(closing) ? closing : null;
+}
+
 function closingForCampaign(campaign = activeCampaign()) {
   const official = officialClosingForCampaign(campaign);
   return official || closingsForCampaign(campaign)[0] || null;
 }
 
 function closingStatusClass(status) {
-  if (status === CLOSING_STATUS.AWAITING_EXTRACTS || status === CLOSING_STATUS.OFFICIAL_CLOSED || status === CLOSING_STATUS.PUBLISHED) return "neutral";
+  if (status === CLOSING_STATUS.PUBLISHED) return "ok";
+  if (status === CLOSING_STATUS.AWAITING_EXTRACTS || status === CLOSING_STATUS.OFFICIAL_CLOSED) return "neutral";
   if (status === CLOSING_STATUS.REVIEW || status === CLOSING_STATUS.READY) return "warn";
   return "bad";
 }
@@ -1957,6 +1967,12 @@ function closingDraftFromSnapshot(campaign, partial, snapshot, existing = {}) {
 
 function replaceCampaignReviewClosing(campaign, closing) {
   state.closings = closings().filter((item) => !(item.campaignId === campaign.id && !closingIsOfficial(item)));
+  state.closings.push(normalizeClosing(closing));
+}
+
+function replaceClosingById(closing) {
+  if (!closing?.id) return;
+  state.closings = closings().filter((item) => item.id !== closing.id);
   state.closings.push(normalizeClosing(closing));
 }
 
@@ -2238,6 +2254,76 @@ function officialCloseActiveCampaign() {
     message: `Comissionamento da campanha ${campaign.name} fechado oficialmente. Extratos aguardam publicacao futura.`,
   });
   saveState("Fechamento oficial concluido");
+  renderAll();
+}
+
+function publishOfficialExtracts() {
+  const campaign = activeCampaign();
+  if (!requireAdminAction("publishOfficialExtracts", "Fechamento")) return;
+  if (!campaign) {
+    alert("Selecione uma campanha para publicar os extratos.");
+    return;
+  }
+  const closing = officialClosingForCampaign(campaign);
+  if (!closing || !closingIsOfficial(closing)) {
+    alert("Feche oficialmente a campanha antes de publicar os extratos.");
+    return;
+  }
+  if (closingExtractsPublished(closing)) {
+    alert("Os extratos oficiais ja foram publicados para esta campanha.");
+    return;
+  }
+  const snapshot = closingSnapshotForDisplay(campaign, closing);
+  if (!snapshot || !Array.isArray(snapshot.sellers) || !snapshot.sellers.length) {
+    alert("Nao foi possivel publicar: snapshot oficial sem resultados de vendedores.");
+    return;
+  }
+  const message = [
+    "Voce esta publicando os extratos oficiais desta campanha para os vendedores.",
+    "",
+    `Campanha: ${campaign.name}`,
+    `Fechamento: ${closing.basePartialName || snapshot.basePartialName || "-"}`,
+    `Vendedores com extrato: ${snapshot.sellers.length}`,
+    "",
+    "Apos publicados, cada vendedor podera consultar seu resultado oficial fechado na tela Colaborador. Deseja continuar?",
+  ].join("\n");
+  if (!confirm(message)) return;
+  const publishedAt = new Date().toISOString();
+  const publishedBy = currentAuditProfile();
+  snapshot.status = CLOSING_STATUS.PUBLISHED;
+  snapshot.publishedAt = publishedAt;
+  snapshot.publishedBy = publishedBy;
+  const finalClosing = normalizeClosing({
+    ...closing,
+    status: CLOSING_STATUS.PUBLISHED,
+    publishedAt,
+    publishedBy,
+    snapshot,
+  });
+  updateClosingFromSnapshot(finalClosing, snapshot);
+  finalClosing.status = CLOSING_STATUS.PUBLISHED;
+  finalClosing.publishedAt = publishedAt;
+  finalClosing.publishedBy = publishedBy;
+  finalClosing.snapshot.status = CLOSING_STATUS.PUBLISHED;
+  finalClosing.snapshot.publishedAt = publishedAt;
+  finalClosing.snapshot.publishedBy = publishedBy;
+  replaceClosingById(finalClosing);
+  campaign.snapshot = cloneData(finalClosing.snapshot);
+  campaign.status = CAMPAIGN_STATUS.OFFICIAL_CLOSED;
+  campaign.officialFileName = closingSnapshotFileName(campaign, finalClosing.snapshot);
+  campaign.officialFileCsv = generateOfficialCommissionCsv(finalClosing.snapshot);
+  campaign.updatedAt = publishedAt;
+  logUpdate({
+    action: "Publicou extratos oficiais",
+    module: "Fechamento",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: finalClosing.id,
+    itemName: finalClosing.basePartialName || campaign.name,
+    newValue: CLOSING_STATUS.PUBLISHED,
+    message: `Extratos oficiais da campanha ${campaign.name} publicados para vendedores.`,
+  });
+  saveState("Extratos oficiais publicados");
   renderAll();
 }
 
@@ -4288,12 +4374,16 @@ function renderAdminClosingPanel() {
   const totals = snapshot ? closingTotalsFromSnapshot(snapshot) : normalizeClosingTotals();
   const canAdminEdit = canEditCampaignData() && isAdminUnlocked();
   const alreadyClosed = isCampaignOfficialClosed(campaign) || closingIsOfficial(closing);
+  const extractsPublished = closingExtractsPublished(closing);
   const status = closing?.status || CLOSING_STATUS.NOT_STARTED;
   const metricCount = ["Cabo", "Nao Cabo"].reduce((total, area) => total + metricsFor(area).length, 0);
   const startDisabled = alreadyClosed || !latestPartial || !canAdminEdit;
   const closeDisabled = alreadyClosed || !closing || !snapshot || !validation.ok || !canAdminEdit;
+  const publishDisabled = !alreadyClosed || extractsPublished || !snapshot || !isAdminUnlocked();
   const stateMessage = alreadyClosed
-    ? "Campanha fechada oficialmente. Os dados estao congelados e prontos para a proxima evolucao de extratos."
+    ? extractsPublished
+      ? `Campanha fechada oficialmente. Extratos publicados para vendedores${closing?.publishedAt ? ` em ${dateTime.format(new Date(closing.publishedAt))}` : ""}.`
+      : "Campanha fechada oficialmente. Os dados estao congelados e os extratos aguardam publicacao."
     : closing
       ? "Fechamento em conferencia. Revise os dados, estornos e validacoes antes de fechar oficialmente."
       : latestPartial
@@ -4349,7 +4439,12 @@ function renderAdminClosingPanel() {
     </div>
     <div class="campaign-flow-actions">
       <button id="downloadOfficialCampaignFile" class="ghost-button" type="button" ${campaign.officialFileCsv || officialClosingForCampaign(campaign)?.snapshot ? "" : "disabled"}>Baixar fechamento</button>
-      ${alreadyClosed ? `<span class="admin-inline-note">Fechamento concluido. Os extratos ainda nao foram publicados para os vendedores.</span>` : `<span class="admin-inline-note">A parcial original permanece no historico. Simulacoes nao alteram este fechamento.</span>`}
+      ${alreadyClosed ? `<button id="publishOfficialExtracts" class="primary-button" type="button" ${publishDisabled ? "disabled" : ""}>Publicar extratos para vendedores</button>` : ""}
+      ${alreadyClosed
+        ? extractsPublished
+          ? `<span class="admin-inline-note">Extratos oficiais publicados. Vendedores podem consultar o extrato na tela Colaborador.</span>`
+          : `<span class="admin-inline-note warning">Fechamento concluido. Os extratos ainda nao foram publicados para os vendedores.</span>`
+        : `<span class="admin-inline-note">A parcial original permanece no historico. Simulacoes nao alteram este fechamento.</span>`}
     </div>
     ${snapshot ? `<div class="campaign-command-card closing-summary">
       <div><span>Total vendedores</span><strong>${totals.totalSellers}</strong><small>Resultado carregado</small></div>
@@ -5865,11 +5960,155 @@ function collaboratorPartialSelectorMarkup(seller) {
   </section>`;
 }
 
+function sellerMatchesClosingRow(row, seller) {
+  if (!row || !seller) return false;
+  if (row.sellerId && row.sellerId === seller.id) return true;
+  return normalizedIdentity(row.name || row.seller) === normalizedIdentity(seller.name)
+    && normalizedIdentity(row.branch) === normalizedIdentity(seller.branch)
+    && (!row.area || normalizedIdentity(row.area) === normalizedIdentity(seller.area));
+}
+
+function officialExtractForSeller(seller, campaign = activeCampaign()) {
+  const closing = publishedOfficialClosingForCampaign(campaign);
+  if (!closing || !seller) return null;
+  const snapshot = closingSnapshotForDisplay(campaign, closing);
+  const row = snapshot?.sellers?.find((item) => sellerMatchesClosingRow(item, seller)) || null;
+  return row ? { closing, snapshot, row } : null;
+}
+
+function closingIndicatorMetricLike(indicator) {
+  return {
+    id: indicator?.metricId || indicator?.metric || "",
+    name: indicator?.metric || "Indicador",
+    unit: indicator?.unit || "",
+    groupMeta: indicator?.groupMeta || "Sem bloco",
+    tipoIndicador: indicator?.tipoIndicador || (indicator?.unit === "R$" ? "receita" : "volume"),
+    participaAtingimento: indicator?.participaAtingimento === true,
+  };
+}
+
+function closingIndicatorRowsForSeller(row) {
+  return (row?.indicators || []).map((indicator) => {
+    const metric = closingIndicatorMetricLike(indicator);
+    const participates = indicator.participaAtingimento === true;
+    const goal = validGoalValue(indicator.goal);
+    const status = !participates
+      ? { label: "Informativo", cls: "neutral" }
+      : goal === null
+        ? { label: "Meta nao configurada", cls: "neutral" }
+        : partialStatusFromProjected(indicator.currentPercent, indicator.currentPercent);
+    return {
+      ...indicator,
+      metric,
+      groupMeta: indicator.groupMeta || metric.groupMeta,
+      participates,
+      goal,
+      realized: finiteNumber(indicator.realized),
+      currentPercent: Number.isFinite(Number(indicator.currentPercent)) ? Number(indicator.currentPercent) : null,
+      projectedPercent: Number.isFinite(Number(indicator.projectedPercent)) ? Number(indicator.projectedPercent) : null,
+      missing: goal === null ? null : Math.max(goal - finiteNumber(indicator.realized), 0),
+      statusObj: status,
+    };
+  });
+}
+
+function closingIndicatorDeflatorLabel(item) {
+  if (!item?.participates) return "Informativo";
+  const value = item.deflator;
+  if (value === null || value === undefined || value === "") return "-";
+  return Number.isFinite(Number(value)) ? money.format(Number(value)) : String(value);
+}
+
+function officialExtractStateMessage(seller) {
+  const campaign = activeCampaign();
+  const closing = officialClosingForCampaign(campaign);
+  if (!closing) return "Extrato oficial ainda nao disponivel para esta campanha.";
+  if (!closingExtractsPublished(closing)) return "Extrato oficial ainda nao disponivel para esta campanha.";
+  if (!officialExtractForSeller(seller, campaign)) return "Nenhum extrato oficial encontrado para este vendedor nesta campanha.";
+  return "";
+}
+
+function collaboratorOfficialExtractMarkup(seller) {
+  const campaign = activeCampaign();
+  const data = officialExtractForSeller(seller, campaign);
+  if (!data) {
+    return `<section class="collab-card collab-official-extract-card">
+      <div class="collab-card-head"><div><h3>Extrato oficial</h3><p>Resultado fechado da campanha.</p></div><span class="status neutral">Indisponivel</span></div>
+      <section class="collab-empty-state">${escapeHtml(officialExtractStateMessage(seller))}</section>
+    </section>`;
+  }
+  const { closing, snapshot, row } = data;
+  const rows = closingIndicatorRowsForSeller(row);
+  const completion = goalCompletionStats(rows);
+  const closedAt = row.closedAt || snapshot.closedAt || closing.closedAt;
+  const publishedAt = closing.publishedAt || snapshot.publishedAt;
+  const deflatorValue = finiteNumber(row.deflatorImpact ?? row.deflator);
+  const deflatorText = row.emExperiencia && finiteNumber(row.deflator)
+    ? "Vendedor em experiencia - deflator ignorado."
+    : deflatorValue
+      ? `${row.deflatorReason || "Deflator aplicado"} | Impacto: ${money.format(deflatorValue)}`
+      : "Nenhum deflator aplicado.";
+  const tableRows = metricGroupHeaderRows(rows, 9, (item) => `<tr>
+    <td>${escapeHtml(item.metric.name)}</td>
+    <td>${formatGoalLabel(item.metric, item.goal, item.participates)}</td>
+    <td>${formatMetricAmount(item.metric, item.realized)}</td>
+    <td>${achievementPill(item.currentPercent)}</td>
+    <td>${item.missing === null ? "-" : formatMetricAmount(item.metric, item.missing)}</td>
+    <td>${money.format(finiteNumber(item.commission))}</td>
+    <td>${escapeHtml(closingIndicatorDeflatorLabel(item))}</td>
+    <td><span class="status ${item.statusObj.cls}">${escapeHtml(item.status || item.statusObj.label)}</span></td>
+    <td>${item.participates ? "Meta" : "Informativo"}</td>
+  </tr>`);
+  const cards = rows.map((item) => `<article class="collab-indicator-card">
+    <div><strong>${escapeHtml(item.metric.name)}</strong><span class="status ${item.statusObj.cls}">${escapeHtml(item.status || item.statusObj.label)}</span></div>
+    <small class="metric-block-label">${escapeHtml(metricGroupDisplay(item.groupMeta))}</small>
+    <dl>
+      <dt>Meta</dt><dd>${formatGoalLabel(item.metric, item.goal, item.participates)}</dd>
+      <dt>Realizado final</dt><dd>${formatMetricAmount(item.metric, item.realized)}</dd>
+      <dt>% atingimento</dt><dd>${formatPercent(item.currentPercent)}</dd>
+      <dt>Falta</dt><dd>${item.missing === null ? "-" : formatMetricAmount(item.metric, item.missing)}</dd>
+      <dt>Comissao</dt><dd>${money.format(finiteNumber(item.commission))}</dd>
+      <dt>Deflator</dt><dd>${escapeHtml(closingIndicatorDeflatorLabel(item))}</dd>
+    </dl>
+  </article>`).join("");
+  return `<section class="collab-card collab-official-extract-card">
+    <div class="collab-card-head">
+      <div><h3>Extrato oficial</h3><p>Resultado oficial fechado da campanha. Somente leitura.</p></div>
+      <span class="status ok">Publicado</span>
+    </div>
+    <p class="metric-info-note">Este extrato vem do snapshot congelado do fechamento oficial. Metas atuais, parciais futuras e simulacoes nao recalculam estes valores.</p>
+    <div class="collab-month-grid official-extract-meta">
+      <span>Campanha<strong>${escapeHtml(snapshot.campaignName || campaign?.name || "-")}</strong></span>
+      <span>Referencia<strong>${escapeHtml(snapshot.reference || campaign?.reference || "-")}</strong></span>
+      <span>Fechado em<strong>${closedAt ? dateTime.format(new Date(closedAt)) : "-"}</strong></span>
+      <span>Publicado em<strong>${publishedAt ? dateTime.format(new Date(publishedAt)) : "-"}</strong></span>
+      <span>Vendedor<strong>${escapeHtml(row.name || seller.name)}</strong></span>
+      <span>Filial<strong>${escapeHtml(row.branch || seller.branch)}</strong></span>
+      <span>Area<strong>${escapeHtml(row.area || seller.area)}</strong></span>
+      <span>Status oficial<strong>${escapeHtml(closing.status)}</strong></span>
+    </div>
+    <div class="branch-partial-summary analytic official-extract-finance">
+      <article><span>Comissao bruta</span><strong>${money.format(finiteNumber(row.commissionGross))}</strong><small>Antes dos descontos</small></article>
+      <article><span>Deflatores</span><strong>${money.format(deflatorValue)}</strong><small>${escapeHtml(row.deflatorReason || "Sem deflator")}</small></article>
+      <article><span>Estornos</span><strong>${discountMoney(row.estornosTotal)}</strong><small>Qualidade, seguro e carrossel</small></article>
+      <article><span>Comissao final</span><strong>${money.format(finiteNumber(row.commissionFinal))}</strong><small>Valor oficial fechado</small></article>
+      <article><span>Metas atingidas</span><strong>${completion.metCount}/${completion.applicableCount}</strong><small>${formatPercent(completion.metPercent)}</small></article>
+    </div>
+    <div class="official-extract-breakdown">
+      <article class="partial-meta-line"><strong>Deflatores</strong><span>${escapeHtml(deflatorText)}</span></article>
+      <article class="partial-meta-line"><strong>Estornos</strong><span>Qualidade: ${discountMoney(row.estornoQuality)} | Seguro: ${discountMoney(row.estornoInsurance)} | Carrossel: ${discountMoney(row.estornoCarousel)} | Total: ${discountMoney(row.estornosTotal)}</span></article>
+    </div>
+    <div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado final</th><th>% atingimento</th><th>Falta</th><th>Comissao</th><th>Deflator</th><th>Status</th><th>Tipo</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+    <div class="collab-indicator-cards collab-detail-cards">${cards}</div>
+  </section>`;
+}
+
 function collaboratorTabsMarkup() {
   const tabs = [
     ["resumo", "Resumo"],
     ["detalhes", "Detalhes da parcial"],
     ["simulador", "Simulador"],
+    ["extrato", "Extrato oficial"],
   ];
   return `<nav class="collab-tabs" aria-label="Navegacao do vendedor">${tabs.map(([id, label]) => `<button type="button" data-collab-tab="${id}" class="${activeCollaboratorTab === id ? "active" : ""}">${label}</button>`).join("")}</nav>`;
 }
@@ -6089,6 +6328,74 @@ function collaboratorReportHtml(seller) {
   </div>`;
 }
 
+function collaboratorOfficialExtractReportHtml(seller) {
+  const data = officialExtractForSeller(seller);
+  if (!data) return "";
+  const { closing, snapshot, row } = data;
+  const rows = closingIndicatorRowsForSeller(row);
+  const completion = goalCompletionStats(rows);
+  const closedAt = row.closedAt || snapshot.closedAt || closing.closedAt;
+  const publishedAt = closing.publishedAt || snapshot.publishedAt;
+  const tableRows = rows.map((item) => `<tr>
+    <td>${escapeHtml(item.metric.name)}</td>
+    <td>${escapeHtml(metricGroupDisplay(item.groupMeta))}</td>
+    <td>${formatGoalLabel(item.metric, item.goal, item.participates)}</td>
+    <td>${formatMetricAmount(item.metric, item.realized)}</td>
+    <td>${formatPercent(item.currentPercent)}</td>
+    <td>${item.missing === null ? "-" : formatMetricAmount(item.metric, item.missing)}</td>
+    <td>${money.format(finiteNumber(item.commission))}</td>
+    <td>${escapeHtml(closingIndicatorDeflatorLabel(item))}</td>
+    <td>${escapeHtml(item.status || item.statusObj.label)}</td>
+  </tr>`).join("");
+  const deflatorValue = finiteNumber(row.deflatorImpact ?? row.deflator);
+  const deflatorText = row.emExperiencia && finiteNumber(row.deflator)
+    ? "Vendedor em experiencia - deflator ignorado."
+    : deflatorValue
+      ? `${row.deflatorReason || "Deflator aplicado"} | Impacto: ${money.format(deflatorValue)}`
+      : "Nenhum deflator aplicado.";
+  return `<div class="report-page print-report">
+    <header class="print-header">
+      <div>
+        <h1>Comiss&atilde;o 360</h1>
+        <p>Extrato oficial do vendedor.</p>
+      </div>
+      <div class="report-title">
+        <strong>Extrato oficial</strong>
+        <span>Gerado em: ${escapeHtml(dateTime.format(new Date()))}</span>
+      </div>
+    </header>
+    <section class="report-meta">
+      <span>Campanha<strong>${escapeHtml(snapshot.campaignName || "-")}</strong></span>
+      <span>Refer&ecirc;ncia<strong>${escapeHtml(snapshot.reference || "-")}</strong></span>
+      <span>Fechado em<strong>${closedAt ? dateTime.format(new Date(closedAt)) : "-"}</strong></span>
+      <span>Publicado em<strong>${publishedAt ? dateTime.format(new Date(publishedAt)) : "-"}</strong></span>
+      <span>Vendedor<strong>${escapeHtml(row.name || seller.name)}</strong></span>
+      <span>Filial<strong>${escapeHtml(row.branch || seller.branch)}</strong></span>
+      <span>Status<strong>${escapeHtml(closing.status)}</strong></span>
+    </section>
+    <section class="report-summary">
+      <span>Comiss&atilde;o bruta<strong>${money.format(finiteNumber(row.commissionGross))}</strong></span>
+      <span>Deflatores<strong>${money.format(deflatorValue)}</strong></span>
+      <span>Estornos<strong>${discountMoney(row.estornosTotal)}</strong></span>
+      <span>Comiss&atilde;o final<strong>${money.format(finiteNumber(row.commissionFinal))}</strong></span>
+      <span>Metas atingidas<strong>${completion.metCount}/${completion.applicableCount}</strong></span>
+      <span>% metas<strong>${formatPercent(completion.metPercent)}</strong></span>
+      <span>Status vendedor<strong>${escapeHtml(row.status || "-")}</strong></span>
+      <span>Base<strong>${escapeHtml(snapshot.basePartialName || closing.basePartialName || "-")}</strong></span>
+    </section>
+    <table class="print-table">
+      <thead><tr><th>Indicador</th><th>Bloco</th><th>Meta</th><th>Realizado final</th><th>% atingimento</th><th>Falta</th><th>Comiss&atilde;o</th><th>Deflator</th><th>Status</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    <section class="print-notes">
+      <div class="report-block"><h2>Deflatores</h2><p>${escapeHtml(deflatorText)}</p></div>
+      <div class="report-block"><h2>Estornos</h2><p>Qualidade: ${discountMoney(row.estornoQuality)} | Seguro: ${discountMoney(row.estornoInsurance)} | Carrossel: ${discountMoney(row.estornoCarousel)} | Total: ${discountMoney(row.estornosTotal)}</p></div>
+      <div class="report-block"><h2>Observa&ccedil;&atilde;o</h2><p>Extrato baseado no snapshot congelado do fechamento oficial. Este documento e somente leitura.</p></div>
+    </section>
+    <footer class="print-footer">Desenvolvido por Cleiton Gerber | Comiss&atilde;o 360</footer>
+  </div>`;
+}
+
 function collaboratorPrintDocumentHtml(reportHtml) {
   return `<!doctype html>
   <html lang="pt-BR">
@@ -6143,7 +6450,11 @@ function prepareCollaboratorPdfExport() {
     alert("Entre com a senha do vendedor antes de exportar.");
     return;
   }
-  const reportHtml = collaboratorReportHtml(seller);
+  const reportHtml = activeCollaboratorTab === "extrato" ? collaboratorOfficialExtractReportHtml(seller) : collaboratorReportHtml(seller);
+  if (!reportHtml) {
+    alert("Extrato oficial ainda nao disponivel para esta campanha.");
+    return;
+  }
   const printWindow = window.open("", "_blank");
   if (printWindow) {
     try {
@@ -6183,13 +6494,15 @@ function renderCollaborator() {
   }
   ensureSellerValues(seller);
   document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Vendedor</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button compact-action" type="button">Trocar</button>`;
-  if (!["resumo", "detalhes", "simulador"].includes(activeCollaboratorTab)) activeCollaboratorTab = "resumo";
+  if (!["resumo", "detalhes", "simulador", "extrato"].includes(activeCollaboratorTab)) activeCollaboratorTab = "resumo";
   let activeTabContent = "";
   try {
     if (activeCollaboratorTab === "detalhes") {
       activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialPartialMarkup(seller)}</div>`;
     } else if (activeCollaboratorTab === "simulador") {
       activeTabContent = collaboratorSimulatorMarkup(seller);
+    } else if (activeCollaboratorTab === "extrato") {
+      activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialExtractMarkup(seller)}</div>`;
     } else {
       activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialSummaryMarkup(seller)}${collaboratorMonthMarkup()}</div>`;
     }
@@ -6457,6 +6770,7 @@ document.addEventListener("click", async (event) => {
     "#reopenOperationalCampaign",
     "#startAdministrativeClosing",
     "#officialCloseCampaign",
+    "#publishOfficialExtracts",
     "#savePeriodAdmin",
     "#addBranch",
     "[data-delete-branch]",
@@ -6612,6 +6926,11 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.id === "officialCloseCampaign") {
     officialCloseActiveCampaign();
+    return;
+  }
+
+  if (event.target.id === "publishOfficialExtracts") {
+    publishOfficialExtracts();
     return;
   }
 
@@ -7005,6 +7324,27 @@ document.addEventListener("click", async (event) => {
   const collabTab = event.target.closest("[data-collab-tab]");
   if (collabTab) {
     activeCollaboratorTab = collabTab.dataset.collabTab || "resumo";
+    if (activeCollaboratorTab === "extrato") {
+      const seller = selectedCollabSeller();
+      const data = seller && activeCollaboratorId === seller.id ? officialExtractForSeller(seller) : null;
+      if (data) {
+        logAccess({
+          status: "Sucesso",
+          profile: "Vendedor",
+          module: "Colaborador",
+          action: "Acessou extrato oficial",
+          campaignId: data.snapshot.campaignId || activeCampaign()?.id || "",
+          campaignName: data.snapshot.campaignName || activeCampaign()?.name || "",
+          itemId: data.closing.id,
+          itemName: data.snapshot.campaignName || data.closing.campaignName,
+          userId: seller.id,
+          userName: seller.name,
+          sellerName: seller.name,
+          branchName: seller.branch,
+          message: `${seller.name} acessou o extrato oficial publicado da campanha ${data.snapshot.campaignName || activeCampaign()?.name || ""}.`,
+        }, { persist: true });
+      }
+    }
     renderCollaborator();
   }
   if (event.target.id === "addSeller") {
@@ -7049,14 +7389,16 @@ document.addEventListener("click", async (event) => {
   }
   if (event.target.id === "exportCollaboratorPdf") {
     const seller = selectedCollabSeller();
+    const isExtractTab = activeCollaboratorTab === "extrato";
+    const exportingExtract = isExtractTab && seller && Boolean(officialExtractForSeller(seller));
     logUpdate({
-      action: "Exportou relatorio do vendedor",
-      module: "Vendedor",
+      action: exportingExtract ? "Exportou extrato oficial" : isExtractTab ? "Tentou exportar extrato oficial indisponivel" : "Exportou relatorio do vendedor",
+      module: isExtractTab ? "Colaborador" : "Vendedor",
       itemId: seller?.id || "",
       itemName: seller?.name || "",
       sellerName: seller?.name || "",
       branchName: seller?.branch || "",
-      message: seller ? `Relatorio do vendedor ${seller.name} exportado em PDF.` : "Tentativa de exportar relatorio do vendedor.",
+      message: seller ? `${exportingExtract ? "Extrato oficial" : isExtractTab ? "Extrato oficial indisponivel" : "Relatorio do vendedor"} de ${seller.name}${exportingExtract || !isExtractTab ? " exportado em PDF." : "."}` : "Tentativa de exportar relatorio do vendedor.",
     }, { persist: true });
     prepareCollaboratorPdfExport();
   }
