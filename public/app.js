@@ -26,6 +26,18 @@ const PARTIAL_STATUS = {
   REPLACED: "Substituida",
   CANCELED: "Cancelada",
 };
+const CLOSING_STATUS = {
+  NOT_STARTED: "Nao iniciado",
+  REVIEW: "Em conferencia",
+  READY: "Pronto para fechar",
+  OFFICIAL_CLOSED: "Fechado oficialmente",
+  AWAITING_EXTRACTS: "Fechado oficialmente - aguardando publicacao de extratos",
+  PUBLISHED: "Publicado para vendedores",
+};
+const CLOSING_BASE = {
+  LATEST_PARTIAL: "Ultima parcial publicada",
+  FINAL_IMPORT: "Importacao final",
+};
 const PRIMARY_METRIC_GROUPS = ["Produtos", "Servicos Movel", "Servicos Residencial"];
 const METRIC_GROUPS = [...PRIMARY_METRIC_GROUPS, "Informativo", "Sem bloco"];
 const METRIC_TYPES = ["volume", "receita", "percentual", "informativo"];
@@ -145,6 +157,7 @@ function seedState() {
     branchPasswords: { FILIAL: "1234" },
     settings: defaultSettings(),
     auditLogs: [],
+    closings: [],
   };
 }
 
@@ -168,6 +181,7 @@ let activeCollaboratorTab = "resumo";
 let activeAdminTab = "visao";
 let pendingAccessView = "dashboard";
 let activeAuditLogId = "";
+let activeClosingSellerDetailId = "";
 let lastAccessLogKey = "";
 let confirmedCriticalEditKeys = new Set();
 let pendingPartialImport = null;
@@ -183,15 +197,18 @@ function campaignStatusLabel(campaign = activeCampaign()) {
 }
 
 function isCampaignOfficialClosed(campaign = activeCampaign()) {
-  return campaignStatusLabel(campaign) === CAMPAIGN_STATUS.OFFICIAL_CLOSED;
+  if (campaignStatusLabel(campaign) === CAMPAIGN_STATUS.OFFICIAL_CLOSED) return true;
+  return Boolean(campaign && Array.isArray(state?.closings) && state.closings.some((closing) => (
+    closing?.campaignId === campaign.id && [CLOSING_STATUS.OFFICIAL_CLOSED, CLOSING_STATUS.AWAITING_EXTRACTS, CLOSING_STATUS.PUBLISHED].includes(normalizeClosingStatus(closing?.status))
+  )));
 }
 
 function isCampaignOperationLocked(campaign = activeCampaign()) {
   return campaignStatusLabel(campaign) !== CAMPAIGN_STATUS.OPEN;
 }
 
-function canEditCampaignData() {
-  return !isCampaignOfficialClosed() || isOwnerUnlocked();
+function canEditCampaignData(campaign = activeCampaign()) {
+  return !(isCampaignOfficialClosed(campaign) || officialClosingForCampaign(campaign)) || isOwnerUnlocked();
 }
 
 const ADMIN_ONLY_ACTIONS = new Set([
@@ -218,6 +235,9 @@ const ADMIN_ONLY_ACTIONS = new Set([
   "restoreDefault",
   "updateOfficialBusinessDays",
   "updateOfficialElapsedDays",
+  "startOfficialClosing",
+  "closeOfficialCampaign",
+  "exportClosing",
   "exportAudit",
   "adminMutation",
 ]);
@@ -293,6 +313,8 @@ function criticalEditKey(target) {
     target.id || "",
     target.dataset?.sellerId || "",
     target.dataset?.sellerField || "",
+    target.dataset?.adjustment || "",
+    target.dataset?.closingAdjustment || "",
     target.dataset?.metricGoal || "",
     target.dataset?.metricRealized || "",
     target.dataset?.catalogMetricArea || "",
@@ -320,6 +342,7 @@ function targetAffectsPublishedCampaign(target) {
     || target?.dataset?.ruleRate
     || target?.dataset?.deflatorField
     || target?.dataset?.adjustment
+    || target?.dataset?.closingAdjustment
     || target?.dataset?.sellerField
     || target?.dataset?.sellerExperience
     || target?.dataset?.branchName
@@ -750,6 +773,90 @@ function normalizePartials(source) {
   })) : [];
 }
 
+function normalizeClosingStatus(status) {
+  if (Object.values(CLOSING_STATUS).includes(status)) return status;
+  if (status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || status === "Fechada oficial") return CLOSING_STATUS.AWAITING_EXTRACTS;
+  if (status === CAMPAIGN_STATUS.ADMIN_CLOSING) return CLOSING_STATUS.REVIEW;
+  return status || CLOSING_STATUS.NOT_STARTED;
+}
+
+function normalizeClosingTotals(source = {}) {
+  return {
+    totalSellers: Number(source.totalSellers) || 0,
+    totalBranches: Number(source.totalBranches) || 0,
+    totalGoal: Number(source.totalGoal) || 0,
+    totalRealized: Number(source.totalRealized) || 0,
+    totalProjected: Number(source.totalProjected) || 0,
+    currentPercent: Number.isFinite(Number(source.currentPercent)) ? Number(source.currentPercent) : null,
+    projectedPercent: Number.isFinite(Number(source.projectedPercent)) ? Number(source.projectedPercent) : null,
+    commissionGrossTotal: Number(source.commissionGrossTotal) || 0,
+    deflatorTotal: Number(source.deflatorTotal) || 0,
+    estornosTotal: Number(source.estornosTotal) || 0,
+    commissionFinalTotal: Number(source.commissionFinalTotal) || 0,
+    riskSellers: Number(source.riskSellers) || 0,
+    highlightSellers: Number(source.highlightSellers) || 0,
+    riskBranches: Number(source.riskBranches) || 0,
+  };
+}
+
+function normalizeClosing(closing, fallback = {}) {
+  const snapshot = closing?.snapshot || fallback.snapshot || null;
+  const campaignId = closing?.campaignId || snapshot?.campaignId || fallback.campaignId || "";
+  const status = normalizeClosingStatus(closing?.status || snapshot?.status || fallback.status);
+  const createdAt = closing?.createdAt || snapshot?.createdAt || snapshot?.closedAt || new Date().toISOString();
+  return {
+    id: closing?.id || fallback.id || (campaignId ? `closing-${campaignId}` : makeId()),
+    campaignId,
+    campaignName: closing?.campaignName || snapshot?.campaignName || fallback.campaignName || "Campanha",
+    reference: closing?.reference || snapshot?.reference || fallback.reference || "",
+    status,
+    baseType: closing?.baseType || snapshot?.baseType || fallback.baseType || CLOSING_BASE.LATEST_PARTIAL,
+    basePartialId: closing?.basePartialId || snapshot?.basePartialId || fallback.basePartialId || "",
+    basePartialNumber: Number(closing?.basePartialNumber ?? snapshot?.basePartialNumber ?? fallback.basePartialNumber) || 0,
+    basePartialName: closing?.basePartialName || snapshot?.basePartialName || fallback.basePartialName || "",
+    baseDate: closing?.baseDate || snapshot?.baseDate || fallback.baseDate || "",
+    createdAt,
+    createdBy: closing?.createdBy || snapshot?.createdBy || fallback.createdBy || "Admin",
+    closedAt: closing?.closedAt || snapshot?.closedAt || fallback.closedAt || "",
+    closedBy: closing?.closedBy || snapshot?.closedBy || fallback.closedBy || "",
+    publishedAt: closing?.publishedAt || "",
+    publishedBy: closing?.publishedBy || "",
+    totals: normalizeClosingTotals(closing?.totals || snapshot || {}),
+    sellerResults: Array.isArray(closing?.sellerResults) ? cloneData(closing.sellerResults) : cloneData(snapshot?.sellers || []),
+    indicatorResults: Array.isArray(closing?.indicatorResults) ? cloneData(closing.indicatorResults) : cloneData(snapshot?.indicators || []),
+    deflators: cloneData(closing?.deflators || snapshot?.deflators || []),
+    estornos: cloneData(closing?.estornos || snapshot?.estornos || []),
+    commissionGrossTotal: Number(closing?.commissionGrossTotal ?? snapshot?.commissionGrossTotal) || 0,
+    deflatorTotal: Number(closing?.deflatorTotal ?? snapshot?.deflatorTotal) || 0,
+    estornosTotal: Number(closing?.estornosTotal ?? snapshot?.estornosTotal) || 0,
+    commissionFinalTotal: Number(closing?.commissionFinalTotal ?? snapshot?.commissionFinalTotal) || 0,
+    snapshot: snapshot ? cloneData(snapshot) : null,
+  };
+}
+
+function normalizeClosings(source) {
+  return Array.isArray(source) ? source.map((closing) => normalizeClosing(closing)).filter(Boolean) : [];
+}
+
+function migrateCampaignSnapshotsToClosings(candidate) {
+  candidate.closings = normalizeClosings(candidate.closings);
+  for (const campaign of candidate.campaigns || []) {
+    if (!campaign?.snapshot) continue;
+    const exists = candidate.closings.some((closing) => closing.campaignId === campaign.id && closing.snapshot);
+    if (exists) continue;
+    candidate.closings.push(normalizeClosing({
+      id: `closing-${campaign.id}`,
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      reference: campaign.reference || campaign.period?.month || "",
+      status: CLOSING_STATUS.AWAITING_EXTRACTS,
+      closedAt: campaign.closedAt || campaign.snapshot.closedAt || "",
+      closedBy: campaign.snapshot.closedBy || "Admin",
+      snapshot: campaign.snapshot,
+    }));
+  }
+}
+
 function metricIdsForArea(area, customMetrics = state?.customMetrics) {
   return [
     ...(areaMetrics[area] || []).map((metric) => metric.id),
@@ -1011,6 +1118,8 @@ function normalizeState(candidate) {
   candidate.branchPasswords = normalizeBranchPasswords(candidate.branchPasswords, candidate.managerAccess, candidate._legacyManagers, candidate.branches);
   candidate.auditLogs = normalizeAuditLogs(candidate.auditLogs);
   candidate.campaigns = normalizeCampaigns(candidate);
+  candidate.closings = normalizeClosings(candidate.closings);
+  migrateCampaignSnapshotsToClosings(candidate);
   if (!candidate.campaigns.some((campaign) => campaign.id === candidate.activeCampaignId)) {
     candidate.activeCampaignId = candidate.campaigns.find((campaign) => campaign.status === CAMPAIGN_STATUS.OPEN)?.id || candidate.campaigns[0]?.id;
   }
@@ -1560,7 +1669,9 @@ function sellerClosingRecord(seller) {
     indicators: metrics.rows.map((row) => ({
       seller: seller.name,
       branch: seller.branch,
+      metricId: row.metric.id,
       metric: row.metric.name,
+      unit: row.metric.unit,
       groupMeta: row.groupMeta,
       tipoIndicador: row.tipoIndicador,
       participaAtingimento: row.participates,
@@ -1595,7 +1706,36 @@ function buildCampaignSnapshot(campaign = activeCampaign(), options = {}) {
     campaignName: campaign?.name || "Campanha",
     reference: campaign?.reference || state.period.month,
     status: options.status || CAMPAIGN_STATUS.OFFICIAL_CLOSED,
-    closedAt: options.closedAt || new Date().toISOString(),
+    baseType: options.baseType || "",
+    basePartialId: options.basePartial?.id || options.basePartialId || "",
+    basePartialNumber: Number(options.basePartial?.number ?? options.basePartialNumber) || 0,
+    basePartialName: options.basePartial?.name || options.basePartialName || "",
+    baseDate: options.basePartial?.baseDate || options.baseDate || "",
+    createdAt: options.createdAt || "",
+    createdBy: options.createdBy || "",
+    closedBy: options.closedBy || "",
+    closedAt: Object.prototype.hasOwnProperty.call(options, "closedAt") ? options.closedAt : new Date().toISOString(),
+    period: cloneData(state.period),
+    daysDone: Number(state.period?.daysDone) || 0,
+    daysTotal: Number(state.period?.daysTotal) || 0,
+    campaign: {
+      id: campaign?.id || "",
+      name: campaign?.name || "Campanha",
+      reference: campaign?.reference || state.period.month || "",
+      status: campaign?.status || "",
+      startDate: campaign?.startDate || "",
+      operationalCloseDate: campaign?.operationalCloseDate || "",
+      officialCloseDate: campaign?.officialCloseDate || "",
+      period: cloneData(state.period),
+    },
+    basePartial: options.basePartial ? cloneData(options.basePartial) : null,
+    branchesSnapshot: cloneData(state.branches || []),
+    sellersSnapshot: cloneData(state.sellers || []),
+    metricCatalogSnapshot: cloneData(state.metricCatalog || {}),
+    customMetricsSnapshot: cloneData(state.customMetrics || {}),
+    metricOrderSnapshot: cloneData(state.metricOrder || {}),
+    rulesSnapshot: cloneData(state.rules || {}),
+    deflatorsSnapshot: cloneData(state.deflators || {}),
     totalSellers: sellerRows.length,
     totalBranches: branchesList.length,
     totalGoal,
@@ -1666,6 +1806,439 @@ function generateOfficialCommissionCsv(snapshot) {
   lines.push([]);
   lines.push(["Desenvolvido por Cleiton Gerber"]);
   return `\uFEFF${lines.map((line) => line.map(csvCell).join(";")).join("\n")}`;
+}
+
+function closings() {
+  state.closings = normalizeClosings(state.closings);
+  return state.closings;
+}
+
+function closingsForCampaign(campaign = activeCampaign()) {
+  if (!campaign) return [];
+  return closings()
+    .filter((closing) => closing.campaignId === campaign.id)
+    .sort((a, b) => String(b.closedAt || b.createdAt).localeCompare(String(a.closedAt || a.createdAt)));
+}
+
+function closingIsOfficial(closing) {
+  return [CLOSING_STATUS.OFFICIAL_CLOSED, CLOSING_STATUS.AWAITING_EXTRACTS, CLOSING_STATUS.PUBLISHED].includes(closing?.status);
+}
+
+function officialClosingForCampaign(campaign = activeCampaign()) {
+  return closingsForCampaign(campaign).find(closingIsOfficial) || null;
+}
+
+function closingForCampaign(campaign = activeCampaign()) {
+  const official = officialClosingForCampaign(campaign);
+  return official || closingsForCampaign(campaign)[0] || null;
+}
+
+function closingStatusClass(status) {
+  if (status === CLOSING_STATUS.AWAITING_EXTRACTS || status === CLOSING_STATUS.OFFICIAL_CLOSED || status === CLOSING_STATUS.PUBLISHED) return "neutral";
+  if (status === CLOSING_STATUS.REVIEW || status === CLOSING_STATUS.READY) return "warn";
+  return "bad";
+}
+
+function closingBasePartial(closing, campaign = activeCampaign()) {
+  if (!campaign) return null;
+  return (closing?.basePartialId ? partialById(closing.basePartialId, campaign) : null) || latestPublishedPartial(campaign);
+}
+
+function closingPayloadFromPartial(campaign, partial) {
+  const payload = campaignPayloadFrom(campaign);
+  const sellerMap = new Map(payload.sellers.map((seller) => [seller.id, seller]));
+  const sellerKeys = new Map(payload.sellers.map((seller) => [`${normalizedKey(seller.name)}|${normalizedKey(seller.branch)}`, seller]));
+  for (const seller of payload.sellers) {
+    seller.values = seller.values || {};
+    for (const metric of metricsFor(seller.area, payload, { includeInactive: true })) {
+      const current = seller.values[metric.id] || {};
+      seller.values[metric.id] = { goal: current.goal ?? metric.goal, realized: 0 };
+    }
+  }
+  for (const item of partial?.items || []) {
+    if (!isPartialUsableItem(item)) continue;
+    const seller = sellerMap.get(item.sellerId) || sellerKeys.get(`${normalizedKey(item.sellerName)}|${normalizedKey(item.branch)}`);
+    if (!seller || !item.metricId) continue;
+    seller.values = seller.values || {};
+    const current = seller.values[item.metricId] || { goal: 0, realized: 0 };
+    seller.values[item.metricId] = {
+      ...current,
+      realized: finiteNumber(current.realized) + finiteNumber(item.realized),
+    };
+  }
+  return payload;
+}
+
+function withTemporaryCampaignPayload(campaign, payload, callback) {
+  const activeId = state.activeCampaignId;
+  const originalPayload = campaignPayloadFrom(state);
+  try {
+    applyCampaignToState(state, { ...campaign, ...payload });
+    return withProjectionPeriod(payload.period, callback);
+  } finally {
+    applyCampaignToState(state, originalPayload);
+    state.activeCampaignId = activeId;
+  }
+}
+
+function buildClosingSnapshotFromPartial(campaign, partial, options = {}) {
+  if (!campaign || !partial) return null;
+  const payload = closingPayloadFromPartial(campaign, partial);
+  return withTemporaryCampaignPayload(campaign, payload, () => buildCampaignSnapshot({ ...campaign, ...payload }, {
+    status: options.status || CLOSING_STATUS.REVIEW,
+    baseType: options.baseType || CLOSING_BASE.LATEST_PARTIAL,
+    basePartial: partial,
+    createdAt: options.createdAt || "",
+    createdBy: options.createdBy || "",
+    closedAt: Object.prototype.hasOwnProperty.call(options, "closedAt") ? options.closedAt : "",
+    closedBy: options.closedBy || "",
+  }));
+}
+
+function recalculateClosingSnapshotTotals(snapshot) {
+  if (!snapshot) return null;
+  snapshot.sellers = (snapshot.sellers || []).map((row) => {
+    const estornoQuality = moneyInputValue(row.estornoQuality);
+    const estornoInsurance = moneyInputValue(row.estornoInsurance);
+    const estornoCarousel = moneyInputValue(row.estornoCarousel);
+    const estornosTotal = estornoQuality + estornoInsurance + estornoCarousel;
+    const commissionGross = finiteNumber(row.commissionGross);
+    const effectiveDeflator = row.emExperiencia ? 0 : finiteNumber(row.deflatorImpact ?? row.deflator);
+    return {
+      ...row,
+      estornoQuality,
+      estornoInsurance,
+      estornoCarousel,
+      estornosTotal,
+      deflator: row.emExperiencia ? 0 : finiteNumber(row.deflator),
+      deflatorImpact: effectiveDeflator,
+      commissionFinal: commissionGross + effectiveDeflator - estornosTotal,
+    };
+  });
+  snapshot.estornosTotal = snapshot.sellers.reduce((sum, row) => sum + finiteNumber(row.estornosTotal), 0);
+  snapshot.commissionGrossTotal = snapshot.sellers.reduce((sum, row) => sum + finiteNumber(row.commissionGross), 0);
+  snapshot.deflatorTotal = snapshot.sellers.reduce((sum, row) => sum + finiteNumber(row.deflatorImpact ?? row.deflator), 0);
+  snapshot.commissionFinalTotal = snapshot.sellers.reduce((sum, row) => sum + finiteNumber(row.commissionFinal), 0);
+  return snapshot;
+}
+
+function closingTotalsFromSnapshot(snapshot) {
+  return normalizeClosingTotals(snapshot || {});
+}
+
+function closingDraftFromSnapshot(campaign, partial, snapshot, existing = {}) {
+  const finalSnapshot = recalculateClosingSnapshotTotals(cloneData(snapshot));
+  return normalizeClosing({
+    ...existing,
+    id: existing.id || makeId(),
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    reference: campaign.reference || campaign.period?.month || "",
+    status: existing.status || CLOSING_STATUS.REVIEW,
+    baseType: CLOSING_BASE.LATEST_PARTIAL,
+    basePartialId: partial.id,
+    basePartialNumber: partial.number,
+    basePartialName: partial.name,
+    baseDate: partial.baseDate,
+    createdAt: existing.createdAt || new Date().toISOString(),
+    createdBy: existing.createdBy || currentAuditProfile(),
+    totals: closingTotalsFromSnapshot(finalSnapshot),
+    sellerResults: finalSnapshot?.sellers || [],
+    indicatorResults: finalSnapshot?.indicators || [],
+    deflators: finalSnapshot?.sellers?.filter((row) => row.deflatorImpact).map((row) => ({ sellerId: row.sellerId, value: row.deflatorImpact, reason: row.deflatorReason })) || [],
+    estornos: finalSnapshot?.sellers?.filter((row) => row.estornosTotal).map((row) => ({ sellerId: row.sellerId, total: row.estornosTotal })) || [],
+    commissionGrossTotal: finalSnapshot?.commissionGrossTotal || 0,
+    deflatorTotal: finalSnapshot?.deflatorTotal || 0,
+    estornosTotal: finalSnapshot?.estornosTotal || 0,
+    commissionFinalTotal: finalSnapshot?.commissionFinalTotal || 0,
+    snapshot: finalSnapshot,
+  });
+}
+
+function replaceCampaignReviewClosing(campaign, closing) {
+  state.closings = closings().filter((item) => !(item.campaignId === campaign.id && !closingIsOfficial(item)));
+  state.closings.push(normalizeClosing(closing));
+}
+
+function closingSnapshotForDisplay(campaign = activeCampaign(), closing = closingForCampaign(campaign)) {
+  if (!campaign || !closing) return null;
+  if (closing.snapshot) return recalculateClosingSnapshotTotals(cloneData(closing.snapshot));
+  const partial = closingBasePartial(closing, campaign);
+  return partial ? buildClosingSnapshotFromPartial(campaign, partial, {
+    status: closing.status,
+    createdAt: closing.createdAt,
+    createdBy: closing.createdBy,
+    closedAt: closing.closedAt || new Date().toISOString(),
+    closedBy: closing.closedBy || "",
+  }) : null;
+}
+
+function updateClosingFromSnapshot(closing, snapshot) {
+  if (!closing || !snapshot) return closing;
+  recalculateClosingSnapshotTotals(snapshot);
+  closing.snapshot = cloneData(snapshot);
+  closing.totals = closingTotalsFromSnapshot(snapshot);
+  closing.sellerResults = cloneData(snapshot.sellers || []);
+  closing.indicatorResults = cloneData(snapshot.indicators || []);
+  closing.deflators = snapshot.sellers?.filter((row) => row.deflatorImpact).map((row) => ({ sellerId: row.sellerId, seller: row.name, value: row.deflatorImpact, reason: row.deflatorReason })) || [];
+  closing.estornos = snapshot.sellers?.filter((row) => row.estornosTotal).map((row) => ({ sellerId: row.sellerId, seller: row.name, total: row.estornosTotal })) || [];
+  closing.commissionGrossTotal = snapshot.commissionGrossTotal;
+  closing.deflatorTotal = snapshot.deflatorTotal;
+  closing.estornosTotal = snapshot.estornosTotal;
+  closing.commissionFinalTotal = snapshot.commissionFinalTotal;
+  return closing;
+}
+
+function updateClosingAdjustment(target) {
+  const campaign = activeCampaign();
+  const closing = closingForCampaign(campaign);
+  if (!campaign || !closing || closingIsOfficial(closing)) {
+    alert("O fechamento oficial esta congelado e nao permite alterar estornos.");
+    renderAdminClosingPanel();
+    return;
+  }
+  const sellerId = target.dataset.sellerId || "";
+  const field = target.dataset.closingAdjustment;
+  const snapshot = closingSnapshotForDisplay(campaign, closing);
+  const row = snapshot?.sellers?.find((item) => item.sellerId === sellerId);
+  if (!row || !field) return;
+  if (Number(target.value) < 0) {
+    alert("Estornos negativos nao sao permitidos.");
+    target.value = "0";
+  }
+  row[`estorno${field[0].toUpperCase()}${field.slice(1)}`] = moneyInputValue(target.value);
+  updateClosingFromSnapshot(closing, snapshot);
+  logUpdate({
+    action: "Lancou ou alterou estorno",
+    module: "Fechamento",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: sellerId,
+    itemName: row.name,
+    field: `Estorno ${field}`,
+    newValue: discountMoney(row.estornosTotal),
+    message: `Admin atualizou estornos do fechamento para ${row.name}.`,
+  });
+  saveState("Estorno do fechamento atualizado");
+  renderAdminClosingPanel();
+}
+
+function validateClosingSnapshot(snapshot, campaign = activeCampaign(), partial = null) {
+  const errors = [];
+  const warnings = [];
+  const daysDone = Number(snapshot?.daysDone ?? state.period?.daysDone);
+  const daysTotal = Number(snapshot?.daysTotal ?? state.period?.daysTotal);
+  if (!campaign) errors.push("campanha nao selecionada");
+  if (!partial && !snapshot?.basePartialId) errors.push("base de fechamento nao carregada");
+  if (!Array.isArray(snapshot?.sellers) || !snapshot.sellers.length) errors.push("resultado por vendedor vazio");
+  if (!Number.isFinite(daysDone) || daysDone <= 0) errors.push("dias realizados oficiais nao configurados");
+  if (!Number.isFinite(daysTotal) || daysTotal <= 0) errors.push("dias uteis oficiais nao configurados");
+  if (Number.isFinite(daysDone) && Number.isFinite(daysTotal) && daysDone > daysTotal) errors.push("dias realizados maiores que dias uteis");
+  const numericFields = ["commissionGrossTotal", "deflatorTotal", "estornosTotal", "commissionFinalTotal", "totalGoal", "totalRealized", "totalProjected"];
+  for (const field of numericFields) {
+    if (!Number.isFinite(Number(snapshot?.[field] ?? 0))) errors.push(`valor invalido em ${field}`);
+  }
+  for (const row of snapshot?.sellers || []) {
+    for (const field of ["commissionGross", "deflator", "deflatorImpact", "estornosTotal", "commissionFinal"]) {
+      if (!Number.isFinite(Number(row?.[field] ?? 0))) errors.push(`valor invalido em ${row?.name || "vendedor"} (${field})`);
+    }
+    for (const field of ["estornoQuality", "estornoInsurance", "estornoCarousel"]) {
+      if (!Number.isFinite(Number(row?.[field] ?? 0)) || Number(row?.[field] ?? 0) < 0) errors.push(`estorno invalido em ${row?.name || "vendedor"}`);
+    }
+    for (const indicator of row.indicators || []) {
+      for (const field of ["realized", "commission"]) {
+        if (!Number.isFinite(Number(indicator?.[field] ?? 0))) errors.push(`valor invalido em ${indicator?.metric || "indicador"}`);
+      }
+      for (const field of ["goal", "currentPercent", "projected", "projectedPercent", "missing"]) {
+        const value = indicator?.[field];
+        if (value !== null && value !== undefined && value !== "" && !Number.isFinite(Number(value))) errors.push(`calculo invalido em ${indicator?.metric || "indicador"} (${field})`);
+      }
+      if (indicator.participaAtingimento && metricTypeKind(indicator) === "informativo") warnings.push(`${indicator.metric} esta informativo, mas marcado para compor atingimento.`);
+    }
+  }
+  return { ok: errors.length === 0, errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
+}
+
+function startClosingFromLatestPartial() {
+  const campaign = activeCampaign();
+  if (!requireAdminAction("startOfficialClosing", "Fechamento")) return;
+  if (!campaign) {
+    alert("Selecione uma campanha para iniciar o fechamento.");
+    return;
+  }
+  if (isCampaignOfficialClosed(campaign) || officialClosingForCampaign(campaign)) {
+    alert("Esta campanha ja possui fechamento oficial. Os dados estao em modo consulta.");
+    return;
+  }
+  const partial = latestPublishedPartial(campaign);
+  if (!partial) {
+    logUpdate({
+      status: "Erro",
+      action: "Tentou iniciar fechamento sem parcial publicada",
+      module: "Fechamento",
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      message: "Nao ha parcial publicada para usar como base do fechamento.",
+    }, { persist: true });
+    alert("Nao e possivel fechar: nao ha parcial publicada para esta campanha.");
+    return;
+  }
+  const existing = closingForCampaign(campaign);
+  if (existing && !closingIsOfficial(existing) && !criticalConfirm("Ja existe um fechamento em conferencia para esta campanha. Deseja recarregar a base usando a ultima parcial publicada?")) return;
+  syncActiveCampaignFromRoot();
+  const snapshot = buildClosingSnapshotFromPartial(campaign, partial, {
+    status: CLOSING_STATUS.REVIEW,
+    baseType: CLOSING_BASE.LATEST_PARTIAL,
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    createdBy: existing?.createdBy || currentAuditProfile(),
+  });
+  const closing = closingDraftFromSnapshot(campaign, partial, snapshot, existing || {});
+  replaceCampaignReviewClosing(campaign, closing);
+  logUpdate({
+    action: "Iniciou fechamento oficial",
+    module: "Fechamento",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: closing.id,
+    itemName: campaign.name,
+    newValue: CLOSING_STATUS.REVIEW,
+    message: `Fechamento oficial iniciado para a campanha ${campaign.name}.`,
+  });
+  logUpdate({
+    action: "Usou ultima parcial publicada como base",
+    module: "Fechamento",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: partial.id,
+    itemName: partial.name,
+    newValue: CLOSING_STATUS.REVIEW,
+    message: `Fechamento da campanha ${campaign.name} carregado em conferencia com base na ${partial.name}.`,
+  });
+  saveState("Fechamento em conferencia");
+  renderAll();
+}
+
+function closingSnapshotFileName(campaign, snapshot) {
+  return campaignFileName(campaign, snapshot).replace("Comissao_360_Comissionamento_", "Comissao_360_Fechamento_");
+}
+
+function officialCloseActiveCampaign() {
+  const campaign = activeCampaign();
+  if (!requireAdminAction("closeOfficialCampaign", "Fechamento")) return;
+  if (!campaign) return;
+  if (isCampaignOfficialClosed(campaign) || officialClosingForCampaign(campaign)) {
+    alert("Esta campanha ja esta fechada oficialmente.");
+    return;
+  }
+  const closing = closingForCampaign(campaign);
+  if (!closing || closingIsOfficial(closing)) {
+    alert("Carregue a base de fechamento antes de fechar oficialmente.");
+    return;
+  }
+  const partial = closingBasePartial(closing, campaign);
+  if (!partial) {
+    alert("Nao e possivel fechar: nao ha parcial publicada para esta campanha.");
+    return;
+  }
+  const closedAt = new Date().toISOString();
+  const closedBy = currentAuditProfile();
+  const snapshot = recalculateClosingSnapshotTotals(closingSnapshotForDisplay(campaign, closing));
+  if (!snapshot) {
+    alert("Nao e possivel fechar: resultado final nao foi carregado.");
+    return;
+  }
+  snapshot.status = CLOSING_STATUS.AWAITING_EXTRACTS;
+  snapshot.closedAt = closedAt;
+  snapshot.closedBy = closedBy;
+  snapshot.createdAt = snapshot.createdAt || closing.createdAt;
+  snapshot.createdBy = snapshot.createdBy || closing.createdBy;
+  snapshot.baseType = snapshot.baseType || CLOSING_BASE.LATEST_PARTIAL;
+  snapshot.basePartialId = snapshot.basePartialId || partial.id;
+  snapshot.basePartialNumber = snapshot.basePartialNumber || partial.number;
+  snapshot.basePartialName = snapshot.basePartialName || partial.name;
+  snapshot.baseDate = snapshot.baseDate || partial.baseDate;
+  if (snapshot.campaign) snapshot.campaign.status = CAMPAIGN_STATUS.OFFICIAL_CLOSED;
+  const validation = validateClosingSnapshot(snapshot, campaign, partial);
+  if (!validation.ok) {
+    logUpdate({
+      status: "Erro",
+      action: "Validacao de fechamento bloqueou conclusao",
+      module: "Fechamento",
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      itemId: closing.id,
+      itemName: closing.basePartialName,
+      message: `Nao foi possivel fechar: ${validation.errors.join("; ")}.`,
+    }, { persist: true });
+    alert(`Nao e possivel fechar:\n- ${validation.errors.join("\n- ")}`);
+    return;
+  }
+  logUpdate({
+    action: "Validou fechamento",
+    module: "Fechamento",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: closing.id,
+    itemName: closing.basePartialName,
+    message: `Fechamento da campanha ${campaign.name} validado sem inconsistencias criticas.`,
+  });
+  const message = [
+    "Voce esta fechando oficialmente o comissionamento desta campanha.",
+    "",
+    `Campanha: ${campaign.name}`,
+    `Mes/ano: ${campaign.reference || state.period.month}`,
+    `Base: ${partial.name} - ${partial.baseDate || "-"}`,
+    `Vendedores: ${snapshot.totalSellers}`,
+    `Filiais: ${snapshot.totalBranches}`,
+    `Comissao bruta: ${money.format(snapshot.commissionGrossTotal)}`,
+    `Deflatores: ${money.format(snapshot.deflatorTotal)}`,
+    `Estornos: ${discountMoney(snapshot.estornosTotal)}`,
+    `Comissao final: ${money.format(snapshot.commissionFinalTotal)}`,
+    "",
+    "Apos confirmar, os resultados serao congelados e nao poderao ser alterados por edicoes comuns de metas, vendedores, parciais ou simulacoes. Deseja continuar?",
+  ].join("\n");
+  if (!confirm(message)) return;
+  const finalized = closingDraftFromSnapshot(campaign, partial, snapshot, {
+    ...closing,
+    status: CLOSING_STATUS.AWAITING_EXTRACTS,
+    closedAt,
+    closedBy,
+    snapshot,
+  });
+  finalized.status = CLOSING_STATUS.AWAITING_EXTRACTS;
+  finalized.closedAt = closedAt;
+  finalized.closedBy = closedBy;
+  finalized.snapshot = snapshot;
+  finalized.totals = closingTotalsFromSnapshot(snapshot);
+  finalized.sellerResults = cloneData(snapshot.sellers || []);
+  finalized.indicatorResults = cloneData(snapshot.indicators || []);
+  finalized.deflators = snapshot.sellers?.filter((row) => row.deflatorImpact).map((row) => ({ sellerId: row.sellerId, seller: row.name, value: row.deflatorImpact, reason: row.deflatorReason })) || [];
+  finalized.estornos = snapshot.sellers?.filter((row) => row.estornosTotal).map((row) => ({ sellerId: row.sellerId, seller: row.name, total: row.estornosTotal })) || [];
+  finalized.commissionGrossTotal = snapshot.commissionGrossTotal;
+  finalized.deflatorTotal = snapshot.deflatorTotal;
+  finalized.estornosTotal = snapshot.estornosTotal;
+  finalized.commissionFinalTotal = snapshot.commissionFinalTotal;
+  replaceCampaignReviewClosing(campaign, finalized);
+  campaign.snapshot = snapshot;
+  campaign.status = CAMPAIGN_STATUS.OFFICIAL_CLOSED;
+  campaign.closedAt = closedAt;
+  campaign.officialCloseDate = campaign.officialCloseDate || closedAt.slice(0, 10);
+  campaign.officialFileName = closingSnapshotFileName(campaign, snapshot);
+  campaign.officialFileCsv = generateOfficialCommissionCsv(snapshot);
+  campaign.updatedAt = closedAt;
+  activeClosingSellerDetailId = "";
+  logUpdate({
+    action: "Fechou comissionamento oficial",
+    module: "Fechamento",
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    itemId: finalized.id,
+    itemName: finalized.basePartialName,
+    newValue: `Comissao final total: ${money.format(snapshot.commissionFinalTotal)}`,
+    message: `Comissionamento da campanha ${campaign.name} fechado oficialmente. Extratos aguardam publicacao futura.`,
+  });
+  saveState("Fechamento oficial concluido");
+  renderAll();
 }
 
 function branches() {
@@ -2344,7 +2917,7 @@ function savePendingPartial(status) {
   if (!campaign || !pendingPartialImport) return;
   if (pendingPartialImport._readOnly) return;
   if (!requireAdminAction(status === PARTIAL_STATUS.PUBLISHED ? "publishPartial" : "importPartial", "Parciais")) return;
-  if (campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
+  if (isCampaignOfficialClosed(campaign) || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
     logBlockedAttempt(
       status === PARTIAL_STATUS.PUBLISHED ? "Publicacao de parcial bloqueada" : "Salvamento de parcial bloqueado",
       "Parciais",
@@ -2381,7 +2954,7 @@ function publishPartial(partialId) {
   const partial = partialById(partialId, campaign);
   if (!campaign || !partial) return;
   if (!requireAdminAction("publishPartial", "Parciais", { itemName: partial.name })) return;
-  if (campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
+  if (isCampaignOfficialClosed(campaign) || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
     logBlockedAttempt("Publicacao de parcial bloqueada", "Parciais", "Tentativa de publicar parcial em campanha encerrada.", {
       campaignId: campaign.id,
       campaignName: campaign.name,
@@ -3192,21 +3765,51 @@ function campaignStatusClass(status) {
   return "bad";
 }
 
-function campaignClosingRowsMarkup() {
-  const canEditEstornos = canEditCampaignData() && isAdminUnlocked();
-  return state.sellers.map((seller) => {
-    const row = sellerClosingRecord(seller);
+function closingIndicatorValueMarkup(indicator, field) {
+  const metric = { unit: indicator.unit || "", tipoIndicador: indicator.tipoIndicador || "", type: indicator.tipoIndicador === "receita" ? "revenue" : "unit100" };
+  if (field === "percent") return achievementPill(indicator.currentPercent);
+  if (field === "projectedPercent") return achievementPill(indicator.projectedPercent);
+  return formatMetricAmount(metric, indicator[field]);
+}
+
+function closingSellerDetailMarkup(row) {
+  const indicators = row?.indicators || [];
+  const body = indicators.map((indicator) => `<tr>
+    <td>${escapeHtml(metricGroupDisplay(indicator.groupMeta))}</td>
+    <td>${escapeHtml(indicator.metric || "-")}</td>
+    <td>${indicator.participaAtingimento ? closingIndicatorValueMarkup(indicator, "goal") : "Informativo"}</td>
+    <td>${closingIndicatorValueMarkup(indicator, "realized")}</td>
+    <td>${achievementPill(indicator.currentPercent)}</td>
+    <td>${indicator.projected === null ? "-" : closingIndicatorValueMarkup(indicator, "projected")}</td>
+    <td>${achievementPill(indicator.projectedPercent)}</td>
+    <td>${indicator.missing === null ? "-" : closingIndicatorValueMarkup(indicator, "missing")}</td>
+    <td>${escapeHtml(indicator.deflator || "-")}</td>
+    <td><span class="status ${partialStatusFromProjected(indicator.projectedPercent, indicator.currentPercent).cls}">${escapeHtml(indicator.status || "-")}</span></td>
+  </tr>`).join("");
+  return `<div class="closing-detail-card">
+    <div class="section-title"><h4>Indicadores do vendedor</h4><p>${escapeHtml(row?.name || "Vendedor")} - snapshot de fechamento.</p></div>
+    <div class="table-wrap campaign-closing-panel"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Falta</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="10">Nenhum indicador para este vendedor.</td></tr>`}</tbody></table></div>
+  </div>`;
+}
+
+function campaignClosingRowsMarkup(snapshot = null, options = {}) {
+  const canEditEstornos = !options.readOnly && canEditCampaignData() && isAdminUnlocked();
+  const rows = snapshot?.sellers || state.sellers.map(sellerClosingRecord);
+  return rows.map((row) => {
+    const sellerId = row.sellerId || "";
+    const detail = activeClosingSellerDetailId === sellerId ? `<tr class="closing-detail-row"><td colspan="10">${closingSellerDetailMarkup(row)}</td></tr>` : "";
     return `<tr>
       <td><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.branch)} - ${escapeHtml(row.area)}</small></td>
       <td>${money.format(row.commissionGross)}</td>
       <td>${money.format(row.deflator)}</td>
-      <td><input data-adjustment="quality" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${row.estornoQuality}" ${canEditEstornos ? "" : "disabled"}></td>
-      <td><input data-adjustment="insurance" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${row.estornoInsurance}" ${canEditEstornos ? "" : "disabled"}></td>
-      <td><input data-adjustment="carousel" data-seller-id="${seller.id}" type="number" min="0" step="0.01" value="${row.estornoCarousel}" ${canEditEstornos ? "" : "disabled"}></td>
+      <td><input data-closing-adjustment="quality" data-seller-id="${escapeHtml(sellerId)}" type="number" min="0" step="0.01" value="${Number(row.estornoQuality) || 0}" ${canEditEstornos ? "" : "disabled"}></td>
+      <td><input data-closing-adjustment="insurance" data-seller-id="${escapeHtml(sellerId)}" type="number" min="0" step="0.01" value="${Number(row.estornoInsurance) || 0}" ${canEditEstornos ? "" : "disabled"}></td>
+      <td><input data-closing-adjustment="carousel" data-seller-id="${escapeHtml(sellerId)}" type="number" min="0" step="0.01" value="${Number(row.estornoCarousel) || 0}" ${canEditEstornos ? "" : "disabled"}></td>
       <td>${discountMoney(row.estornosTotal)}</td>
       <td>${money.format(row.commissionFinal)}</td>
-      <td>${row.emExperiencia ? `<span class="status neutral">Em experiencia</span>` : `<span class="status">${escapeHtml(row.status)}</span>`}</td>
-    </tr>`;
+      <td>${row.emExperiencia ? `<span class="status neutral">Em experiencia</span><small>Deflator ignorado</small>` : `<span class="status">${escapeHtml(row.status)}</span>`}</td>
+      <td><button class="ghost-button compact-action" data-closing-seller-detail="${escapeHtml(sellerId)}" type="button">${activeClosingSellerDetailId === sellerId ? "Ocultar" : "Detalhes"}</button></td>
+    </tr>${detail}`;
   }).join("");
 }
 
@@ -3367,7 +3970,7 @@ function deleteCampaign(campaignId) {
     alert("Nao e possivel excluir a unica campanha do sistema.");
     return;
   }
-  if (campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED && !isOwnerUnlocked()) {
+  if (isCampaignOfficialClosed(campaign) && !isOwnerUnlocked()) {
     alert("Campanha fechada oficialmente nao pode ser excluida pelo Admin.");
     return;
   }
@@ -3412,17 +4015,20 @@ function deleteCampaign(campaignId) {
 }
 
 function downloadCampaignOfficialFile(campaign = activeCampaign()) {
-  if (!campaign?.officialFileCsv) {
+  const closing = officialClosingForCampaign(campaign);
+  const snapshot = campaign?.snapshot || closing?.snapshot || null;
+  const csv = campaign?.officialFileCsv || (snapshot ? generateOfficialCommissionCsv(snapshot) : "");
+  if (!csv) {
     alert("Arquivo oficial nao disponivel para esta campanha.");
     return;
   }
-  downloadFile(campaign.officialFileName || campaignFileName(campaign, campaign.snapshot), "text/csv;charset=utf-8", campaign.officialFileCsv);
+  downloadFile(campaign.officialFileName || closingSnapshotFileName(campaign, snapshot), "text/csv;charset=utf-8", csv);
   logUpdate({
     action: "Baixou arquivo oficial",
     module: "Fechamento",
     campaignId: campaign.id,
     campaignName: campaign.name,
-    itemName: campaign.officialFileName || campaignFileName(campaign, campaign.snapshot),
+    itemName: campaign.officialFileName || closingSnapshotFileName(campaign, snapshot),
     message: `Arquivo oficial de comissionamento da campanha ${campaign.name} baixado.`,
   }, { persist: true });
 }
@@ -3434,6 +4040,25 @@ function previewCampaignFileName(campaign, snapshot) {
 function downloadCampaignPreviewFile(campaign = activeCampaign()) {
   if (!campaign) {
     alert("Nenhuma campanha selecionada.");
+    return;
+  }
+  const closing = closingForCampaign(campaign);
+  if (closing && !closingIsOfficial(closing)) {
+    const snapshot = closingSnapshotForDisplay(campaign, closing);
+    if (!snapshot) {
+      alert("Carregue a base de fechamento antes de baixar a previa.");
+      return;
+    }
+    downloadFile(previewCampaignFileName(campaign, snapshot), "text/csv;charset=utf-8", generateOfficialCommissionCsv(snapshot));
+    logUpdate({
+      action: "Gerou previa do fechamento",
+      module: "Fechamento",
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      itemId: closing.id,
+      itemName: closing.basePartialName,
+      message: `Previa do fechamento da campanha ${campaign.name} gerada a partir da ${closing.basePartialName}.`,
+    }, { persist: true });
     return;
   }
   const originalRoot = campaign.id !== state.activeCampaignId ? campaignPayloadFrom(state) : null;
@@ -3455,45 +4080,6 @@ function downloadCampaignPreviewFile(campaign = activeCampaign()) {
   } finally {
     if (originalRoot) applyCampaignToState(state, originalRoot);
   }
-}
-
-function officialCloseActiveCampaign() {
-  const campaign = activeCampaign();
-  if (!campaign) return;
-  syncActiveCampaignFromRoot({ force: true });
-  const snapshot = buildCampaignSnapshot(campaign);
-  const message = [
-    `Campanha: ${campaign.name}`,
-    `Mes/ano: ${campaign.reference}`,
-    `Vendedores: ${snapshot.totalSellers}`,
-    `Filiais: ${snapshot.totalBranches}`,
-    `Comissao bruta: ${money.format(snapshot.commissionGrossTotal)}`,
-    `Deflatores: ${money.format(snapshot.deflatorTotal)}`,
-    `Estornos: ${discountMoney(snapshot.estornosTotal)}`,
-    `Comissao final: ${money.format(snapshot.commissionFinalTotal)}`,
-    "",
-    "Apos confirmar, os dados ficarao congelados e sera gerado o arquivo oficial. Deseja continuar?",
-  ].join("\n");
-  if (!confirm(message)) return;
-  campaign.snapshot = snapshot;
-  campaign.status = CAMPAIGN_STATUS.OFFICIAL_CLOSED;
-  campaign.closedAt = snapshot.closedAt;
-  campaign.officialCloseDate = campaign.officialCloseDate || snapshot.closedAt.slice(0, 10);
-  campaign.officialFileName = campaignFileName(campaign, snapshot);
-  campaign.officialFileCsv = generateOfficialCommissionCsv(snapshot);
-  campaign.updatedAt = snapshot.closedAt;
-  logUpdate({
-    action: "Fechou comissionamento oficial",
-    module: "Fechamento",
-    campaignId: campaign.id,
-    campaignName: campaign.name,
-    itemId: campaign.id,
-    itemName: campaign.name,
-    newValue: `Comissao final total: ${money.format(snapshot.commissionFinalTotal)}`,
-    message: `Comissionamento da campanha ${campaign.name} fechado oficialmente. Comissao final total: ${money.format(snapshot.commissionFinalTotal)}.`,
-  });
-  saveState("Comissionamento fechado");
-  renderAll();
 }
 
 function renderSelectors() {
@@ -3583,7 +4169,8 @@ function renderAdminPartialsPanel() {
     container.innerHTML = `<div class="section-title"><h3>Parciais de resultado</h3><p>Nenhuma campanha selecionada.</p></div>`;
     return;
   }
-  const locked = campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED;
+  const locked = isCampaignOfficialClosed(campaign) || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED;
+  const disabled = locked ? "disabled" : "";
   const partials = partialsForCampaign(campaign).sort((a, b) => Number(b.number) - Number(a.number) || String(b.importedAt).localeCompare(String(a.importedAt)));
   const rows = partials.map((partial) => {
     const summary = partial.summary || partialSummary(partial.items, partial.totalRows);
@@ -3599,10 +4186,10 @@ function renderAdminPartialsPanel() {
       <td>${summary.totalRows}</td>
       <td>
         <button class="ghost-button compact-action" data-view-partial="${partial.id}" type="button">Visualizar</button>
-        <button class="ghost-button compact-action" data-publish-partial="${partial.id}" type="button" ${partial.errorRows || partial.status === PARTIAL_STATUS.PUBLISHED ? "disabled" : ""}>Publicar</button>
-        <button class="ghost-button compact-action" data-cancel-partial="${partial.id}" type="button" ${partial.status === PARTIAL_STATUS.CANCELED ? "disabled" : ""}>Cancelar</button>
-        <button class="ghost-button compact-action" data-replace-partial="${partial.id}" type="button" ${partial.status !== PARTIAL_STATUS.PUBLISHED ? "disabled" : ""}>Substituida</button>
-        <button class="danger-button compact-action" data-delete-draft-partial="${partial.id}" type="button" ${partial.status !== PARTIAL_STATUS.DRAFT ? "disabled" : ""}>Excluir</button>
+        <button class="ghost-button compact-action" data-publish-partial="${partial.id}" type="button" ${locked || partial.errorRows || partial.status === PARTIAL_STATUS.PUBLISHED ? "disabled" : ""}>Publicar</button>
+        <button class="ghost-button compact-action" data-cancel-partial="${partial.id}" type="button" ${locked || partial.status === PARTIAL_STATUS.CANCELED ? "disabled" : ""}>Cancelar</button>
+        <button class="ghost-button compact-action" data-replace-partial="${partial.id}" type="button" ${locked || partial.status !== PARTIAL_STATUS.PUBLISHED ? "disabled" : ""}>Substituida</button>
+        <button class="danger-button compact-action" data-delete-draft-partial="${partial.id}" type="button" ${locked || partial.status !== PARTIAL_STATUS.DRAFT ? "disabled" : ""}>Excluir</button>
       </td>
     </tr>`;
   }).join("");
@@ -3624,19 +4211,19 @@ function renderAdminPartialsPanel() {
         <div class="period-admin-grid">
           <label>Campanha<input value="${escapeHtml(campaign.name)}" disabled></label>
           <label>Tipo<input value="Parcial" disabled></label>
-          <label>Numero da parcial<input id="partialNumber" type="number" min="1" value="${nextPartialNumber()}"></label>
-          <label>Nome da parcial<input id="partialName" placeholder="Parcial ${String(nextPartialNumber()).padStart(2, "0")}"></label>
-          <label>Data base<input id="partialBaseDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
+          <label>Numero da parcial<input id="partialNumber" type="number" min="1" value="${nextPartialNumber()}" ${disabled}></label>
+          <label>Nome da parcial<input id="partialName" placeholder="Parcial ${String(nextPartialNumber()).padStart(2, "0")}" ${disabled}></label>
+          <label>Data base<input id="partialBaseDate" type="date" value="${new Date().toISOString().slice(0, 10)}" ${disabled}></label>
         </div>
         <div class="csv-import-layout">
           <div class="csv-dropzone" id="partialCsvDropzone"><strong>Selecionar CSV de parcial</strong><span>O arquivo sera validado antes de salvar.</span></div>
-          <div class="csv-actions"><button id="selectPartialCsv" class="primary-button" type="button" ${locked ? "disabled" : ""}>Importar parcial</button><input id="partialCsvFile" type="file" accept=".csv,text/csv" hidden /></div>
+          <div class="csv-actions"><button id="selectPartialCsv" class="primary-button" type="button" ${disabled}>Importar parcial</button><input id="partialCsvFile" type="file" accept=".csv,text/csv" hidden ${disabled} /></div>
         </div>
         ${locked ? `<p class="admin-inline-note warning">Esta campanha nao permite novas parciais neste status.</p>` : `<p class="admin-inline-note">A parcial publicada sera exibida para Dashboard, Filial e Vendedor; a simulacao permanece separada.</p>`}
       </section>
       <section class="admin-section-card">
         <div class="section-title"><h3>Previa da importacao</h3><p>Confira erros e alertas antes de publicar.</p></div>
-        <div id="partialPreviewPanel">${partialPreviewMarkup(pendingPartialImport, { readOnly: Boolean(pendingPartialImport?._readOnly) })}</div>
+        <div id="partialPreviewPanel">${partialPreviewMarkup(pendingPartialImport, { readOnly: locked || Boolean(pendingPartialImport?._readOnly) })}</div>
       </section>
       <section class="admin-section-card">
         <div class="section-title"><h3>Parciais importadas</h3><p>Historico da campanha selecionada.</p></div>
@@ -3646,7 +4233,7 @@ function renderAdminPartialsPanel() {
   `;
 }
 
-function renderAdminClosingPanel() {
+function renderAdminClosingPanelLegacy() {
   const container = document.getElementById("adminClosingPanel");
   if (!container) return;
   const campaign = activeCampaign();
@@ -3680,6 +4267,102 @@ function renderAdminClosingPanel() {
       <table>
         <thead><tr><th>Vendedor</th><th>Comissao bruta</th><th>Deflator</th><th>Qualidade</th><th>Seguro</th><th>Carrossel</th><th>Total estornos</th><th>Comissao final</th><th>Status</th></tr></thead>
         <tbody>${campaignClosingRowsMarkup() || `<tr><td colspan="9">Nenhum vendedor nesta campanha.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderAdminClosingPanel() {
+  const container = document.getElementById("adminClosingPanel");
+  if (!container) return;
+  const campaign = activeCampaign();
+  if (!campaign) {
+    container.innerHTML = `<div class="section-title"><h3>Fechamento</h3><p>Selecione uma campanha para iniciar o fechamento.</p></div>`;
+    return;
+  }
+  const closing = closingForCampaign(campaign);
+  const latestPartial = latestPublishedPartial(campaign);
+  const basePartial = closing ? closingBasePartial(closing, campaign) : null;
+  const snapshot = closing ? closingSnapshotForDisplay(campaign, closing) : null;
+  const validation = snapshot ? validateClosingSnapshot(snapshot, campaign, basePartial) : { ok: false, errors: [], warnings: [] };
+  const totals = snapshot ? closingTotalsFromSnapshot(snapshot) : normalizeClosingTotals();
+  const canAdminEdit = canEditCampaignData() && isAdminUnlocked();
+  const alreadyClosed = isCampaignOfficialClosed(campaign) || closingIsOfficial(closing);
+  const status = closing?.status || CLOSING_STATUS.NOT_STARTED;
+  const metricCount = ["Cabo", "Nao Cabo"].reduce((total, area) => total + metricsFor(area).length, 0);
+  const startDisabled = alreadyClosed || !latestPartial || !canAdminEdit;
+  const closeDisabled = alreadyClosed || !closing || !snapshot || !validation.ok || !canAdminEdit;
+  const stateMessage = alreadyClosed
+    ? "Campanha fechada oficialmente. Os dados estao congelados e prontos para a proxima evolucao de extratos."
+    : closing
+      ? "Fechamento em conferencia. Revise os dados, estornos e validacoes antes de fechar oficialmente."
+      : latestPartial
+        ? "Fechamento ainda nao iniciado para esta campanha."
+        : "Nenhuma parcial publicada encontrada. Voce pode importar um arquivo final de fechamento em evolucao futura.";
+  const validationMarkup = snapshot ? `
+    <div class="closing-validation ${validation.ok ? "ok" : "bad"}">
+      <strong>${validation.ok ? "Validacao pronta para fechamento" : "Pendencias para fechar"}</strong>
+      ${validation.errors.length ? `<ul>${validation.errors.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<span>Nenhum erro critico encontrado.</span>`}
+      ${validation.warnings.length ? `<small>Avisos: ${escapeHtml(validation.warnings.join("; "))}</small>` : ""}
+    </div>` : "";
+  container.innerHTML = `
+    <div class="section-title inline-title">
+      <div>
+        <h3>Fechamento oficial</h3>
+        <p>Transforme a ultima parcial publicada em resultado oficial congelado da campanha.</p>
+      </div>
+      ${moduleCampaignSelectorMarkup("fechamento")}
+    </div>
+    <div class="closing-stage-banner ${closingStatusClass(status)}">
+      <div>
+        <span>Status do fechamento</span>
+        <strong>${escapeHtml(status)}</strong>
+        <small>${escapeHtml(stateMessage)}</small>
+      </div>
+      <span class="campaign-status-badge ${campaignStatusClass(campaign.status)}">${escapeHtml(campaign.status)}</span>
+    </div>
+    <div class="campaign-command-card closing-summary">
+      <div><span>Campanha</span><strong>${escapeHtml(campaign.name || "-")}</strong><small>${escapeHtml(campaign.reference || "-")}</small></div>
+      <div><span>Dias oficiais</span><strong>${num.format(campaign.period?.daysDone || state.period.daysDone || 0)} / ${num.format(campaign.period?.daysTotal || state.period.daysTotal || 0)}</strong><small>Realizados / uteis</small></div>
+      <div><span>Ultima parcial</span><strong>${escapeHtml(latestPartial?.name || "Nenhuma")}</strong><small>${escapeHtml(latestPartial?.baseDate || "Sem parcial publicada")}</small></div>
+      <div><span>Vendedores</span><strong>${state.sellers.length}</strong><small>${branches().length} filiais</small></div>
+      <div><span>Indicadores ativos</span><strong>${metricCount}</strong><small>Metas da campanha</small></div>
+      <div><span>Base selecionada</span><strong>${escapeHtml(basePartial?.name || "-")}</strong><small>${escapeHtml(basePartial?.baseDate || "Aguardando base")}</small></div>
+    </div>
+    <div class="closing-step-grid">
+      <article class="closing-step-card ${closing ? "done" : "active"}">
+        <span>1</span><strong>Escolher base</strong><small>Use a ultima parcial publicada ou prepare importacao final.</small>
+        <button id="startClosingFromLatestPartial" class="primary-button" type="button" ${startDisabled ? "disabled" : ""}>Usar ultima parcial publicada</button>
+      </article>
+      <article class="closing-step-card">
+        <span>2</span><strong>Importar arquivo final</strong><small>Preparado para evolucao futura com o mesmo CSV.</small>
+        <button id="importFinalClosingFile" class="ghost-button" type="button" disabled>Importar arquivo final</button>
+      </article>
+      <article class="closing-step-card ${snapshot ? "done" : ""}">
+        <span>3</span><strong>Conferir e validar</strong><small>Revise vendedores, indicadores, deflatores e estornos.</small>
+        <button id="downloadPreviewCampaignFile" class="ghost-button" type="button" ${snapshot ? "" : "disabled"}>Baixar previa</button>
+      </article>
+      <article class="closing-step-card ${alreadyClosed ? "done" : ""}">
+        <span>4</span><strong>Fechar oficialmente</strong><small>Congela o snapshot e prepara extratos futuros.</small>
+        <button id="officialCloseCampaign" class="danger-button" type="button" ${closeDisabled ? "disabled" : ""}>Fechar campanha oficialmente</button>
+      </article>
+    </div>
+    <div class="campaign-flow-actions">
+      <button id="downloadOfficialCampaignFile" class="ghost-button" type="button" ${campaign.officialFileCsv || officialClosingForCampaign(campaign)?.snapshot ? "" : "disabled"}>Baixar fechamento</button>
+      ${alreadyClosed ? `<span class="admin-inline-note">Fechamento concluido. Os extratos ainda nao foram publicados para os vendedores.</span>` : `<span class="admin-inline-note">A parcial original permanece no historico. Simulacoes nao alteram este fechamento.</span>`}
+    </div>
+    ${snapshot ? `<div class="campaign-command-card closing-summary">
+      <div><span>Total vendedores</span><strong>${totals.totalSellers}</strong><small>Resultado carregado</small></div>
+      <div><span>Comissao bruta</span><strong>${money.format(totals.commissionGrossTotal)}</strong><small>Antes de descontos</small></div>
+      <div><span>Deflatores</span><strong>${money.format(totals.deflatorTotal)}</strong><small>${totals.deflatorTotal ? "Impacto aplicado" : "Sem impacto"}</small></div>
+      <div><span>Estornos</span><strong>${discountMoney(totals.estornosTotal)}</strong><small>Qualidade, seguro e carrossel</small></div>
+      <div><span>Comissao final</span><strong>${money.format(totals.commissionFinalTotal)}</strong><small>Total liquido</small></div>
+      <div><span>Criticos</span><strong>${totals.riskSellers}</strong><small>Vendedores em risco</small></div>
+    </div>${validationMarkup}` : `<div class="dashboard-empty-state active"><strong>${latestPartial ? "Fechamento ainda nao iniciado." : "Nenhuma parcial publicada encontrada."}</strong><span>${latestPartial ? "Clique em Usar ultima parcial publicada para carregar a conferencia." : "Publique uma parcial ou aguarde a importacao final de fechamento."}</span></div>`}
+    <div class="table-wrap campaign-closing-panel">
+      <table>
+        <thead><tr><th>Vendedor</th><th>Comissao bruta</th><th>Deflator</th><th>Qualidade</th><th>Seguro</th><th>Carrossel</th><th>Total estornos</th><th>Comissao final</th><th>Status</th><th>Detalhes</th></tr></thead>
+        <tbody>${snapshot ? campaignClosingRowsMarkup(snapshot, { readOnly: alreadyClosed }) : `<tr><td colspan="10">Carregue uma base de fechamento para revisar os vendedores.</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -4023,6 +4706,12 @@ function auditFieldDescriptor(target) {
     const label = estornoFields.find((item) => item.id === target.dataset.adjustment)?.label || target.dataset.adjustment;
     return { action: "Editou estornos", module: "Fechamento", itemId: seller?.id || "", itemName: seller?.name || "", field: `Estorno ${label}`, message: `Admin alterou estorno ${label} do vendedor ${seller?.name || ""}.` };
   }
+  if (target.dataset.closingAdjustment) {
+    const snapshot = closingSnapshotForDisplay();
+    const row = snapshot?.sellers?.find((item) => item.sellerId === target.dataset.sellerId);
+    const label = estornoFields.find((item) => item.id === target.dataset.closingAdjustment)?.label || target.dataset.closingAdjustment;
+    return { action: "Lancou ou alterou estorno", module: "Fechamento", itemId: row?.sellerId || "", itemName: row?.name || "", field: `Estorno ${label}`, message: `Admin alterou estorno ${label} do vendedor ${row?.name || ""} no fechamento.` };
+  }
   if (target.dataset.metricGoal || target.dataset.metricRealized) {
     const seller = selectedAdminSeller();
     const metricId = target.dataset.metricGoal || target.dataset.metricRealized;
@@ -4069,7 +4758,7 @@ function rememberAuditPreviousValue(target) {
 function recordAuditFieldChange(target) {
   const descriptor = auditFieldDescriptor(target);
   if (!descriptor) return;
-  if ((target.matches("[data-seller-field], [data-seller-experience], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") || ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) && !canEditCampaignData()) return;
+  if ((target.matches("[data-seller-field], [data-seller-experience], [data-adjustment], [data-closing-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") || ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id)) && !canEditCampaignData()) return;
   if (target.dataset.collabRealized && isCampaignOperationLocked()) return;
   const previousValue = target.dataset.auditPreviousValue || "";
   const newValue = auditRawElementValue(target);
@@ -5762,6 +6451,8 @@ document.addEventListener("click", async (event) => {
     "[data-download-preview-campaign]",
     "#downloadOfficialCampaignFile",
     "#downloadPreviewCampaignFile",
+    "#startClosingFromLatestPartial",
+    "#importFinalClosingFile",
     "#operationalCloseCampaign",
     "#reopenOperationalCampaign",
     "#startAdministrativeClosing",
@@ -5848,6 +6539,16 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (event.target.id === "startClosingFromLatestPartial") {
+    startClosingFromLatestPartial();
+    return;
+  }
+
+  if (event.target.id === "importFinalClosingFile") {
+    alert("A importacao final de fechamento esta preparada para uma evolucao futura. Nesta etapa, use a ultima parcial publicada como base.");
+    return;
+  }
+
   if (event.target.id === "operationalCloseCampaign") {
     const campaign = activeCampaign();
     if (!campaign || campaign.status !== CAMPAIGN_STATUS.OPEN) return;
@@ -5911,6 +6612,14 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.id === "officialCloseCampaign") {
     officialCloseActiveCampaign();
+    return;
+  }
+
+  const closingSellerDetailButton = event.target.closest("[data-closing-seller-detail]");
+  if (closingSellerDetailButton) {
+    const sellerId = closingSellerDetailButton.dataset.closingSellerDetail;
+    activeClosingSellerDetailId = activeClosingSellerDetailId === sellerId ? "" : sellerId;
+    renderAdminClosingPanel();
     return;
   }
 
@@ -6500,7 +7209,7 @@ document.addEventListener("input", (event) => {
     return;
   }
   if (isSecurityPasswordTarget(target) || isOfficialPeriodTarget(target)) return;
-  const protectedInput = target.matches("[data-seller-field], [data-seller-experience], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
+  const protectedInput = target.matches("[data-seller-field], [data-seller-experience], [data-adjustment], [data-closing-adjustment], [data-metric-goal], [data-metric-realized], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password], [data-rule-at], [data-rule-rate], [data-deflator-field]") ||
     ["daysDone", "adminDaysDone", "adminPeriodMonth", "adminDaysTotal"].includes(target.id);
   if (protectedInput && !requireAdminAction("adminMutation", "Admin", { auditAction: "Tentativa de alteracao oficial bloqueada" })) {
     renderAll();
@@ -6657,6 +7366,10 @@ document.addEventListener("input", (event) => {
     renderCollaborator();
     return;
   }
+  if (target.dataset.closingAdjustment) {
+    updateClosingAdjustment(target);
+    return;
+  }
 
   const adminSeller = selectedAdminSeller();
   if (target.dataset.metricGoal) {
@@ -6782,7 +7495,7 @@ document.addEventListener("change", (event) => {
       event.target.value = "";
       return;
     }
-    if (!campaign || campaign.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
+    if (!campaign || isCampaignOfficialClosed(campaign) || campaign.status === CAMPAIGN_STATUS.OPERATIONAL_CLOSED) {
       logBlockedAttempt("Importacao de parcial bloqueada", "Parciais", "Tentativa de importar parcial em campanha sem permissao operacional.", {
         campaignId: campaign?.id || "",
         campaignName: campaign?.name || "",
@@ -6877,7 +7590,7 @@ document.addEventListener("change", (event) => {
     reader.readAsText(file);
   }
 
-  if (event.target.matches("[data-seller-field], [data-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password]")) renderAll();
+  if (event.target.matches("[data-seller-field], [data-adjustment], [data-closing-adjustment], [data-metric-goal], [data-metric-realized], [data-collab-realized], [data-deflator-field], [data-catalog-metric-field], [data-custom-metric-field], [data-branch-name], [data-branch-password]")) renderAll();
   if (event.target.id === "adminSellerSelect") renderAdminMetrics();
   if (event.target.id === "collabSellerSelect") renderCollaborator();
   if (event.target.id === "ruleAreaSelect") renderRules();
