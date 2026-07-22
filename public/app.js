@@ -3087,7 +3087,7 @@ function partialMetricContext(item, seller, partial = null, campaign = activeCam
   const goal = participates ? partialMetricGoal(metric, seller) : null;
   const realized = Number(item?.realized) || 0;
   const period = partial ? getPeriodForPartial(partial, campaign) : partialPeriodInfo();
-  const projectedValue = participates ? partialProjectionFor(realized, period) : null;
+  const projectedValue = partialProjectionFor(realized, period);
   const calc = indicatorCalculation({ metric, goal, realized, projectedValue, participates });
   const paceNeeded = participates && goal ? partialPaceNeeded(goal, realized, period) : null;
   return {
@@ -3416,7 +3416,7 @@ function renderDashboardFilterControls(baseSellers) {
   if (indicatorSelect) {
     const names = [];
     for (const seller of baseSellers) {
-      for (const metric of metricsFor(seller.area).filter(metricParticipates)) {
+      for (const metric of metricsFor(seller.area)) {
         if (!names.includes(metric.name)) names.push(metric.name);
       }
     }
@@ -3458,6 +3458,11 @@ function officialPartialRecords(partial, sellers, options = {}) {
 
 function partialRecordTotals(records) {
   const totals = records.reduce((acc, record) => {
+    acc.operationalRealized += record.realized || 0;
+    if (record.projectedValue !== null && record.projectedValue !== undefined) {
+      acc.operationalProjected += record.projectedValue || 0;
+      acc.operationalProjectionCount += 1;
+    }
     if (record.participates && record.goal) {
       acc.goal += record.goal || 0;
       acc.realized += record.realized || 0;
@@ -3470,6 +3475,11 @@ function partialRecordTotals(records) {
       acc.withoutGoal += 1;
     } else {
       acc.informative += 1;
+      acc.infoRealized += record.realized || 0;
+      if (record.projectedValue !== null && record.projectedValue !== undefined) {
+        acc.infoProjected += record.projectedValue || 0;
+        acc.infoProjectionCount += 1;
+      }
     }
     const sellerId = record.seller?.id || record.sellerId || "";
     const branch = record.seller?.branch || record.item?.branch || record.branch || "";
@@ -3478,7 +3488,11 @@ function partialRecordTotals(records) {
     if (branch) acc.branches.add(branch);
     if (metricKey) acc.metrics.add(metricKey);
     return acc;
-  }, { goal: 0, realized: 0, projected: 0, withGoal: 0, withoutGoal: 0, informative: 0, withProjection: 0, sellerIds: new Set(), branches: new Set(), metrics: new Set() });
+  }, { goal: 0, realized: 0, projected: 0, infoRealized: 0, infoProjected: 0, operationalRealized: 0, operationalProjected: 0, withGoal: 0, withoutGoal: 0, informative: 0, withProjection: 0, infoProjectionCount: 0, operationalProjectionCount: 0, sellerIds: new Set(), branches: new Set(), metrics: new Set() });
+  const displayRealized = totals.withGoal ? totals.realized : totals.operationalRealized;
+  const displayProjected = totals.withGoal
+    ? (totals.withProjection ? totals.projected : null)
+    : (totals.operationalProjectionCount ? totals.operationalProjected : null);
   const percent = totals.goal ? totals.realized / totals.goal : null;
   const projectedPercent = totals.goal && totals.withProjection ? totals.projected / totals.goal : null;
   const gap = totals.goal ? Math.max(totals.goal - totals.realized, 0) : null;
@@ -3491,14 +3505,19 @@ function partialRecordTotals(records) {
       : records.length
         ? { label: "Informativo", cls: "neutral", action: "Consulta" }
         : { label: "Sem dados", cls: "neutral", action: "Sem dados" };
-  return { ...totals, percent, projectedPercent, gap, paceNeeded, status };
+  return { ...totals, realized: displayRealized, projected: displayProjected, percent, projectedPercent, gap, paceNeeded, status };
 }
 
 function groupedPartialRows(records, keyFn) {
   const map = new Map();
   for (const record of records) {
     const key = keyFn(record);
-    const row = map.get(key) || { key, goal: 0, realized: 0, projected: 0, infoRealized: 0, count: 0, participatingCount: 0, eligibleCount: 0, projectedCount: 0, sellerIds: new Set(), metricIds: new Set(), branchIds: new Set() };
+    const row = map.get(key) || { key, goal: 0, realized: 0, projected: 0, infoRealized: 0, infoProjected: 0, operationalRealized: 0, operationalProjected: 0, count: 0, participatingCount: 0, eligibleCount: 0, projectedCount: 0, infoProjectedCount: 0, operationalProjectedCount: 0, sellerIds: new Set(), metricIds: new Set(), branchIds: new Set() };
+    row.operationalRealized += record.realized || 0;
+    if (record.projectedValue !== null && record.projectedValue !== undefined) {
+      row.operationalProjected += record.projectedValue || 0;
+      row.operationalProjectedCount += 1;
+    }
     if (record.participates) row.participatingCount += 1;
     if (record.participates && record.goal) {
       row.goal += record.goal || 0;
@@ -3510,6 +3529,10 @@ function groupedPartialRows(records, keyFn) {
       row.eligibleCount += 1;
     } else {
       row.infoRealized += record.realized || 0;
+      if (!record.participates && record.projectedValue !== null && record.projectedValue !== undefined) {
+        row.infoProjected += record.projectedValue || 0;
+        row.infoProjectedCount += 1;
+      }
     }
     row.count += 1;
     row.sellerIds.add(record.seller.id);
@@ -3518,6 +3541,10 @@ function groupedPartialRows(records, keyFn) {
     map.set(key, row);
   }
   return [...map.values()].map((row) => {
+    const displayRealized = row.goal ? row.realized : row.operationalRealized;
+    const displayProjected = row.goal
+      ? (row.projectedCount ? row.projected : null)
+      : (row.operationalProjectedCount ? row.operationalProjected : null);
     const percent = row.goal ? row.realized / row.goal : null;
     const projectedPercent = row.goal && row.projectedCount ? row.projected / row.goal : null;
     const gap = row.goal ? Math.max(row.goal - row.realized, 0) : null;
@@ -3528,7 +3555,7 @@ function groupedPartialRows(records, keyFn) {
       : row.participatingCount
         ? { label: "Meta nao configurada", cls: "neutral", action: "Revisar meta" }
         : { label: "Informativo", cls: "neutral" };
-    return { ...row, percent, projectedPercent, gap, paceNeeded, status };
+    return { ...row, realized: displayRealized, projected: displayProjected, percent, projectedPercent, gap, paceNeeded, status };
   });
 }
 
@@ -3541,10 +3568,15 @@ function partialBlockRows(records) {
       realized: 0,
       projected: 0,
       infoRealized: 0,
+      infoProjected: 0,
+      operationalRealized: 0,
+      operationalProjected: 0,
       count: 0,
       participatingCount: 0,
       eligibleCount: 0,
       projectedCount: 0,
+      infoProjectedCount: 0,
+      operationalProjectedCount: 0,
       sellerIds: new Set(),
       branchIds: new Set(),
       metricIds: new Set(),
@@ -3949,8 +3981,9 @@ function dashboardBranchDetailMarkup(records) {
     const sample = items[0];
     const totals = partialRecordTotals(items);
     return { group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals, sample };
-  }).filter((row) => effectiveAttainmentPercent(row.totals) !== null)
-    .sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group) || effectiveAttainmentPercent(a.totals) - effectiveAttainmentPercent(b.totals));
+  }).sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group)
+    || (effectiveAttainmentPercent(a.totals) ?? 999) - (effectiveAttainmentPercent(b.totals) ?? 999)
+    || a.metricName.localeCompare(b.metricName));
   return `<div class="dashboard-detail-card-grid">${detailRows.map((row) => `<article class="dashboard-detail-card ${row.totals.status.cls}">
     <span>${escapeHtml(metricGroupDisplay(row.group))}</span>
     <strong>${escapeHtml(row.metricName)}</strong>
@@ -6046,7 +6079,7 @@ function collaboratorMetricRows(seller) {
     const participates = metricParticipates(metric);
     const goal = metricGoalForSeller(seller, metric);
     const realized = finiteNumber(value.realized);
-    const projectedValue = participates ? projectionForPeriod(realized) : null;
+    const projectedValue = projectionForPeriod(realized);
     const calc = indicatorCalculation({ metric, goal, realized, projectedValue, participates });
     const missing = calc.gap;
     return {
@@ -6066,8 +6099,17 @@ function collaboratorMetricRows(seller) {
     };
   });
   const totals = rows.reduce((acc, row) => {
+    acc.operationalRealized += row.realized;
+    if (row.projectedValue !== null) {
+      acc.operationalProjected += row.projectedValue;
+      acc.operationalProjectionCount += 1;
+    }
     if (!row.participates) {
       acc.infoRealized += row.realized;
+      if (row.projectedValue !== null) {
+        acc.infoProjected += row.projectedValue;
+        acc.infoProjectionCount += 1;
+      }
       acc.commission += row.commission;
       return acc;
     }
@@ -6086,7 +6128,7 @@ function collaboratorMetricRows(seller) {
     acc.commission += row.commission;
     acc.withGoal += 1;
     return acc;
-  }, { goal: 0, realized: 0, projected: 0, missing: 0, commission: 0, infoRealized: 0, withGoal: 0, withoutGoal: 0, withProjection: 0 });
+  }, { goal: 0, realized: 0, projected: 0, missing: 0, commission: 0, infoRealized: 0, infoProjected: 0, operationalRealized: 0, operationalProjected: 0, withGoal: 0, withoutGoal: 0, withProjection: 0, infoProjectionCount: 0, operationalProjectionCount: 0 });
   totals.currentPercent = totals.goal ? totals.realized / totals.goal : null;
   totals.projectedPercent = totals.goal && totals.withProjection ? totals.projected / totals.goal : null;
   totals.status = totals.withGoal ? partialStatusFromProjected(totals.projectedPercent, totals.currentPercent) : totals.withoutGoal ? { label: "Meta nao configurada", cls: "neutral", action: "Revisar meta" } : { label: "Sem metas", cls: "neutral", action: "Revisar meta" };
@@ -6293,6 +6335,7 @@ function closingIndicatorRowsForSeller(row) {
       participates,
       goal,
       realized: finiteNumber(indicator.realized),
+      projected: Number.isFinite(Number(indicator.projected)) ? Number(indicator.projected) : null,
       currentPercent: Number.isFinite(Number(indicator.currentPercent)) ? Number(indicator.currentPercent) : null,
       projectedPercent: Number.isFinite(Number(indicator.projectedPercent)) ? Number(indicator.projectedPercent) : null,
       missing: goal === null ? null : Math.max(goal - finiteNumber(indicator.realized), 0),
@@ -6337,10 +6380,11 @@ function collaboratorOfficialExtractMarkup(seller) {
     : deflatorValue
       ? `${row.deflatorReason || "Deflator aplicado"} | Impacto: ${money.format(deflatorValue)}`
       : "Nenhum deflator aplicado.";
-  const tableRows = metricGroupHeaderRows(rows, 9, (item) => `<tr>
+  const tableRows = metricGroupHeaderRows(rows, 10, (item) => `<tr>
     <td>${escapeHtml(item.metric.name)}</td>
     <td>${formatGoalLabel(item.metric, item.goal, item.participates)}</td>
     <td>${formatMetricAmount(item.metric, item.realized)}</td>
+    <td>${formatMetricAmount(item.metric, item.projected)}</td>
     <td>${achievementPill(item.currentPercent)}</td>
     <td>${item.missing === null ? "-" : formatMetricAmount(item.metric, item.missing)}</td>
     <td>${money.format(finiteNumber(item.commission))}</td>
@@ -6354,6 +6398,7 @@ function collaboratorOfficialExtractMarkup(seller) {
     <dl>
       <dt>Meta</dt><dd>${formatGoalLabel(item.metric, item.goal, item.participates)}</dd>
       <dt>Realizado final</dt><dd>${formatMetricAmount(item.metric, item.realized)}</dd>
+      <dt>Projecao</dt><dd>${formatMetricAmount(item.metric, item.projected)}</dd>
       <dt>% atingimento</dt><dd>${formatPercent(item.currentPercent)}</dd>
       <dt>Falta</dt><dd>${item.missing === null ? "-" : formatMetricAmount(item.metric, item.missing)}</dd>
       <dt>Comissao</dt><dd>${money.format(finiteNumber(item.commission))}</dd>
@@ -6388,7 +6433,7 @@ function collaboratorOfficialExtractMarkup(seller) {
       <article class="partial-meta-line"><strong>Deflatores</strong><span>${escapeHtml(deflatorText)}</span></article>
       <article class="partial-meta-line"><strong>Estornos</strong><span>Qualidade: ${discountMoney(row.estornoQuality)} | Seguro: ${discountMoney(row.estornoInsurance)} | Carrossel: ${discountMoney(row.estornoCarousel)} | Total: ${discountMoney(row.estornosTotal)}</span></article>
     </div>
-    <div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado final</th><th>% atingimento</th><th>Falta</th><th>Comissao</th><th>Deflator</th><th>Status</th><th>Tipo</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+    <div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado final</th><th>Projecao</th><th>% atingimento</th><th>Falta</th><th>Comissao</th><th>Deflator</th><th>Status</th><th>Tipo</th></tr></thead><tbody>${tableRows}</tbody></table></div>
     <div class="collab-indicator-cards collab-detail-cards">${cards}</div>
   </section>`;
 }

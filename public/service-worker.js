@@ -1,4 +1,4 @@
-const CACHE_NAME = "comissao-pwa-v20260721-p0-descongelar-campanha";
+const CACHE_NAME = "comissao-pwa-v20260721-p0-informativos-projecao";
 const APP_SHELL = [
   "/",
   "/index.html",
