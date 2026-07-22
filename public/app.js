@@ -197,7 +197,9 @@ function campaignStatusLabel(campaign = activeCampaign()) {
 }
 
 function isCampaignOfficialClosed(campaign = activeCampaign()) {
-  if (campaignStatusLabel(campaign) === CAMPAIGN_STATUS.OFFICIAL_CLOSED) return true;
+  const status = campaignStatusLabel(campaign);
+  if ([CAMPAIGN_STATUS.OFFICIAL_CLOSED, CLOSING_STATUS.OFFICIAL_CLOSED, CLOSING_STATUS.AWAITING_EXTRACTS, CLOSING_STATUS.PUBLISHED, "Fechada oficialmente"].includes(status)) return true;
+  if (campaign?.snapshot && (campaign.closedAt || campaign.officialCloseDate || campaign.officialFileCsv)) return true;
   return Boolean(campaign && Array.isArray(state?.closings) && state.closings.some((closing) => (
     closing?.campaignId === campaign.id && [CLOSING_STATUS.OFFICIAL_CLOSED, CLOSING_STATUS.AWAITING_EXTRACTS, CLOSING_STATUS.PUBLISHED].includes(normalizeClosingStatus(closing?.status))
   )));
@@ -205,6 +207,21 @@ function isCampaignOfficialClosed(campaign = activeCampaign()) {
 
 function isCampaignOperationLocked(campaign = activeCampaign()) {
   return campaignStatusLabel(campaign) !== CAMPAIGN_STATUS.OPEN;
+}
+
+const REVERSIBLE_OPERATIONAL_CAMPAIGN_STATUSES = new Set([
+  CAMPAIGN_STATUS.OPERATIONAL_CLOSED,
+  CAMPAIGN_STATUS.ADMIN_CLOSING,
+  "Congelada",
+  "Encerrada operacionalmente",
+  "Em fechamento administrativo",
+]);
+
+function canReopenOperationalCampaign(campaign = activeCampaign()) {
+  if (!campaign || isCampaignOfficialClosed(campaign)) return false;
+  const closing = officialClosingForCampaign(campaign);
+  if (closingIsOfficial(closing) || closingExtractsPublished(closing)) return false;
+  return REVERSIBLE_OPERATIONAL_CAMPAIGN_STATUSES.has(campaignStatusLabel(campaign));
 }
 
 function canEditCampaignData(campaign = activeCampaign()) {
@@ -236,6 +253,7 @@ const ADMIN_ONLY_ACTIONS = new Set([
   "updateOfficialBusinessDays",
   "updateOfficialElapsedDays",
   "startOfficialClosing",
+  "reopenOperationalCampaign",
   "closeOfficialCampaign",
   "exportClosing",
   "exportAudit",
@@ -2238,6 +2256,10 @@ function officialCloseActiveCampaign() {
     alert("Esta campanha ja esta fechada oficialmente.");
     return;
   }
+  if (campaign.status !== CAMPAIGN_STATUS.ADMIN_CLOSING) {
+    alert("Para fechar oficialmente, primeiro coloque a campanha em fechamento administrativo.");
+    return;
+  }
   const closing = closingForCampaign(campaign);
   if (!closing || closingIsOfficial(closing)) {
     alert("Carregue a base de fechamento antes de fechar oficialmente.");
@@ -2416,6 +2438,84 @@ function publishOfficialExtracts() {
     message: `Extratos oficiais da campanha ${campaign.name} publicados para vendedores.`,
   });
   saveState("Extratos oficiais publicados");
+  renderAll();
+}
+
+function reopenOperationalCampaign(campaign = activeCampaign(), module = "Fechamento") {
+  if (!requireAdminAction("reopenOperationalCampaign", module)) return;
+  if (!campaign) {
+    alert("Selecione uma campanha para descongelar.");
+    return;
+  }
+  const targetCampaign = state.campaigns.find((item) => item.id === campaign.id) || campaign;
+  const previousStatus = campaignStatusLabel(targetCampaign);
+  if (isCampaignOfficialClosed(targetCampaign) || officialClosingForCampaign(targetCampaign) || closingExtractsPublished(closingForCampaign(targetCampaign))) {
+    const message = "Esta campanha ja possui fechamento oficial. Para corrigir um fechamento oficial, sera necessario um fluxo controlado de reabertura, que nao faz parte desta correcao.";
+    logUpdate({
+      status: "Bloqueado",
+      action: "Tentou descongelar campanha fechada oficialmente",
+      module,
+      campaignId: targetCampaign.id,
+      campaignName: targetCampaign.name,
+      itemName: targetCampaign.name,
+      previousValue: previousStatus,
+      newValue: previousStatus,
+      message,
+    }, { persist: true });
+    alert(message);
+    return;
+  }
+  if (!canReopenOperationalCampaign(targetCampaign)) {
+    const message = previousStatus === CAMPAIGN_STATUS.OPEN
+      ? "A campanha ja esta aberta."
+      : "O status atual da campanha nao permite descongelamento operacional.";
+    logUpdate({
+      status: "Bloqueado",
+      action: "Tentou descongelar campanha em status nao permitido",
+      module,
+      campaignId: targetCampaign.id,
+      campaignName: targetCampaign.name,
+      itemName: targetCampaign.name,
+      previousValue: previousStatus,
+      newValue: previousStatus,
+      message,
+    }, { persist: true });
+    alert(message);
+    return;
+  }
+  const reviewClosings = closingsForCampaign(targetCampaign).filter((closing) => !closingIsOfficial(closing) && normalizeClosingStatus(closing.status) !== CLOSING_STATUS.NOT_STARTED);
+  const confirmLines = [
+    "Voce esta descongelando esta campanha. Ela voltara para o status Aberta e podera receber ajustes operacionais novamente. Parciais, metas, vendedores e estornos ja cadastrados serao mantidos. Deseja continuar?",
+  ];
+  if (campaignHasPublishedPartial(targetCampaign)) {
+    confirmLines.push("", "Esta campanha possui parciais publicadas. Elas serao mantidas no historico.");
+  }
+  if (reviewClosings.length) {
+    confirmLines.push("", "Existe fechamento em conferencia. Ao descongelar, revise se a base de fechamento ainda deve ser mantida ou recarregada.");
+  }
+  if (!criticalConfirm(confirmLines.join("\n"))) return;
+  if (targetCampaign.id === state.activeCampaignId) syncActiveCampaignFromRoot();
+  const liveCampaign = state.campaigns.find((item) => item.id === targetCampaign.id) || targetCampaign;
+  const now = new Date().toISOString();
+  liveCampaign.status = CAMPAIGN_STATUS.OPEN;
+  liveCampaign.operationalCloseDate = "";
+  liveCampaign.updatedAt = now;
+  for (const closing of reviewClosings) {
+    closing.status = CLOSING_STATUS.NOT_STARTED;
+    closing.reopenedAt = now;
+    closing.reopenedBy = currentAuditProfile();
+  }
+  logUpdate({
+    action: "Descongelou campanha",
+    module,
+    campaignId: liveCampaign.id,
+    campaignName: liveCampaign.name,
+    itemName: liveCampaign.name,
+    previousValue: previousStatus,
+    newValue: liveCampaign.status,
+    message: `Campanha ${liveCampaign.name} descongelada e reaberta para operacao.`,
+  });
+  saveState("Campanha descongelada");
   renderAll();
 }
 
@@ -4109,6 +4209,7 @@ function renderCampaignAdminPanel() {
       <td>
         <button class="ghost-button compact-action" data-select-campaign="${item.id}" type="button">Visualizar</button>
         <button class="ghost-button compact-action" data-duplicate-campaign="${item.id}" type="button">Duplicar</button>
+        ${canReopenOperationalCampaign(item) ? `<button class="warning-button compact-action" data-reopen-campaign="${item.id}" type="button">Descongelar</button>` : ""}
         <button class="danger-button compact-action" data-delete-campaign="${item.id}" type="button" ${item.status === CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "disabled" : ""}>Excluir</button>
       </td>
     </tr>`;
@@ -4122,6 +4223,7 @@ function renderCampaignAdminPanel() {
       <div class="campaign-actions">
         <button id="createCampaign" class="primary-button" type="button">Nova campanha</button>
         <button id="duplicateActiveCampaign" class="ghost-button" type="button">Duplicar campanha</button>
+        ${canReopenOperationalCampaign(campaign) && canAdminEdit ? `<button class="warning-button" data-reopen-campaign="${escapeHtml(campaign.id)}" type="button">Descongelar campanha</button>` : ""}
       </div>
     </div>
     <div class="campaign-command-card">
@@ -4509,7 +4611,7 @@ function renderAdminClosingPanelLegacy() {
     </div>
     <div class="campaign-flow-actions">
       <button id="operationalCloseCampaign" class="warning-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.OPEN || !canAdminEdit ? "disabled" : ""}>Congelar campanha</button>
-      <button id="reopenOperationalCampaign" class="ghost-button" type="button" ${![CAMPAIGN_STATUS.OPERATIONAL_CLOSED, CAMPAIGN_STATUS.ADMIN_CLOSING].includes(campaign?.status) || !canAdminEdit ? "disabled" : ""}>Descongelar campanha</button>
+      <button id="reopenOperationalCampaign" class="ghost-button" type="button" ${!canReopenOperationalCampaign(campaign) || !canAdminEdit ? "disabled" : ""}>Descongelar campanha</button>
       <button id="startAdministrativeClosing" class="ghost-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.OPERATIONAL_CLOSED || !canAdminEdit ? "disabled" : ""}>Iniciar revisão administrativa</button>
       <button id="downloadPreviewCampaignFile" class="ghost-button" type="button" ${campaign && campaign.status !== CAMPAIGN_STATUS.OFFICIAL_CLOSED ? "" : "disabled"}>Baixar prévia</button>
       <button id="officialCloseCampaign" class="danger-button" type="button" ${campaign?.status !== CAMPAIGN_STATUS.ADMIN_CLOSING || !canAdminEdit ? "disabled" : ""}>Fechar comissao oficial</button>
@@ -4549,7 +4651,8 @@ function renderAdminClosingPanel() {
   const status = closing?.status || CLOSING_STATUS.NOT_STARTED;
   const metricCount = ["Cabo", "Nao Cabo"].reduce((total, area) => total + metricsFor(area).length, 0);
   const startDisabled = alreadyClosed || !latestPartial || !canAdminEdit;
-  const closeDisabled = alreadyClosed || !closing || !snapshot || !validation.ok || !canAdminEdit;
+  const canReopenOperational = canReopenOperationalCampaign(campaign) && canAdminEdit;
+  const closeDisabled = alreadyClosed || campaign.status !== CAMPAIGN_STATUS.ADMIN_CLOSING || !closing || !snapshot || !validation.ok || !canAdminEdit;
   const publishDisabled = !alreadyClosed || extractsPublished || !snapshot || !isAdminUnlocked();
   const stateMessage = alreadyClosed
     ? extractsPublished
@@ -4609,6 +4712,7 @@ function renderAdminClosingPanel() {
       </article>
     </div>
     <div class="campaign-flow-actions">
+      ${canReopenOperational ? `<button id="reopenOperationalCampaign" class="warning-button" type="button">Descongelar campanha</button>` : ""}
       <button id="downloadOfficialCampaignFile" class="ghost-button" type="button" ${campaign.officialFileCsv || officialClosingForCampaign(campaign)?.snapshot ? "" : "disabled"}>Baixar fechamento</button>
       ${alreadyClosed ? `<button id="publishOfficialExtracts" class="primary-button" type="button" ${publishDisabled ? "disabled" : ""}>Publicar extratos para vendedores</button>` : ""}
       ${alreadyClosed
@@ -6965,6 +7069,7 @@ document.addEventListener("click", async (event) => {
     "#importFinalClosingFile",
     "#operationalCloseCampaign",
     "#reopenOperationalCampaign",
+    "[data-reopen-campaign]",
     "#startAdministrativeClosing",
     "#officialCloseCampaign",
     "#publishOfficialExtracts",
@@ -7082,24 +7187,14 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "reopenOperationalCampaign") {
-    const campaign = activeCampaign();
-    if (!campaign || ![CAMPAIGN_STATUS.OPERATIONAL_CLOSED, CAMPAIGN_STATUS.ADMIN_CLOSING].includes(campaign.status)) return;
-    if (!criticalConfirm("Voce esta descongelando esta campanha. Vendedores e filiais voltarao a poder alterar e simular resultados. Os estornos ja lancados serao mantidos. Deseja continuar?")) return;
-    syncActiveCampaignFromRoot();
-    campaign.status = CAMPAIGN_STATUS.OPEN;
-    campaign.operationalCloseDate = "";
-    campaign.updatedAt = new Date().toISOString();
-    logUpdate({
-      action: "Descongelou campanha",
-      module: "Campanhas",
-      campaignId: campaign.id,
-      campaignName: campaign.name,
-      itemName: campaign.name,
-      newValue: campaign.status,
-      message: `Campanha ${campaign.name} descongelada e reaberta para operacao.`,
-    });
-    saveState("Campanha descongelada");
-    renderAll();
+    reopenOperationalCampaign(activeCampaign(), "Fechamento");
+    return;
+  }
+
+  const reopenCampaignButton = event.target.closest("[data-reopen-campaign]");
+  if (reopenCampaignButton) {
+    const campaign = state.campaigns.find((item) => item.id === reopenCampaignButton.dataset.reopenCampaign);
+    reopenOperationalCampaign(campaign, "Campanhas");
     return;
   }
 
