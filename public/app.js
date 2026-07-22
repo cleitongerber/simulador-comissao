@@ -3680,13 +3680,13 @@ function partialGraphicShortLabel(name = "") {
   const alias = metricAliasKey(label);
   const labels = {
     acessorios: "Acess.",
-    peliculas: "Pelíc.",
-    aparelhos_qtd: "Ap. Qtde",
+    peliculas: "Películas",
+    aparelhos_qtd: "Aparelhos",
     aparelhos_receita: "Ap. Receita",
     gross_volume: "Gross Vol.",
     fidel: "Fidel Ap.",
     banda: "BL",
-    seguros: "Seguros",
+    seguros: "Seguro",
   };
   if (labels[alias]) return labels[alias];
   if (label.length <= 13) return label;

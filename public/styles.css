@@ -7584,13 +7584,13 @@ body[data-view="home"] .main > .view > * {
 .partial-chart-card,
 .partial-info-section {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
-  padding: 16px;
-  border: 1px solid #eadcdf;
-  border-radius: 14px;
+  padding: 14px;
+  border: 1px solid #e7e5e4;
+  border-radius: 12px;
   background: #fff;
-  box-shadow: 0 14px 32px rgba(32, 19, 22, 0.07);
+  box-shadow: 0 10px 24px rgba(32, 19, 22, 0.045);
 }
 
 .partial-chart-head {
@@ -7604,26 +7604,27 @@ body[data-view="home"] .main > .view > * {
 .partial-chart-head h4 {
   margin: 0;
   color: var(--ink);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.18;
 }
 
 .partial-chart-head p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 650;
   line-height: 1.35;
 }
 
 .partial-chart-head small {
   flex: 0 0 auto;
-  padding: 5px 8px;
+  padding: 4px 7px;
+  border: 1px solid #e5e7eb;
   border-radius: 999px;
-  background: #fff4f5;
-  color: var(--red);
-  font-size: 10px;
-  font-weight: 900;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 850;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -7632,18 +7633,18 @@ body[data-view="home"] .main > .view > * {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 850;
+  color: #94a3b8;
+  font-size: 9px;
+  font-weight: 800;
   text-transform: uppercase;
 }
 
 .partial-chart-scale span:nth-child(2) {
-  color: #a16207;
+  color: #b7791f;
 }
 
 .partial-chart-scale span:nth-child(3) {
-  color: #8a1523;
+  color: #9f1d2e;
 }
 
 .partial-chart-scale span:last-child {
@@ -7653,20 +7654,20 @@ body[data-view="home"] .main > .view > * {
 .partial-chart-area {
   display: flex;
   align-items: flex-end;
-  gap: clamp(6px, 1vw, 12px);
+  gap: clamp(8px, 1.25vw, 16px);
   min-width: 0;
   width: 100%;
   min-height: 220px;
   overflow-x: hidden;
   overflow-y: hidden;
-  padding: 8px 4px 10px;
+  padding: 6px 2px 8px;
   scrollbar-width: none;
 }
 
 .partial-graphic-bar {
   display: grid;
   grid-template-rows: 34px 160px minmax(36px, auto);
-  gap: 7px;
+  gap: 6px;
   flex: 1 1 0;
   max-width: none;
   min-width: 0;
@@ -7678,66 +7679,65 @@ body[data-view="home"] .main > .view > * {
   display: grid;
   align-content: end;
   justify-items: center;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
 .partial-graphic-bar-value span {
   color: var(--ink);
-  font-size: 12px;
-  font-weight: 950;
+  font-size: 11px;
+  font-weight: 850;
   line-height: 1;
 }
 
 .partial-graphic-bar-value em {
   max-width: 100%;
-  padding: 3px 6px;
+  padding: 2px 5px;
   border-radius: 999px;
   background: #f1f5f9;
   color: #64748b;
-  font-size: 9px;
+  font-size: 8px;
   font-style: normal;
-  font-weight: 900;
+  font-weight: 750;
   line-height: 1;
   overflow-wrap: anywhere;
-  text-transform: uppercase;
 }
 
 .partial-graphic-bar.ok .partial-graphic-bar-value em {
-  background: #e9f8ef;
-  color: #08783f;
+  background: #eef9f2;
+  color: #137a42;
 }
 
 .partial-graphic-bar.warn .partial-graphic-bar-value em {
-  background: #fff7df;
-  color: #9a6a00;
+  background: #fff7e6;
+  color: #9b6814;
 }
 
 .partial-graphic-bar.bad .partial-graphic-bar-value em {
-  background: #fff0f2;
-  color: #a40018;
+  background: #fff1f2;
+  color: #9f1d2e;
 }
 
 .partial-graphic-bar-label {
   display: grid;
   align-content: start;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
 .partial-graphic-bar-label strong {
   color: var(--ink);
-  font-size: clamp(9px, .78vw, 11px);
-  font-weight: 950;
+  font-size: clamp(8.5px, .72vw, 10px);
+  font-weight: 780;
   line-height: 1.15;
   overflow-wrap: anywhere;
   text-transform: uppercase;
 }
 
 .partial-graphic-bar-label small {
-  color: var(--muted);
-  font-size: 9px;
-  font-weight: 850;
+  color: #94a3b8;
+  font-size: 8px;
+  font-weight: 760;
   line-height: 1.1;
   overflow-wrap: anywhere;
   text-transform: uppercase;
@@ -7750,11 +7750,11 @@ body[data-view="home"] .main > .view > * {
   justify-content: center;
   min-width: 0;
   height: 160px;
-  border: 1px solid #eadcdf;
-  border-radius: 12px;
+  border: 0;
+  border-radius: 10px;
   background:
-    linear-gradient(to top, rgba(138, 21, 35, 0.04), rgba(255, 255, 255, 0)),
-    repeating-linear-gradient(to top, transparent 0 44px, rgba(138, 21, 35, 0.055) 45px);
+    linear-gradient(to top, rgba(15, 23, 42, 0.025), rgba(255, 255, 255, 0)),
+    repeating-linear-gradient(to top, transparent 0 39px, rgba(15, 23, 42, 0.035) 40px);
   overflow: hidden;
 }
 
@@ -7763,24 +7763,24 @@ body[data-view="home"] .main > .view > * {
   bottom: 0;
   left: 50%;
   z-index: 1;
-  width: clamp(14px, 52%, 34px);
+  width: clamp(10px, 30%, 42px);
   height: var(--bar-size);
   min-height: 2px;
-  border-radius: 10px 10px 0 0;
-  background: linear-gradient(180deg, #b91c1c, #8a1523);
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(180deg, #c43c4b, #9f1d2e);
   transform: translateX(-50%);
 }
 
 .partial-graphic-bar.ok .partial-graphic-track i {
-  background: linear-gradient(180deg, #19a55a, #08783f);
+  background: linear-gradient(180deg, #2fb36a, #137a42);
 }
 
 .partial-graphic-bar.warn .partial-graphic-track i {
-  background: linear-gradient(180deg, #f2b43a, #d99a00);
+  background: linear-gradient(180deg, #eab43d, #b7791f);
 }
 
 .partial-graphic-bar.bad .partial-graphic-track i {
-  background: linear-gradient(180deg, #d53b45, #b00020);
+  background: linear-gradient(180deg, #d65a63, #9f1d2e);
 }
 
 .target-line {
@@ -7788,13 +7788,13 @@ body[data-view="home"] .main > .view > * {
   left: 0;
   right: 0;
   z-index: 2;
-  border-top: 2px dashed #8a1523;
+  border-top: 1px dashed rgba(159, 29, 46, .58);
   pointer-events: none;
 }
 
 .target-line.target-80 {
   bottom: var(--target-80);
-  border-top-color: #d99a00;
+  border-top-color: rgba(183, 121, 31, .48);
 }
 
 .target-line.target-100 {
@@ -7803,25 +7803,25 @@ body[data-view="home"] .main > .view > * {
 
 .target-caption {
   position: absolute;
-  left: 5px;
+  left: 4px;
   z-index: 3;
-  padding: 1px 4px;
+  padding: 1px 3px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .86);
-  font-size: 8px;
-  font-weight: 950;
+  background: rgba(255, 255, 255, .78);
+  font-size: 7px;
+  font-weight: 780;
   line-height: 1;
   pointer-events: none;
 }
 
 .target-caption-80 {
   bottom: calc(var(--target-80) + 3px);
-  color: #9a6a00;
+  color: #9b6814;
 }
 
 .target-caption-100 {
   bottom: calc(var(--target-100) + 3px);
-  color: #8a1523;
+  color: #9f1d2e;
 }
 
 .partial-graphic-bar:not(:first-of-type) .target-caption {
@@ -7830,8 +7830,8 @@ body[data-view="home"] .main > .view > * {
 
 .partial-info-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 9px;
 }
 
 .partial-info-card {
@@ -7840,17 +7840,17 @@ body[data-view="home"] .main > .view > * {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 12px;
-  border: 1px solid #eadcdf;
-  border-radius: 12px;
-  background: #fffafa;
+  padding: 11px 12px;
+  border: 1px solid #e7e5e4;
+  border-radius: 10px;
+  background: #fafafa;
 }
 
 .partial-info-card span {
   display: block;
-  color: var(--red);
-  font-size: 10px;
-  font-weight: 900;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 820;
   text-transform: uppercase;
 }
 
@@ -7858,7 +7858,8 @@ body[data-view="home"] .main > .view > * {
   display: block;
   margin-top: 3px;
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 780;
   overflow-wrap: anywhere;
 }
 
@@ -7872,16 +7873,16 @@ body[data-view="home"] .main > .view > * {
 
 .partial-info-card dt {
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
+  font-size: 9px;
+  font-weight: 800;
   text-transform: uppercase;
 }
 
 .partial-info-card dd {
   margin: 0;
   color: var(--ink);
-  font-size: 12px;
-  font-weight: 900;
+  font-size: 11px;
+  font-weight: 800;
   text-align: right;
   white-space: nowrap;
 }
@@ -7932,7 +7933,7 @@ body[data-view="home"] .main > .view > * {
 
   .partial-chart-card,
   .partial-info-section {
-    padding: 14px;
+    padding: 12px;
     border-radius: 12px;
   }
 
@@ -7947,15 +7948,15 @@ body[data-view="home"] .main > .view > * {
   .partial-chart-area {
     display: flex;
     align-items: flex-end;
-    gap: 4px;
-    min-height: 190px;
+    gap: 5px;
+    min-height: 180px;
     overflow-x: hidden;
     padding: 6px 0 8px;
   }
 
   .partial-graphic-bar {
     grid-template-columns: 1fr;
-    grid-template-rows: 30px 118px minmax(34px, auto);
+    grid-template-rows: 34px 112px minmax(32px, auto);
     align-items: stretch;
     gap: 6px;
     flex: 1 1 0;
@@ -7979,31 +7980,33 @@ body[data-view="home"] .main > .view > * {
   }
 
   .partial-graphic-bar-value span {
-    font-size: 10px;
+    font-size: 9px;
   }
 
   .partial-graphic-bar-value em {
-    display: none;
+    display: inline-block;
+    padding: 2px 4px;
+    font-size: 7px;
   }
 
   .partial-graphic-track {
     grid-column: auto;
     grid-row: 2;
     width: 100%;
-    height: 118px;
-    border-radius: 10px;
+    height: 112px;
+    border-radius: 8px;
     background:
-      linear-gradient(to top, rgba(138, 21, 35, 0.04), rgba(255, 255, 255, 0)),
-      repeating-linear-gradient(to top, transparent 0 28px, rgba(138, 21, 35, 0.055) 29px);
+      linear-gradient(to top, rgba(15, 23, 42, 0.025), rgba(255, 255, 255, 0)),
+      repeating-linear-gradient(to top, transparent 0 27px, rgba(15, 23, 42, 0.035) 28px);
   }
 
   .partial-graphic-track i {
     top: auto;
     bottom: 0;
     left: 50%;
-    width: clamp(6px, 48%, 18px);
+    width: clamp(5px, 34%, 14px);
     height: var(--bar-size);
-    border-radius: 8px 8px 0 0;
+    border-radius: 7px 7px 0 0;
     transform: translateX(-50%);
   }
 
@@ -8013,12 +8016,12 @@ body[data-view="home"] .main > .view > * {
     right: 0;
     width: auto;
     border-left: 0;
-    border-top: 2px dashed #8a1523;
+    border-top: 1px dashed rgba(159, 29, 46, .58);
   }
 
   .target-line.target-80 {
     bottom: var(--target-80);
-    border-top-color: #d99a00;
+    border-top-color: rgba(183, 121, 31, .48);
   }
 
   .target-line.target-100 {
