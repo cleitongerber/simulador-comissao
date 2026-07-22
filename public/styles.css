@@ -7652,6 +7652,38 @@ body[data-view="home"] .main > .view > * {
   text-align: right;
 }
 
+.partial-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.partial-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.partial-chart-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  background: #b91c1c;
+}
+
+.partial-chart-legend i.warn {
+  background: #d97706;
+}
+
+.partial-chart-legend i.ok {
+  background: #15803d;
+}
+
 .partial-chart-area {
   display: grid;
   grid-template-rows: 34px 164px minmax(38px, auto);
@@ -7712,7 +7744,6 @@ body[data-view="home"] .main > .view > * {
   display: grid;
   align-content: end;
   justify-items: center;
-  gap: 2px;
   flex: 1 1 0;
   min-width: 0;
   text-align: center;
@@ -7723,34 +7754,6 @@ body[data-view="home"] .main > .view > * {
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
-}
-
-.partial-graphic-bar-value em {
-  max-width: 100%;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: #f1f5f9;
-  color: #64748b;
-  font-size: 8.5px;
-  font-style: normal;
-  font-weight: 680;
-  line-height: 1;
-  overflow-wrap: anywhere;
-}
-
-.partial-graphic-bar.ok .partial-graphic-bar-value em {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.partial-graphic-bar.warn .partial-graphic-bar-value em {
-  background: #fef3c7;
-  color: #d97706;
-}
-
-.partial-graphic-bar.bad .partial-graphic-bar-value em {
-  background: #fee2e2;
-  color: #b91c1c;
 }
 
 .partial-graphic-bar-label {
@@ -7787,7 +7790,6 @@ body[data-view="home"] .main > .view > * {
   min-width: 0;
   height: 100%;
   border: 0;
-  border-radius: 0;
   background: transparent;
   overflow: visible;
 }
@@ -7798,20 +7800,25 @@ body[data-view="home"] .main > .view > * {
   width: clamp(24px, 38%, 44px);
   height: var(--bar-size);
   min-height: 2px;
-  border-radius: 8px 8px 0 0;
-  background: linear-gradient(180deg, #dc2626, #b91c1c);
+  border-radius: 0;
+  background: #b91c1c;
 }
 
 .partial-graphic-bar.ok .partial-graphic-track i {
-  background: linear-gradient(180deg, #22c55e, #15803d);
+  background: #15803d;
 }
 
 .partial-graphic-bar.warn .partial-graphic-track i {
-  background: linear-gradient(180deg, #f59e0b, #d97706);
+  background: #d97706;
 }
 
 .partial-graphic-bar.bad .partial-graphic-track i {
-  background: linear-gradient(180deg, #dc2626, #b91c1c);
+  background: #b91c1c;
+}
+
+.partial-graphic-mobile-label,
+.partial-graphic-mobile-value {
+  display: none;
 }
 
 .target-line {
@@ -7995,12 +8002,6 @@ body[data-view="home"] .main > .view > * {
     font-weight: 700;
   }
 
-  .partial-graphic-bar-value em {
-    display: inline-block;
-    padding: 2px 4px;
-    font-size: 7px;
-  }
-
   .partial-graphic-track {
     width: 100%;
     height: 100%;
@@ -8048,5 +8049,160 @@ body[data-view="home"] .main > .view > * {
 
   .partial-info-card em {
     justify-self: start;
+  }
+}
+
+@media (max-width: 1024px) {
+  .partial-chart-scale {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .partial-chart-scale span:nth-child(even) {
+    text-align: right;
+  }
+
+  .partial-chart-area {
+    display: grid;
+    grid-template-rows: none;
+    gap: 10px;
+    min-height: 0;
+    overflow: visible;
+    padding: 4px 0;
+  }
+
+  .partial-chart-values,
+  .partial-chart-labels {
+    display: none;
+  }
+
+  .partial-chart-plot {
+    height: auto;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow: visible;
+  }
+
+  .partial-chart-columns {
+    display: grid;
+    gap: 11px;
+    height: auto;
+  }
+
+  .partial-chart-plot > .target-line {
+    display: none;
+  }
+
+  .partial-graphic-bar {
+    display: grid;
+    grid-template-columns: minmax(82px, 1fr) minmax(120px, 2fr) minmax(48px, auto);
+    gap: 10px;
+    align-items: center;
+    justify-content: stretch;
+    min-width: 0;
+    min-height: 42px;
+    height: auto;
+  }
+
+  .partial-graphic-mobile-label {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .partial-graphic-mobile-label strong {
+    color: #111827;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.12;
+    overflow-wrap: anywhere;
+  }
+
+  .partial-graphic-mobile-label small {
+    color: #64748b;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+  }
+
+  .partial-graphic-mobile-value {
+    display: block;
+    min-width: 0;
+    text-align: right;
+  }
+
+  .partial-graphic-mobile-value span {
+    color: #111827;
+    font-size: 12px;
+    font-weight: 760;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .partial-graphic-track {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 12px;
+    min-width: 0;
+    border-radius: 0;
+    background: #eef2f7;
+    overflow: hidden;
+  }
+
+  .partial-graphic-track::before,
+  .partial-graphic-track::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 2;
+    width: 0;
+    border-left: 1px dashed rgba(217, 119, 6, .52);
+    pointer-events: none;
+  }
+
+  .partial-graphic-track::before {
+    left: var(--target-80);
+  }
+
+  .partial-graphic-track::after {
+    left: var(--target-100);
+    border-left-color: rgba(153, 27, 27, .6);
+  }
+
+  .partial-graphic-track i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--bar-size);
+    height: 100%;
+    min-height: 0;
+    border-radius: 0;
+  }
+
+  .partial-chart-legend {
+    gap: 6px 10px;
+    font-size: 9.5px;
+  }
+}
+
+@media (max-width: 520px) {
+  .partial-graphic-bar {
+    grid-template-columns: minmax(78px, 1fr) minmax(86px, 1.5fr) minmax(44px, auto);
+    gap: 8px;
+  }
+
+  .partial-graphic-mobile-label strong {
+    font-size: 10px;
+  }
+
+  .partial-graphic-mobile-label small {
+    font-size: 8px;
+  }
+
+  .partial-graphic-mobile-value span {
+    font-size: 11px;
   }
 }

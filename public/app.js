@@ -3668,24 +3668,22 @@ function partialGraphicRows(records) {
   );
 }
 
-function partialGraphicStatusLabel(percent) {
-  if (!Number.isFinite(Number(percent))) return "Sem cálculo";
-  if (percent >= 1) return "Meta atingida";
-  if (percent >= 0.8) return "Atenção";
-  return "Crítico";
-}
-
 function partialGraphicShortLabel(name = "") {
   const label = String(name || "Indicador").trim() || "Indicador";
   const alias = metricAliasKey(label);
   const labels = {
-    acessorios: "Acess.",
+    acessorios: "Acessórios",
     peliculas: "Películas",
-    aparelhos_qtd: "Aparelhos",
-    aparelhos_receita: "Ap. Receita",
+    "aparelhos qtde": "Aparelhos",
+    "aparelhos qtd": "Aparelhos",
+    "aparelhos receita": "Aparelhos Receita",
     gross_volume: "Gross Vol.",
+    "gross volume": "Gross Vol.",
     fidel: "Fidel Ap.",
+    "fidel aparelho": "Fidel Ap.",
     banda: "BL",
+    "banda larga": "BL",
+    seguro: "Seguro",
     seguros: "Seguro",
   };
   if (labels[alias]) return labels[alias];
@@ -3706,11 +3704,10 @@ function partialGraphicBarData(row, mode = "current", maxPercent = 1.2) {
   const percent = valid ? Number(value) : null;
   const size = valid ? Math.min(100, Math.max(3, (percent / maxPercent) * 100)) : 0;
   const label = valid ? pct.format(percent) : "-";
-  const statusLabel = partialGraphicStatusLabel(percent);
   const block = metricGroupDisplay(row.block);
   const shortLabel = partialGraphicShortLabel(row.metricName);
-  const title = `${row.metricName} | ${statusLabel} | ${label} | ${block}`;
-  return { cls: achievementClass(percent), label, statusLabel, block, shortLabel, title, metricName: row.metricName, size };
+  const title = `${row.metricName} | ${label} | ${block}`;
+  return { cls: achievementClass(percent), label, block, shortLabel, title, metricName: row.metricName, size };
 }
 
 function partialGraphicInformativeCard(row) {
@@ -3744,13 +3741,22 @@ function partialGraphicChartMarkup({ title, subtitle, rows, mode, emptyMessage }
   const bars = rows.map((row) => partialGraphicBarData(row, mode, scale));
   return `<article class="partial-chart-card">
     <div class="partial-chart-head"><div><h4>${escapeHtml(title)}</h4><p>${escapeHtml(subtitle)}</p></div><small>Escala até ${pct.format(scale)}</small></div>
+    <div class="partial-chart-legend" aria-label="Legenda das faixas do gráfico">
+      <span><i class="bad"></i>Abaixo de 80%</span>
+      <span><i class="warn"></i>80% a 99,9%</span>
+      <span><i class="ok"></i>100% ou mais</span>
+    </div>
     <div class="partial-chart-scale"><span>0%</span><span>Atenção 80%</span><span>Meta 100%</span><span>${pct.format(scale)}</span></div>
     ${bars.length ? `<div class="partial-chart-area">
-      <div class="partial-chart-values">${bars.map((bar) => `<div class="partial-graphic-bar-value ${bar.cls}" title="${escapeHtml(bar.title)}"><span>${bar.label}</span><em>${escapeHtml(bar.statusLabel)}</em></div>`).join("")}</div>
+      <div class="partial-chart-values">${bars.map((bar) => `<div class="partial-graphic-bar-value ${bar.cls}" title="${escapeHtml(bar.title)}"><span>${bar.label}</span></div>`).join("")}</div>
       <div class="partial-chart-plot" style="--target-80:${target80}%;--target-100:${target100}%">
         <b class="target-line target-80" title="Atenção 80%"><small>Atenção 80%</small></b>
         <b class="target-line target-100" title="Meta 100%"><small>Meta 100%</small></b>
-        <div class="partial-chart-columns">${bars.map((bar) => `<article class="partial-graphic-bar ${bar.cls}" title="${escapeHtml(bar.title)}"><div class="partial-graphic-track" aria-label="${escapeHtml(bar.title)}" style="--bar-size:${bar.size}%"><i></i></div></article>`).join("")}</div>
+        <div class="partial-chart-columns">${bars.map((bar) => `<article class="partial-graphic-bar ${bar.cls}" title="${escapeHtml(bar.title)}">
+          <div class="partial-graphic-mobile-label"><strong title="${escapeHtml(bar.metricName)}">${escapeHtml(bar.shortLabel)}</strong><small>${escapeHtml(bar.block)}</small></div>
+          <div class="partial-graphic-track" aria-label="${escapeHtml(bar.title)}" style="--bar-size:${bar.size}%"><i></i></div>
+          <div class="partial-graphic-mobile-value"><span>${bar.label}</span></div>
+        </article>`).join("")}</div>
       </div>
       <div class="partial-chart-labels">${bars.map((bar) => `<div class="partial-graphic-bar-label"><strong title="${escapeHtml(bar.metricName)}">${escapeHtml(bar.shortLabel)}</strong><small>${escapeHtml(bar.block)}</small></div>`).join("")}</div>
     </div>` : `<p class="partial-chart-empty">${escapeHtml(emptyMessage)}</p>`}
