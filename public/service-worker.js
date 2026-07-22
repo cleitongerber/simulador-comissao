@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260721-p0-congelar-fechamento";
+const CACHE_NAME = "comissao-pwa-v20260721-evolucao3-comparativo";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260721-evolucao2-extrato",
-  "/app.js?v=20260721-evolucao2-extrato",
+  "/styles.css?v=20260721-evolucao3-comparativo",
+  "/app.js?v=20260721-evolucao3-comparativo",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

@@ -7350,3 +7350,158 @@ body[data-view="home"] .main > .view > * {
     width: 100%;
   }
 }
+
+/* Partial comparison */
+.dashboard-comparison-panel,
+.comparison-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.comparison-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.comparison-filter-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.comparison-filter-grid select {
+  width: 100%;
+}
+
+.comparison-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.comparison-kpi {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #f0e1e4;
+  border-radius: 12px;
+  background: #fffafa;
+}
+
+.comparison-kpi.ok {
+  border-color: #c9ead7;
+  background: #f6fffa;
+}
+
+.comparison-kpi.bad {
+  border-color: #f2c8cd;
+  background: #fff6f7;
+}
+
+.comparison-kpi span,
+.comparison-kpi small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.comparison-kpi strong {
+  color: var(--ink);
+  font-size: clamp(18px, 1.4vw, 24px);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.comparison-insights {
+  display: grid;
+  gap: 8px;
+}
+
+.comparison-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.comparison-subsection {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.comparison-table-wrap {
+  overflow-x: hidden;
+}
+
+.comparison-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  font-size: 11px;
+}
+
+.comparison-table th,
+.comparison-table td {
+  padding: 8px 7px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+
+#dashboardView .comparison-table-wrap .comparison-table th:nth-child(6),
+#dashboardView .comparison-table-wrap .comparison-table td:nth-child(6),
+#dashboardView .comparison-table-wrap .comparison-table th:nth-child(7),
+#dashboardView .comparison-table-wrap .comparison-table td:nth-child(7) {
+  display: table-cell;
+}
+
+.comparison-table small.warning {
+  display: block;
+  margin-top: 3px;
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.comparison-table strong.ok,
+.comparison-kpi.ok strong {
+  color: #08783f;
+}
+
+.comparison-table strong.bad,
+.comparison-kpi.bad strong {
+  color: var(--red);
+}
+
+.comparison-table strong.neutral,
+.comparison-kpi.neutral strong {
+  color: var(--ink);
+}
+
+@media (max-width: 1024px) {
+  .comparison-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .comparison-filter-grid,
+  .comparison-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-table th:nth-child(6),
+  .comparison-table td:nth-child(6),
+  .comparison-table th:nth-child(7),
+  .comparison-table td:nth-child(7),
+  .comparison-table th:nth-child(8),
+  .comparison-table td:nth-child(8) {
+    display: flex;
+  }
+}

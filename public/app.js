@@ -168,6 +168,9 @@ let activeDashboardIndicator = "Todos";
 let activeDashboardStatus = "Todos";
 let activeDashboardDeflator = "Todos";
 let activeDashboardPartialId = "latest";
+let activeDashboardCompareBaseId = "";
+let activeDashboardCompareTargetId = "";
+let activeDashboardCompareBlock = "Todos";
 let activeDashboardSellerDetailId = "";
 let activeDashboardBranchDetail = "";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
@@ -175,6 +178,9 @@ let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 let activeManagerSellerId = "";
 let activeManagerIndicator = "Todos";
 let activeManagerPartialId = "latest";
+let activeManagerCompareBaseId = "";
+let activeManagerCompareTargetId = "";
+let activeManagerCompareBlock = "Todos";
 let activeCollaboratorPartialId = "latest";
 let activeCollaboratorSimulationDaysDone = sessionStorage.getItem("commission-collaborator-simulation-days-done") || "";
 let activeCollaboratorTab = "resumo";
@@ -487,6 +493,10 @@ function setActiveCampaign(campaignId) {
   activeDashboardPartialId = "latest";
   activeManagerPartialId = "latest";
   activeCollaboratorPartialId = "latest";
+  activeDashboardCompareBaseId = "";
+  activeDashboardCompareTargetId = "";
+  activeManagerCompareBaseId = "";
+  activeManagerCompareTargetId = "";
   activeDashboardSellerDetailId = "";
   activeDashboardBranchDetail = "";
   showBranchPartialDetails = false;
@@ -3673,6 +3683,407 @@ function metricGroupHeaderRows(rows, colSpan, rowMarkup) {
   return orderedGroups.map((group) => `<tr class="metric-group-row"><td colspan="${colSpan}">${escapeHtml(metricGroupDisplay(group))}</td></tr>${grouped.get(group).map(rowMarkup).join("")}`).join("");
 }
 
+function publishedPartialsForComparison(campaign = activeCampaign()) {
+  return [...publishedPartialsForCampaign(campaign)].sort((a, b) => {
+    const numberA = Number(a.number);
+    const numberB = Number(b.number);
+    if (Number.isFinite(numberA) && Number.isFinite(numberB) && numberA !== numberB) return numberA - numberB;
+    return String(a.baseDate || a.publishedAt || a.importedAt).localeCompare(String(b.baseDate || b.publishedAt || b.importedAt));
+  });
+}
+
+function comparisonDefaultSelection(campaign = activeCampaign()) {
+  const published = publishedPartialsForComparison(campaign);
+  const compare = published[published.length - 1] || null;
+  const base = published[published.length - 2] || published[0] || null;
+  return { published, baseId: base?.id || "", compareId: compare?.id || "" };
+}
+
+function normalizeComparisonSelection(scope = "dashboard", campaign = activeCampaign()) {
+  const defaults = comparisonDefaultSelection(campaign);
+  const ids = new Set(defaults.published.map((partial) => partial.id));
+  let baseId = scope === "filial" ? activeManagerCompareBaseId : activeDashboardCompareBaseId;
+  let compareId = scope === "filial" ? activeManagerCompareTargetId : activeDashboardCompareTargetId;
+  const hadBase = ids.has(baseId);
+  const hadCompare = ids.has(compareId);
+  if (!hadBase) baseId = defaults.baseId;
+  if (!hadCompare) compareId = defaults.compareId;
+  if (baseId && compareId && baseId === compareId && defaults.published.length > 1 && (!hadBase || !hadCompare)) {
+    baseId = defaults.published[Math.max(0, defaults.published.length - 2)]?.id || baseId;
+    compareId = defaults.published[defaults.published.length - 1]?.id || compareId;
+  }
+  if (scope === "filial") {
+    activeManagerCompareBaseId = baseId;
+    activeManagerCompareTargetId = compareId;
+  } else {
+    activeDashboardCompareBaseId = baseId;
+    activeDashboardCompareTargetId = compareId;
+  }
+  return {
+    published: defaults.published,
+    basePartial: defaults.published.find((partial) => partial.id === baseId) || null,
+    comparePartial: defaults.published.find((partial) => partial.id === compareId) || null,
+    baseId,
+    compareId,
+  };
+}
+
+function comparisonPartialOptionsMarkup(selectedId, campaign = activeCampaign()) {
+  const published = publishedPartialsForComparison(campaign);
+  return published.map((partial) => `<option value="${escapeHtml(partial.id)}" ${partial.id === selectedId ? "selected" : ""}>${escapeHtml(partialOptionLabel(partial))}</option>`).join("");
+}
+
+function comparisonBlockOptionsMarkup(selected = "Todos") {
+  return ["Todos", ...PRIMARY_METRIC_GROUPS, "Informativo", "Sem bloco"].map((group) => `<option value="${escapeHtml(group)}" ${group === selected ? "selected" : ""}>${escapeHtml(group === "Todos" ? "Todos" : metricGroupDisplay(group))}</option>`).join("");
+}
+
+function signedNumber(value, formatter = num1) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "-";
+  const number = Number(value);
+  return `${number > 0 ? "+" : ""}${formatter.format(number)}`;
+}
+
+function formatSignedMetricAmount(metric, value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "-";
+  const number = Number(value);
+  const formatted = metricIsMoney(metric) ? money.format(Math.abs(number)) : num0.format(Math.round(Math.abs(number)));
+  if (number > 0) return `+${formatted}`;
+  if (number < 0) return `-${formatted}`;
+  return metricIsMoney(metric) ? money.format(0) : num0.format(0);
+}
+
+function formatPercentPoints(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "-";
+  return `${signedNumber(Number(value) * 100, num1)} p.p.`;
+}
+
+function comparisonTone(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "neutral";
+  if (Number(value) > 0.01) return "ok";
+  if (Number(value) < -0.01) return "bad";
+  return "neutral";
+}
+
+function comparisonStatusClass(label) {
+  if (["Melhorou", "Recuperado", "Atingiu meta", "Novo indicador"].includes(label)) return "ok";
+  if (["Piorou", "Novo critico", "Permanece critico", "Ausente"].includes(label)) return "bad";
+  return "neutral";
+}
+
+function recordIndicatorKey(record) {
+  const metricId = record.metric?.id || record.item?.metricId || metricAliasKey(record.metric?.name || record.item?.metricName || "");
+  return `${record.groupMeta || metricGroup(record.metric)}|${metricId}`;
+}
+
+function indicatorComparisonInputs(records) {
+  return [...groupItems(records, recordIndicatorKey).entries()].map(([key, items]) => {
+    const sample = items[0];
+    const totals = partialRecordTotals(items);
+    return {
+      key,
+      items,
+      sample,
+      metric: sample.metric,
+      metricName: sample.metric?.name || sample.item.metricName || key,
+      block: sample.groupMeta || metricGroup(sample.metric),
+      participates: items.some((record) => record.participates),
+      totals,
+    };
+  });
+}
+
+function compareIndicatorRows(baseRecords, compareRecords) {
+  const baseMap = new Map(indicatorComparisonInputs(baseRecords).map((row) => [row.key, row]));
+  const compareMap = new Map(indicatorComparisonInputs(compareRecords).map((row) => [row.key, row]));
+  const keys = new Set([...baseMap.keys(), ...compareMap.keys()]);
+  return [...keys].map((key) => {
+    const base = baseMap.get(key) || null;
+    const compared = compareMap.get(key) || null;
+    const sample = compared?.sample || base?.sample || {};
+    const metric = compared?.metric || base?.metric || sample.metric || null;
+    const participates = Boolean(compared?.participates || base?.participates);
+    const baseTotals = base?.totals || null;
+    const compareTotals = compared?.totals || null;
+    const basePercent = baseTotals ? effectiveAttainmentPercent(baseTotals) : null;
+    const comparePercent = compareTotals ? effectiveAttainmentPercent(compareTotals) : null;
+    const percentVariation = basePercent !== null && comparePercent !== null ? comparePercent - basePercent : null;
+    const realizedVariation = (compareTotals?.realized ?? null) !== null && (baseTotals?.realized ?? null) !== null ? compareTotals.realized - baseTotals.realized : null;
+    const projectedVariation = (compareTotals?.projected ?? null) !== null && (baseTotals?.projected ?? null) !== null ? compareTotals.projected - baseTotals.projected : null;
+    const baseCritical = basePercent !== null && basePercent < 0.8;
+    const compareCritical = comparePercent !== null && comparePercent < 0.8;
+    let status = "Estavel";
+    if (!base && compared) status = "Novo indicador";
+    else if (base && !compared) status = "Ausente";
+    else if (!participates) status = "Informativo";
+    else if (baseCritical && !compareCritical) status = "Recuperado";
+    else if (!baseCritical && compareCritical) status = "Novo critico";
+    else if (baseCritical && compareCritical) status = "Permanece critico";
+    else if (basePercent !== null && comparePercent !== null && basePercent < 1 && comparePercent >= 1) status = "Atingiu meta";
+    else if (percentVariation !== null && percentVariation > 0.01) status = "Melhorou";
+    else if (percentVariation !== null && percentVariation < -0.01) status = "Piorou";
+    else if (realizedVariation !== null && realizedVariation > 0 && !participates) status = "Informativo";
+    const metaChanged = Boolean(baseTotals?.goal && compareTotals?.goal && Math.abs(baseTotals.goal - compareTotals.goal) > 0.0001);
+    return {
+      key,
+      block: compared?.block || base?.block || "Sem bloco",
+      metric,
+      metricName: compared?.metricName || base?.metricName || sample.item?.metricName || key,
+      participates,
+      baseTotals,
+      compareTotals,
+      baseRealized: baseTotals?.realized ?? null,
+      compareRealized: compareTotals?.realized ?? null,
+      realizedVariation,
+      baseProjected: baseTotals?.projected ?? null,
+      compareProjected: compareTotals?.projected ?? null,
+      projectedVariation,
+      basePercent,
+      comparePercent,
+      percentVariation,
+      metaChanged,
+      status,
+      statusClass: comparisonStatusClass(status),
+    };
+  }).sort((a, b) =>
+    PRIMARY_METRIC_GROUPS.indexOf(a.block) - PRIMARY_METRIC_GROUPS.indexOf(b.block)
+    || comparisonStatusClass(b.status).localeCompare(comparisonStatusClass(a.status))
+    || Math.abs(Number(b.percentVariation ?? b.realizedVariation ?? 0)) - Math.abs(Number(a.percentVariation ?? a.realizedVariation ?? 0))
+    || a.metricName.localeCompare(b.metricName)
+  );
+}
+
+function compareGroupedRows(baseRecords, compareRecords, keyFn, labelFn) {
+  const baseGroups = groupItems(baseRecords, keyFn);
+  const compareGroups = groupItems(compareRecords, keyFn);
+  const keys = new Set([...baseGroups.keys(), ...compareGroups.keys()]);
+  return [...keys].map((key) => {
+    const baseItems = baseGroups.get(key) || [];
+    const compareItems = compareGroups.get(key) || [];
+    const baseStats = goalCompletionStats(baseItems);
+    const compareStats = goalCompletionStats(compareItems);
+    const baseTotals = partialRecordTotals(baseItems);
+    const compareTotals = partialRecordTotals(compareItems);
+    const variation = baseStats.metPercent !== null && compareStats.metPercent !== null ? compareStats.metPercent - baseStats.metPercent : null;
+    const indicators = compareIndicatorRows(baseItems, compareItems);
+    const improvedCount = indicators.filter((row) => ["Melhorou", "Recuperado", "Atingiu meta"].includes(row.status)).length;
+    const worsenedCount = indicators.filter((row) => ["Piorou", "Novo critico"].includes(row.status)).length;
+    const recoveredCount = indicators.filter((row) => row.status === "Recuperado").length;
+    const newCriticalCount = indicators.filter((row) => row.status === "Novo critico").length;
+    let status = "Estavel";
+    if (!baseItems.length && compareItems.length) status = "Novo indicador";
+    else if (baseItems.length && !compareItems.length) status = "Ausente";
+    else if (variation !== null && variation > 0.01) status = "Melhorou";
+    else if (variation !== null && variation < -0.01) status = "Piorou";
+    return {
+      key,
+      label: labelFn ? labelFn(key, compareItems, baseItems) : key,
+      baseStats,
+      compareStats,
+      baseTotals,
+      compareTotals,
+      variation,
+      improvedCount,
+      worsenedCount,
+      recoveredCount,
+      newCriticalCount,
+      criticalCount: compareStats.criticalCount,
+      indicators,
+      status,
+      statusClass: comparisonStatusClass(status),
+    };
+  }).sort((a, b) => Number(b.variation ?? -999) - Number(a.variation ?? -999) || String(a.label).localeCompare(String(b.label)));
+}
+
+function comparisonInsights(comparison) {
+  const insights = [];
+  const improved = comparison.byIndicator.filter((row) => ["Melhorou", "Recuperado", "Atingiu meta"].includes(row.status) && row.percentVariation !== null).sort((a, b) => b.percentVariation - a.percentVariation)[0];
+  const worsened = comparison.byIndicator.filter((row) => ["Piorou", "Novo critico"].includes(row.status) && row.percentVariation !== null).sort((a, b) => a.percentVariation - b.percentVariation)[0];
+  const informative = comparison.byIndicator.filter((row) => !row.participates && row.realizedVariation !== null).sort((a, b) => Math.abs(b.realizedVariation) - Math.abs(a.realizedVariation))[0];
+  const branch = comparison.byBranch.filter((row) => row.variation !== null).sort((a, b) => b.variation - a.variation)[0];
+  if (improved) insights.push(`${improved.metricName} evoluiu ${formatPercentPoints(improved.percentVariation)}.`);
+  if (worsened) insights.push(`${worsened.metricName} piorou ${formatPercentPoints(worsened.percentVariation)}.`);
+  if (informative) insights.push(`${informative.metricName} variou ${formatSignedMetricAmount(informative.metric, informative.realizedVariation)} no realizado.`);
+  if (branch) insights.push(`${branch.label} teve variacao de ${formatPercentPoints(branch.variation)} em metas atingidas.`);
+  return insights.slice(0, 4);
+}
+
+function comparePartials(basePartial, comparePartial, options = {}) {
+  const campaign = options.campaign || activeCampaign();
+  const sellers = options.sellers || state.sellers;
+  const metricName = options.metricName || "Todos";
+  const block = options.block || "Todos";
+  const filterRecords = (records) => records.filter((record) => {
+    const branchOk = !options.branch || normalizedKey(record.seller.branch || record.item.branch) === normalizedKey(options.branch);
+    const sellerOk = !options.sellerId || record.seller.id === options.sellerId;
+    const blockOk = block === "Todos" || (record.groupMeta || metricGroup(record.metric)) === block;
+    return branchOk && sellerOk && blockOk;
+  });
+  const baseRecords = filterRecords(officialPartialRecords(basePartial, sellers, { metricName }));
+  const compareRecords = filterRecords(officialPartialRecords(comparePartial, sellers, { metricName }));
+  const baseGoal = goalCompletionStats(baseRecords);
+  const compareGoal = goalCompletionStats(compareRecords);
+  const byIndicator = compareIndicatorRows(baseRecords, compareRecords);
+  const byBranch = compareGroupedRows(baseRecords, compareRecords, (record) => record.seller.branch || record.item.branch, (key) => key);
+  const bySeller = compareGroupedRows(baseRecords, compareRecords, (record) => record.seller.id, (key, compareItems, baseItems) => (compareItems[0] || baseItems[0])?.seller?.name || key);
+  const byBlock = compareGroupedRows(baseRecords, compareRecords, (record) => record.groupMeta || metricGroup(record.metric), (key) => metricGroupDisplay(key));
+  const summary = {
+    basePartialName: basePartial?.name || "",
+    comparePartialName: comparePartial?.name || "",
+    baseDate: basePartial?.baseDate || "",
+    compareDate: comparePartial?.baseDate || "",
+    baseDays: getPeriodForPartial(basePartial, campaign),
+    compareDays: getPeriodForPartial(comparePartial, campaign),
+    totalSellers: partialRecordTotals(compareRecords).sellerIds.size,
+    totalBranches: partialRecordTotals(compareRecords).branches.size,
+    baseMetPercent: baseGoal.metPercent,
+    compareMetPercent: compareGoal.metPercent,
+    metPercentVariation: baseGoal.metPercent !== null && compareGoal.metPercent !== null ? compareGoal.metPercent - baseGoal.metPercent : null,
+    metricsImproved: byIndicator.filter((row) => ["Melhorou", "Recuperado", "Atingiu meta"].includes(row.status)).length,
+    metricsWorsened: byIndicator.filter((row) => ["Piorou", "Novo critico"].includes(row.status)).length,
+    recoveredMetrics: byIndicator.filter((row) => row.status === "Recuperado").length,
+    newCriticalMetrics: byIndicator.filter((row) => row.status === "Novo critico").length,
+    stableMetrics: byIndicator.filter((row) => row.status === "Estavel").length,
+    permanentCriticalMetrics: byIndicator.filter((row) => row.status === "Permanece critico").length,
+  };
+  const comparison = { campaign, basePartial, comparePartial, baseRecords, compareRecords, summary, byBranch, bySeller, byBlock, byIndicator, insights: [] };
+  comparison.insights = comparisonInsights(comparison);
+  return comparison;
+}
+
+function comparisonEmptyState(title, message) {
+  return `<div class="dashboard-card-head"><div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p></div></div><div class="empty-state">${escapeHtml(message)}</div>`;
+}
+
+function comparisonControlsMarkup(scope, selection, blockValue) {
+  const prefix = scope === "filial" ? "branch" : "dashboard";
+  const campaign = activeCampaign();
+  return `<div class="comparison-filter-grid">
+    <label>Parcial base<select id="${prefix}CompareBasePartial">${comparisonPartialOptionsMarkup(selection.baseId, campaign)}</select></label>
+    <label>Parcial comparada<select id="${prefix}CompareTargetPartial">${comparisonPartialOptionsMarkup(selection.compareId, campaign)}</select></label>
+    <label>Bloco<select id="${prefix}CompareBlockFilter">${comparisonBlockOptionsMarkup(blockValue)}</select></label>
+  </div>`;
+}
+
+function comparisonMetaLine(comparison) {
+  return `<div class="partial-meta-line comparison-meta-line">
+    <strong>${escapeHtml(comparison.summary.basePartialName)} -> ${escapeHtml(comparison.summary.comparePartialName)}</strong>
+    <span>Base ${escapeHtml(comparison.summary.baseDate || "-")} (${comparison.summary.baseDays.daysDone || "-"} de ${comparison.summary.baseDays.daysTotal || "-"} dias) | Comparada ${escapeHtml(comparison.summary.compareDate || "-")} (${comparison.summary.compareDays.daysDone || "-"} de ${comparison.summary.compareDays.daysTotal || "-"} dias)</span>
+  </div>`;
+}
+
+function comparisonSummaryCardsMarkup(comparison, context = "dashboard") {
+  const bestBlock = comparison.byBlock.filter((row) => row.variation !== null).sort((a, b) => b.variation - a.variation)[0];
+  const bestBranch = comparison.byBranch.filter((row) => row.variation !== null).sort((a, b) => b.variation - a.variation)[0];
+  const bestSeller = comparison.bySeller.filter((row) => row.variation !== null).sort((a, b) => b.variation - a.variation)[0];
+  const entityCard = context === "filial"
+    ? ["Vendedores evoluiram", String(comparison.bySeller.filter((row) => Number(row.variation) > 0.01).length), bestSeller ? `${bestSeller.label} ${formatPercentPoints(bestSeller.variation)}` : "Sem variacao"]
+    : ["Filial destaque", bestBranch?.label || "-", bestBranch ? formatPercentPoints(bestBranch.variation) : "Sem variacao"];
+  const cards = [
+    ["Evolucao metas", formatPercentPoints(comparison.summary.metPercentVariation), `${formatPercent(comparison.summary.baseMetPercent)} -> ${formatPercent(comparison.summary.compareMetPercent)}`, comparison.summary.metPercentVariation],
+    ["Melhoraram", String(comparison.summary.metricsImproved), "indicadores com evolucao", null],
+    ["Pioraram", String(comparison.summary.metricsWorsened), "indicadores com queda", null],
+    ["Recuperados", String(comparison.summary.recoveredMetrics), "sairam de abaixo de 80%", null],
+    ["Novos criticos", String(comparison.summary.newCriticalMetrics), "entraram abaixo de 80%", null],
+    ["Bloco destaque", bestBlock?.label || "-", bestBlock ? formatPercentPoints(bestBlock.variation) : "Sem variacao", bestBlock?.variation ?? null],
+    [...entityCard, context === "filial" ? bestSeller?.variation ?? null : bestBranch?.variation ?? null],
+  ];
+  return `<div class="comparison-kpi-grid">${cards.map(([label, value, detail, tone]) => `<article class="comparison-kpi ${comparisonTone(tone)}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong><small>${escapeHtml(String(detail))}</small></article>`).join("")}</div>`;
+}
+
+function comparisonInsightsMarkup(comparison) {
+  return `<div class="comparison-insights">${comparison.insights.map((item) => `<div class="attention-row neutral"><strong>${escapeHtml(item)}</strong></div>`).join("") || `<p class="muted-note">Sem destaques automaticos para as parciais selecionadas.</p>`}</div>`;
+}
+
+function comparisonEntityTableMarkup(rows, options = {}) {
+  const title = options.title || "Comparativo";
+  const firstColumn = options.firstColumn || "Item";
+  const empty = options.empty || "Nenhum resultado encontrado para os filtros selecionados.";
+  return `<section class="comparison-subsection"><div class="dashboard-card-head"><div><h4>${escapeHtml(title)}</h4><p>${escapeHtml(options.subtitle || "")}</p></div></div>
+    <div class="table-wrap dashboard-table-wrap branch-table-wrap comparison-table-wrap">
+      <table class="comparison-table">
+        <thead><tr><th>${escapeHtml(firstColumn)}</th><th>% base</th><th>% comparada</th><th>Variacao</th><th>Melhoraram</th><th>Pioraram</th><th>Novos criticos</th><th>Recuperados</th><th>Status</th></tr></thead>
+        <tbody>${rows.map((row) => `<tr>
+          <td data-label="${escapeHtml(firstColumn)}">${escapeHtml(row.label)}</td>
+          <td data-label="% base">${achievementPill(row.baseStats.metPercent)}</td>
+          <td data-label="% comparada">${achievementPill(row.compareStats.metPercent)}</td>
+          <td data-label="Variacao"><strong class="${comparisonTone(row.variation)}">${formatPercentPoints(row.variation)}</strong></td>
+          <td data-label="Melhoraram">${row.improvedCount}</td>
+          <td data-label="Pioraram">${row.worsenedCount}</td>
+          <td data-label="Novos criticos">${row.newCriticalCount}</td>
+          <td data-label="Recuperados">${row.recoveredCount}</td>
+          <td data-label="Status"><span class="status ${row.statusClass}">${escapeHtml(row.status)}</span></td>
+        </tr>`).join("") || `<tr><td colspan="9">${escapeHtml(empty)}</td></tr>`}</tbody>
+      </table>
+    </div>
+  </section>`;
+}
+
+function comparisonIndicatorTableMarkup(rows, options = {}) {
+  const empty = options.empty || "Nenhum indicador encontrado para os filtros selecionados.";
+  return `<section class="comparison-subsection"><div class="dashboard-card-head"><div><h4>${escapeHtml(options.title || "Comparativo por indicador")}</h4><p>${escapeHtml(options.subtitle || "")}</p></div></div>
+    <div class="table-wrap dashboard-table-wrap branch-table-wrap comparison-table-wrap">
+      <table class="comparison-table indicator-comparison-table">
+        <thead><tr><th>Bloco</th><th>Indicador</th><th>Realizado base</th><th>Realizado comp.</th><th>Var. realizado</th><th>Proj. base</th><th>Proj. comp.</th><th>Var. proj.</th><th>% base</th><th>% comp.</th><th>Var. p.p.</th><th>Status</th></tr></thead>
+        <tbody>${rows.map((row) => `<tr>
+          <td data-label="Bloco">${escapeHtml(metricGroupDisplay(row.block))}</td>
+          <td data-label="Indicador"><strong>${escapeHtml(row.metricName)}</strong>${row.metaChanged ? `<small class="warning">Meta alterada entre parciais</small>` : ""}</td>
+          <td data-label="Realizado base">${row.baseRealized === null ? "-" : formatMetricAmount(row.metric, row.baseRealized)}</td>
+          <td data-label="Realizado comp.">${row.compareRealized === null ? "-" : formatMetricAmount(row.metric, row.compareRealized)}</td>
+          <td data-label="Var. realizado"><strong class="${comparisonTone(row.realizedVariation)}">${formatSignedMetricAmount(row.metric, row.realizedVariation)}</strong></td>
+          <td data-label="Proj. base">${row.baseProjected === null ? "-" : formatMetricAmount(row.metric, row.baseProjected)}</td>
+          <td data-label="Proj. comp.">${row.compareProjected === null ? "-" : formatMetricAmount(row.metric, row.compareProjected)}</td>
+          <td data-label="Var. proj."><strong class="${comparisonTone(row.projectedVariation)}">${formatSignedMetricAmount(row.metric, row.projectedVariation)}</strong></td>
+          <td data-label="% base">${row.participates ? achievementPill(row.basePercent) : "-"}</td>
+          <td data-label="% comp.">${row.participates ? achievementPill(row.comparePercent) : "-"}</td>
+          <td data-label="Var. p.p."><strong class="${comparisonTone(row.percentVariation)}">${row.participates ? formatPercentPoints(row.percentVariation) : "-"}</strong></td>
+          <td data-label="Status"><span class="status ${row.statusClass}">${escapeHtml(row.status)}</span></td>
+        </tr>`).join("") || `<tr><td colspan="12">${escapeHtml(empty)}</td></tr>`}</tbody>
+      </table>
+    </div>
+  </section>`;
+}
+
+function renderDashboardComparisonPanel() {
+  const container = document.getElementById("dashboardComparisonPanel");
+  if (!container) return;
+  const campaign = activeCampaign();
+  const selection = normalizeComparisonSelection("dashboard", campaign);
+  if (!selection.published.length) {
+    container.innerHTML = comparisonEmptyState("Comparativo entre Parciais", "Nenhuma parcial publicada para comparacao.");
+    return;
+  }
+  if (selection.published.length < 2) {
+    container.innerHTML = comparisonEmptyState("Comparativo entre Parciais", "E necessario ter pelo menos duas parciais publicadas para comparar evolucao.");
+    return;
+  }
+  const controls = comparisonControlsMarkup("dashboard", selection, activeDashboardCompareBlock);
+  if (!selection.basePartial || !selection.comparePartial) {
+    container.innerHTML = `<div class="dashboard-card-head"><div><h3>Comparativo entre Parciais</h3><p>Selecione duas parciais para comparar.</p></div></div>${controls}<div class="empty-state">Selecione duas parciais para comparar.</div>`;
+    return;
+  }
+  if (selection.basePartial.id === selection.comparePartial.id) {
+    container.innerHTML = `<div class="dashboard-card-head"><div><h3>Comparativo entre Parciais</h3><p>As parciais devem ser diferentes.</p></div></div>${controls}<div class="empty-state">Selecione parciais diferentes para comparar.</div>`;
+    return;
+  }
+  const comparison = comparePartials(selection.basePartial, selection.comparePartial, {
+    campaign,
+    sellers: dashboardBaseSellers(),
+    metricName: activeDashboardIndicator,
+    block: activeDashboardCompareBlock,
+  });
+  container.innerHTML = `<div class="dashboard-card-head">
+    <div><h3>Comparativo entre Parciais</h3><p>Evolucao oficial entre parciais publicadas da campanha.</p></div>
+  </div>
+  ${controls}
+  ${comparisonMetaLine(comparison)}
+  ${comparisonSummaryCardsMarkup(comparison, "dashboard")}
+  ${comparisonInsightsMarkup(comparison)}
+  <div class="comparison-grid">
+    ${comparisonEntityTableMarkup(comparison.byBranch, { title: "Comparativo por Filial", firstColumn: "Filial", subtitle: "Ranking de evolucao por % de metas atingidas." })}
+    ${comparisonIndicatorTableMarkup(comparison.byIndicator, { title: "Comparativo por Indicador", subtitle: "Indicadores participantes e informativos consolidados." })}
+  </div>`;
+}
+
 function renderDashboardPartialPanel() {
   const container = document.getElementById("dashboardPartialPanel");
   const hero = document.getElementById("dashboardHero");
@@ -3868,6 +4279,7 @@ function renderDashboard() {
   const baseSellers = dashboardBaseSellers();
   renderDashboardFilterControls(baseSellers);
   renderDashboardPartialPanel();
+  renderDashboardComparisonPanel();
   const sellers = dashboardSellers();
   const empty = document.getElementById("dashboardEmptyState");
   const hasData = sellers.length > 0;
@@ -6013,9 +6425,45 @@ function branchPartialOpportunities(branch, sellers) {
   return `<section class="branch-card-panel"><div class="branch-card-head"><div><h3>Oportunidades da filial</h3><p>Prioridade sugerida pela parcial oficial.</p></div></div><p class="recommended-action">${escapeHtml(partialOpportunityText(records, "filial"))}</p></section>`;
 }
 
+function branchComparisonPanel(branch, sellers) {
+  const campaign = activeCampaign();
+  const selection = normalizeComparisonSelection("filial", campaign);
+  if (!selection.published.length) {
+    return `<section class="branch-card-panel wide comparison-panel">${comparisonEmptyState("Comparativo entre Parciais", "Nenhuma parcial publicada para comparacao.")}</section>`;
+  }
+  if (selection.published.length < 2) {
+    return `<section class="branch-card-panel wide comparison-panel">${comparisonEmptyState("Comparativo entre Parciais", "E necessario ter pelo menos duas parciais publicadas para comparar evolucao.")}</section>`;
+  }
+  const controls = comparisonControlsMarkup("filial", selection, activeManagerCompareBlock);
+  if (!selection.basePartial || !selection.comparePartial) {
+    return `<section class="branch-card-panel wide comparison-panel"><div class="branch-card-head"><div><h3>Comparativo entre Parciais</h3><p>Selecione duas parciais para comparar.</p></div></div>${controls}<div class="empty-state">Selecione duas parciais para comparar.</div></section>`;
+  }
+  if (selection.basePartial.id === selection.comparePartial.id) {
+    return `<section class="branch-card-panel wide comparison-panel"><div class="branch-card-head"><div><h3>Comparativo entre Parciais</h3><p>As parciais devem ser diferentes.</p></div></div>${controls}<div class="empty-state">Selecione parciais diferentes para comparar.</div></section>`;
+  }
+  const comparison = comparePartials(selection.basePartial, selection.comparePartial, {
+    campaign,
+    sellers,
+    branch,
+    metricName: activeManagerIndicator,
+    block: activeManagerCompareBlock,
+  });
+  return `<section class="branch-card-panel wide comparison-panel">
+    <div class="branch-card-head"><div><h3>Comparativo entre Parciais</h3><p>Evolucao da equipe por parciais oficiais publicadas.</p></div></div>
+    ${controls}
+    ${comparisonMetaLine(comparison)}
+    ${comparisonSummaryCardsMarkup(comparison, "filial")}
+    ${comparisonInsightsMarkup(comparison)}
+    <div class="comparison-grid">
+      ${comparisonEntityTableMarkup(comparison.bySeller, { title: "Comparativo por Vendedor", firstColumn: "Vendedor", subtitle: "Evolucao individual da equipe por % de metas atingidas." })}
+      ${comparisonIndicatorTableMarkup(comparison.byIndicator, { title: "Comparativo por Indicador da Filial", subtitle: "Consolidado da filial, incluindo indicadores informativos." })}
+    </div>
+  </section>`;
+}
+
 function branchDashboardMarkup(branch, sellers) {
   if (!sellers.length) return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
-  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}${branchPartialDetails(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div></div>`;
+  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchComparisonPanel(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}${branchPartialDetails(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div></div>`;
 }
 function renderManager() {
   const loginPanel = document.getElementById("managerLoginPanel");
@@ -7387,6 +7835,9 @@ document.addEventListener("click", async (event) => {
     activeDashboardStatus = "Todos";
     activeDashboardDeflator = "Todos";
     activeDashboardPartialId = "latest";
+    activeDashboardCompareBaseId = "";
+    activeDashboardCompareTargetId = "";
+    activeDashboardCompareBlock = "Todos";
     activeDashboardSellerDetailId = "";
     activeDashboardBranchDetail = "";
     document.querySelectorAll(".area-filter").forEach((button) => button.classList.toggle("active", button.dataset.area === "Todas"));
@@ -8180,6 +8631,24 @@ document.addEventListener("change", (event) => {
     return;
   }
 
+  if (event.target.id === "dashboardCompareBasePartial") {
+    activeDashboardCompareBaseId = event.target.value || "";
+    renderDashboard();
+    return;
+  }
+
+  if (event.target.id === "dashboardCompareTargetPartial") {
+    activeDashboardCompareTargetId = event.target.value || "";
+    renderDashboard();
+    return;
+  }
+
+  if (event.target.id === "dashboardCompareBlockFilter") {
+    activeDashboardCompareBlock = event.target.value || "Todos";
+    renderDashboard();
+    return;
+  }
+
   if (event.target.id === "goalSheetFile") {
     if (!requireAdminAction("importGoals", "Importacao e Backup")) {
       event.target.value = "";
@@ -8375,6 +8844,21 @@ document.addEventListener("change", (event) => {
       message: `Filial ${activeBranchSession || ""} selecionou ${partial?.name || "a ultima parcial publicada"}.`,
     }, { persist: true });
     renderManager();
+  }
+  if (event.target.id === "branchCompareBasePartial") {
+    activeManagerCompareBaseId = event.target.value || "";
+    renderManager();
+    return;
+  }
+  if (event.target.id === "branchCompareTargetPartial") {
+    activeManagerCompareTargetId = event.target.value || "";
+    renderManager();
+    return;
+  }
+  if (event.target.id === "branchCompareBlockFilter") {
+    activeManagerCompareBlock = event.target.value || "Todos";
+    renderManager();
+    return;
   }
   if (event.target.id === "managerIndicatorFilter") {
     activeManagerIndicator = event.target.value || "Todos";
