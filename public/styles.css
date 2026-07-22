@@ -7718,9 +7718,7 @@ body[data-view="home"] .main > .view > * {
   height: 164px;
   border-bottom: 1px solid #e5e7eb;
   border-radius: 10px 10px 0 0;
-  background:
-    repeating-linear-gradient(to top, transparent 0 40px, #eef2f7 41px),
-    linear-gradient(to top, #ffffff, #ffffff);
+  background: #fff;
   overflow: hidden;
 }
 
@@ -7738,6 +7736,8 @@ body[data-view="home"] .main > .view > * {
   justify-content: center;
   min-width: 0;
   height: 100%;
+  background: transparent;
+  color: inherit;
 }
 
 .partial-graphic-bar-value {
@@ -7746,6 +7746,8 @@ body[data-view="home"] .main > .view > * {
   justify-items: center;
   flex: 1 1 0;
   min-width: 0;
+  background: transparent;
+  color: inherit;
   text-align: center;
 }
 
@@ -7794,6 +7796,16 @@ body[data-view="home"] .main > .view > * {
   overflow: visible;
 }
 
+.partial-chart-card .partial-graphic-bar.ok,
+.partial-chart-card .partial-graphic-bar.warn,
+.partial-chart-card .partial-graphic-bar.bad,
+.partial-chart-card .partial-graphic-bar-value.ok,
+.partial-chart-card .partial-graphic-bar-value.warn,
+.partial-chart-card .partial-graphic-bar-value.bad {
+  background: transparent;
+  color: inherit;
+}
+
 .partial-graphic-track i {
   position: relative;
   z-index: 1;
@@ -7825,14 +7837,14 @@ body[data-view="home"] .main > .view > * {
   position: absolute;
   left: 0;
   right: 0;
-  z-index: 2;
-  border-top: 1px dashed rgba(153, 27, 27, .62);
+  z-index: 6;
+  border-top: 2px dashed rgba(153, 27, 27, .78);
   pointer-events: none;
 }
 
 .target-line.target-80 {
   bottom: var(--target-80);
-  border-top-color: rgba(217, 119, 6, .5);
+  border-top-color: rgba(217, 119, 6, .72);
 }
 
 .target-line.target-100 {
@@ -7843,7 +7855,7 @@ body[data-view="home"] .main > .view > * {
   position: absolute;
   right: 0;
   bottom: 2px;
-  z-index: 3;
+  z-index: 7;
   padding-left: 4px;
   background: rgba(255, 255, 255, .88);
   font-size: 8px;

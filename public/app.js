@@ -3748,15 +3748,15 @@ function partialGraphicChartMarkup({ title, subtitle, rows, mode, emptyMessage }
     </div>
     <div class="partial-chart-scale"><span>0%</span><span>Atenção 80%</span><span>Meta 100%</span><span>${pct.format(scale)}</span></div>
     ${bars.length ? `<div class="partial-chart-area">
-      <div class="partial-chart-values">${bars.map((bar) => `<div class="partial-graphic-bar-value ${bar.cls}" title="${escapeHtml(bar.title)}"><span>${bar.label}</span></div>`).join("")}</div>
+      <div class="partial-chart-values">${bars.map((bar) => `<div class="partial-graphic-bar-value" title="${escapeHtml(bar.title)}"><span>${bar.label}</span></div>`).join("")}</div>
       <div class="partial-chart-plot" style="--target-80:${target80}%;--target-100:${target100}%">
-        <b class="target-line target-80" title="Atenção 80%"><small>Atenção 80%</small></b>
-        <b class="target-line target-100" title="Meta 100%"><small>Meta 100%</small></b>
         <div class="partial-chart-columns">${bars.map((bar) => `<article class="partial-graphic-bar ${bar.cls}" title="${escapeHtml(bar.title)}">
           <div class="partial-graphic-mobile-label"><strong title="${escapeHtml(bar.metricName)}">${escapeHtml(bar.shortLabel)}</strong><small>${escapeHtml(bar.block)}</small></div>
           <div class="partial-graphic-track" aria-label="${escapeHtml(bar.title)}" style="--bar-size:${bar.size}%"><i></i></div>
           <div class="partial-graphic-mobile-value"><span>${bar.label}</span></div>
         </article>`).join("")}</div>
+        <b class="target-line target-80" title="Atenção 80%"><small>Atenção 80%</small></b>
+        <b class="target-line target-100" title="Meta 100%"><small>Meta 100%</small></b>
       </div>
       <div class="partial-chart-labels">${bars.map((bar) => `<div class="partial-graphic-bar-label"><strong title="${escapeHtml(bar.metricName)}">${escapeHtml(bar.shortLabel)}</strong><small>${escapeHtml(bar.block)}</small></div>`).join("")}</div>
     </div>` : `<p class="partial-chart-empty">${escapeHtml(emptyMessage)}</p>`}
