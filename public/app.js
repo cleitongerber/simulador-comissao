@@ -1877,6 +1877,11 @@ function campaignFileName(campaign, snapshot) {
   return `Comissao_360_Comissionamento_${safe || "campanha"}.csv`;
 }
 
+function csvDateTime(value) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? dateTime.format(date) : "-";
+}
+
 function generateOfficialCommissionCsv(snapshot) {
   const lines = [];
   lines.push(["Resumo da campanha"]);
@@ -1884,7 +1889,7 @@ function generateOfficialCommissionCsv(snapshot) {
   lines.push(["Nome da campanha", snapshot.campaignName]);
   lines.push(["Mes/ano", snapshot.reference]);
   lines.push(["Periodo base", `${snapshot.daysDone || snapshot.basePartialDaysDone || "-"} de ${snapshot.daysTotal || snapshot.basePartialDaysTotal || "-"} dias`]);
-  lines.push(["Data/hora fechamento", dateTime.format(new Date(snapshot.closedAt))]);
+  lines.push(["Data/hora fechamento", csvDateTime(snapshot.closedAt)]);
   lines.push(["Total vendedores", snapshot.totalSellers]);
   lines.push(["Total filiais", snapshot.totalBranches]);
   lines.push(["Comissao bruta total", csvMoney(snapshot.commissionGrossTotal)]);
@@ -2267,13 +2272,14 @@ function officialCloseActiveCampaign() {
     alert("Esta campanha ja esta fechada oficialmente.");
     return;
   }
-  if (campaign.status !== CAMPAIGN_STATUS.ADMIN_CLOSING) {
-    alert("Para fechar oficialmente, primeiro coloque a campanha em fechamento administrativo.");
-    return;
-  }
   const closing = closingForCampaign(campaign);
   if (!closing || closingIsOfficial(closing)) {
-    alert("Carregue a base de fechamento antes de fechar oficialmente.");
+    alert("Nao e possivel fechar: nenhuma base de fechamento foi carregada.");
+    return;
+  }
+  const closingStatus = normalizeClosingStatus(closing.status);
+  if (![CLOSING_STATUS.REVIEW, CLOSING_STATUS.READY].includes(closingStatus)) {
+    alert("Nao e possivel fechar: carregue ou revise a base de fechamento antes de concluir.");
     return;
   }
   const partial = closingBasePartial(closing, campaign);
@@ -2713,8 +2719,13 @@ function downloadFile(filename, mime, content) {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    link.remove();
+  }, 0);
 }
 
 function exportDashboardExcel() {
@@ -4896,7 +4907,7 @@ function downloadCampaignPreviewFile(campaign = activeCampaign()) {
     return;
   }
   const closing = closingForCampaign(campaign);
-  if (closing && !closingIsOfficial(closing)) {
+  if (closing) {
     const snapshot = closingSnapshotForDisplay(campaign, closing);
     if (!snapshot) {
       alert("Carregue a base de fechamento antes de baixar a previa.");
@@ -5157,11 +5168,13 @@ function renderAdminClosingPanel() {
   const alreadyClosed = isCampaignOfficialClosed(campaign) || closingIsOfficial(closing);
   const extractsPublished = closingExtractsPublished(closing);
   const status = closing?.status || CLOSING_STATUS.NOT_STARTED;
+  const closingStatus = normalizeClosingStatus(status);
   const metricCount = ["Cabo", "Nao Cabo"].reduce((total, area) => total + metricsFor(area).length, 0);
   const startDisabled = alreadyClosed || !latestPartial || !canAdminEdit;
   const canOperationalClose = !alreadyClosed && campaignStatusLabel(campaign) === CAMPAIGN_STATUS.OPEN && canAdminEdit;
   const canReopenOperational = canReopenOperationalCampaign(campaign) && canAdminEdit;
-  const closeDisabled = alreadyClosed || campaign.status !== CAMPAIGN_STATUS.ADMIN_CLOSING || !closing || !snapshot || !validation.ok || !canAdminEdit;
+  const closingReadyToFinish = [CLOSING_STATUS.REVIEW, CLOSING_STATUS.READY].includes(closingStatus);
+  const closeDisabled = alreadyClosed || !closingReadyToFinish || !closing || !snapshot || !validation.ok || !canAdminEdit;
   const publishDisabled = !alreadyClosed || extractsPublished || !snapshot || !isAdminUnlocked();
   const stateMessage = alreadyClosed
     ? extractsPublished
@@ -5209,7 +5222,7 @@ function renderAdminClosingPanel() {
       </article>
       <article class="closing-step-card">
         <span>2</span><strong>Importar arquivo final</strong><small>Preparado para evolucao futura com o mesmo CSV.</small>
-        <button id="importFinalClosingFile" class="ghost-button" type="button" disabled>Importar arquivo final</button>
+        <button id="importFinalClosingFile" class="ghost-button" type="button" disabled title="Por enquanto, use a ultima parcial publicada como base do fechamento.">Importar fechamento - em breve</button>
       </article>
       <article class="closing-step-card ${snapshot ? "done" : ""}">
         <span>3</span><strong>Conferir e validar</strong><small>Revise vendedores, indicadores, deflatores e estornos.</small>
