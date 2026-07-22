@@ -3641,6 +3641,97 @@ function groupedPartialRows(records, keyFn) {
   });
 }
 
+function partialGraphicKey(record) {
+  const metricId = record.metric?.id || record.item?.metricId || metricAliasKey(record.metric?.name || record.item?.metricName || "");
+  return `${record.groupMeta || metricGroup(record.metric)}|${metricId}`;
+}
+
+function partialGraphicRows(records) {
+  return groupedPartialRows(records, partialGraphicKey).map((row) => {
+    const sample = records.find((record) => partialGraphicKey(record) === row.key) || {};
+    const metric = sample.metric || { id: sample.item?.metricId || row.key, name: sample.item?.metricName || row.key, unit: "" };
+    const participates = row.participatingCount > 0;
+    return {
+      ...row,
+      metric,
+      metricName: metric.name || sample.item?.metricName || row.key,
+      block: sample.groupMeta || metricGroup(metric),
+      participates,
+      sample,
+    };
+  }).sort((a, b) =>
+    (PRIMARY_METRIC_GROUPS.includes(a.block) ? PRIMARY_METRIC_GROUPS.indexOf(a.block) : 99) - (PRIMARY_METRIC_GROUPS.includes(b.block) ? PRIMARY_METRIC_GROUPS.indexOf(b.block) : 99)
+    || metricOrderIndex(a.sample?.seller?.area || "Cabo", a.metric?.id || a.metricName) - metricOrderIndex(b.sample?.seller?.area || "Cabo", b.metric?.id || b.metricName)
+    || a.metricName.localeCompare(b.metricName)
+  );
+}
+
+function partialGraphicBar(row, mode = "current") {
+  const value = mode === "projected" ? row.projectedPercent : row.percent;
+  const valid = Number.isFinite(Number(value));
+  const percent = valid ? Number(value) : null;
+  const height = valid ? Math.min(100, Math.max(2, (percent / 1.4) * 100)) : 0;
+  const label = valid ? pct.format(percent) : "-";
+  return `<div class="partial-graphic-bar ${achievementClass(percent)}">
+    <div class="partial-graphic-bar-head">
+      <span>${label}</span>
+    </div>
+    <div class="partial-graphic-track" aria-label="${escapeHtml(row.metricName)} ${label}">
+      <i style="height:${height}%"></i>
+      <b class="target-line target-80" title="Atenção: 80%"></b>
+      <b class="target-line target-100" title="Meta: 100%"></b>
+    </div>
+    <strong title="${escapeHtml(row.metricName)}">${escapeHtml(row.metricName)}</strong>
+  </div>`;
+}
+
+function partialGraphicInformativeCard(row) {
+  return `<article class="partial-info-card">
+    <span>${escapeHtml(metricGroupDisplay(row.block))}</span>
+    <strong>${escapeHtml(row.metricName)}</strong>
+    <small>Realizado: ${formatMetricAmount(row.metric, row.realized)}</small>
+    <small>Projeção: ${row.projected === null ? "-" : formatMetricAmount(row.metric, row.projected)}</small>
+    <em class="status neutral">Informativo</em>
+  </article>`;
+}
+
+function partialGraphicMarkup({ title, subtitle, partial, period, records, emptyMessage = "Nenhuma parcial publicada para gerar a visao grafica." }) {
+  if (!partial) {
+    return `<section class="partial-graphic-card"><div class="dashboard-card-head"><div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(emptyMessage)}</p></div></div></section>`;
+  }
+  const rows = partialGraphicRows(records || []);
+  const participantRows = rows.filter((row) => row.participates);
+  const informativeRows = rows.filter((row) => !row.participates);
+  return `<section class="partial-graphic-card">
+    <div class="dashboard-card-head">
+      <div>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(subtitle || "Baseado na parcial oficial selecionada.")}</p>
+      </div>
+      ${partialVisibilityBadge(partial)}
+    </div>
+    <div class="partial-meta-line">
+      <strong>${escapeHtml(partial.name || "Parcial oficial")}</strong>
+      <span>Base ${escapeHtml(partial.baseDate || "-")} | ${period?.daysDone || "-"} de ${period?.daysTotal || "-"} dias</span>
+    </div>
+    <div class="partial-graphic-legend"><span><i class="legend-target target-100"></i>Meta: 100%</span><span><i class="legend-target target-80"></i>Atenção: 80%</span><span>Indicadores participantes da parcial</span></div>
+    <div class="partial-graphic-grid">
+      <article class="partial-chart-card">
+        <div class="partial-chart-head"><h4>Atingimento atual por indicador</h4><small>Eixo Y em percentual da meta</small></div>
+        <div class="partial-chart-area">${participantRows.map((row) => partialGraphicBar(row, "current")).join("") || `<p class="muted-note">Nenhum indicador participante com meta valida.</p>`}</div>
+      </article>
+      <article class="partial-chart-card">
+        <div class="partial-chart-head"><h4>Projeção de fechamento por indicador</h4><small>Calculada com os dias da parcial</small></div>
+        <div class="partial-chart-area">${participantRows.map((row) => partialGraphicBar(row, "projected")).join("") || `<p class="muted-note">Nenhum indicador participante com projeção valida.</p>`}</div>
+      </article>
+    </div>
+    <div class="partial-info-section">
+      <div class="partial-chart-head"><h4>Indicadores informativos</h4><small>Realizado e projeção sem compor atingimento.</small></div>
+      <div class="partial-info-grid">${informativeRows.map(partialGraphicInformativeCard).join("") || `<p class="muted-note">Nenhum indicador informativo nesta parcial.</p>`}</div>
+    </div>
+  </section>`;
+}
+
 function partialBlockRows(records) {
   return PRIMARY_METRIC_GROUPS.map((group) => {
     const row = groupedPartialRows(records.filter((record) => record.groupMeta === group), () => group)[0];
@@ -4095,6 +4186,23 @@ function renderDashboardComparisonPanel() {
   </div>`;
 }
 
+function renderDashboardGraphicPanel() {
+  const container = document.getElementById("dashboardGraphicPanel");
+  if (!container) return;
+  const campaign = activeCampaign();
+  const partial = selectedDashboardPartial();
+  const period = partial ? getPeriodForPartial(partial, campaign) : null;
+  const records = partial ? officialPartialRecords(partial, dashboardBaseSellers(), { metricName: activeDashboardIndicator }) : [];
+  container.innerHTML = partialGraphicMarkup({
+    title: "Desempenho gráfico consolidado",
+    subtitle: "Baseado na parcial oficial selecionada. Não usa simulação, fechamento ou extrato oficial.",
+    partial,
+    period,
+    records,
+    emptyMessage: "Nenhuma parcial publicada para gerar a visão gráfica consolidada.",
+  });
+}
+
 function renderDashboardPartialPanel() {
   const container = document.getElementById("dashboardPartialPanel");
   const hero = document.getElementById("dashboardHero");
@@ -4290,7 +4398,7 @@ function renderDashboard() {
   const baseSellers = dashboardBaseSellers();
   renderDashboardFilterControls(baseSellers);
   renderDashboardPartialPanel();
-  renderDashboardComparisonPanel();
+  renderDashboardGraphicPanel();
   const sellers = dashboardSellers();
   const empty = document.getElementById("dashboardEmptyState");
   const hasData = sellers.length > 0;
@@ -6474,9 +6582,26 @@ function branchComparisonPanel(branch, sellers) {
   </section>`;
 }
 
+function branchGraphicPanel(branch, sellers) {
+  const partial = getVisiblePartial("filial");
+  const period = partial ? getPeriodForPartial(partial, activeCampaign()) : null;
+  const records = partial ? branchPartialRecords(partial, branch, sellers, activeManagerSellerId, activeManagerIndicator) : [];
+  const sellerName = activeManagerSellerId ? sellers.find((seller) => seller.id === activeManagerSellerId)?.name : "";
+  return partialGraphicMarkup({
+    title: "Desempenho gráfico da filial",
+    subtitle: sellerName
+      ? `Baseado na parcial oficial selecionada para ${sellerName}.`
+      : "Baseado na parcial oficial selecionada e consolidado da filial.",
+    partial,
+    period,
+    records,
+    emptyMessage: "Nenhuma parcial publicada para gerar a visão gráfica da filial.",
+  });
+}
+
 function branchDashboardMarkup(branch, sellers) {
   if (!sellers.length) return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
-  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchComparisonPanel(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}${branchPartialDetails(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div></div>`;
+  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchGraphicPanel(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}${branchPartialDetails(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div></div>`;
 }
 function renderManager() {
   const loginPanel = document.getElementById("managerLoginPanel");
@@ -6815,6 +6940,19 @@ function collaboratorPartialSelectorMarkup(seller) {
     ${partial && !sellerHasRecords ? `<p class="admin-inline-note warning">Nao ha resultado parcial publicado para este vendedor nesta parcial.</p>` : ""}
     ${partial ? `<div class="partial-meta-line"><strong>Base da parcial</strong><span>${period?.daysDone || "-"} de ${period?.daysTotal || "-"} dias</span></div>` : ""}
   </section>`;
+}
+
+function collaboratorGraphicPanel(seller) {
+  const { partial, records } = collaboratorOfficialPartialData(seller);
+  const period = partial ? getPeriodForPartial(partial, activeCampaign()) : null;
+  return partialGraphicMarkup({
+    title: "Desempenho gráfico da parcial",
+    subtitle: "Baseado na parcial oficial selecionada. A simulação não altera estes gráficos.",
+    partial,
+    period,
+    records,
+    emptyMessage: "Resultado parcial oficial ainda não disponível para gerar a visão gráfica.",
+  });
 }
 
 function sellerMatchesClosingRow(row, seller) {
@@ -7371,7 +7509,7 @@ function renderCollaborator() {
     } else if (activeCollaboratorTab === "extrato") {
       activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialExtractMarkup(seller)}</div>`;
     } else {
-      activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialSummaryMarkup(seller)}${collaboratorMonthMarkup()}</div>`;
+      activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialSummaryMarkup(seller)}${collaboratorGraphicPanel(seller)}${collaboratorMonthMarkup()}</div>`;
     }
   } catch (error) {
     console.error("Erro ao montar painel do vendedor", error);

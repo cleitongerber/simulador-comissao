@@ -7505,3 +7505,238 @@ body[data-view="home"] .main > .view > * {
     display: flex;
   }
 }
+
+.partial-graphic-panel {
+  min-width: 0;
+}
+
+.partial-graphic-card {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #eadcdf;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(32, 19, 22, 0.06);
+}
+
+.partial-graphic-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.partial-chart-card,
+.partial-info-section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #f0e1e4;
+  border-radius: 12px;
+  background: #fffafa;
+}
+
+.partial-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.partial-chart-head h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.partial-chart-head small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.partial-graphic-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.partial-graphic-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-target {
+  width: 18px;
+  height: 0;
+  border-top: 2px dashed #8a1523;
+}
+
+.legend-target.target-80 {
+  border-top-color: #d99a00;
+}
+
+.partial-chart-area {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px 8px;
+}
+
+.partial-graphic-bar {
+  display: grid;
+  grid-template-rows: 22px 180px minmax(34px, auto);
+  gap: 6px;
+  flex: 0 0 72px;
+  min-width: 0;
+  text-align: center;
+}
+
+.partial-graphic-bar-head {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.partial-graphic-bar-head span {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.partial-graphic-bar > strong {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+}
+
+.partial-graphic-track {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 0;
+  height: 180px;
+  border: 1px solid #eadcdf;
+  border-radius: 10px;
+  background:
+    linear-gradient(to top, rgba(138, 21, 35, 0.04), rgba(255, 255, 255, 0)),
+    repeating-linear-gradient(to top, transparent 0 35px, rgba(138, 21, 35, 0.05) 36px);
+  overflow: hidden;
+}
+
+.partial-graphic-track i {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 58%;
+  min-height: 2px;
+  border-radius: 9px 9px 0 0;
+  background: #8a1523;
+  transform: translateX(-50%);
+}
+
+.partial-graphic-bar.ok .partial-graphic-track i {
+  background: #08783f;
+}
+
+.partial-graphic-bar.warn .partial-graphic-track i {
+  background: #d99a00;
+}
+
+.partial-graphic-bar.bad .partial-graphic-track i {
+  background: #b00020;
+}
+
+.target-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  border-top: 2px dashed #8a1523;
+  pointer-events: none;
+}
+
+.target-line.target-80 {
+  bottom: 57.14%;
+  border-top-color: #d99a00;
+}
+
+.target-line.target-100 {
+  bottom: 71.43%;
+}
+
+.partial-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.partial-info-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #eadcdf;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.partial-info-card span,
+.partial-info-card small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.partial-info-card strong {
+  color: var(--ink);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.partial-info-card em {
+  justify-self: start;
+  font-style: normal;
+}
+
+@media (max-width: 1024px) {
+  .partial-graphic-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .partial-graphic-card {
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  .partial-chart-head {
+    display: grid;
+  }
+
+  .partial-graphic-bar {
+    flex-basis: 58px;
+    grid-template-rows: 22px 150px minmax(36px, auto);
+  }
+
+  .partial-graphic-track {
+    height: 150px;
+  }
+}
