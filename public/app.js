@@ -1612,6 +1612,10 @@ function goalCompletionStats(items) {
   };
 }
 
+function groupedMetricGoalApplies(row) {
+  const participates = Boolean(row?.participates) || Number(row?.participatingCount || 0) > 0;
+  return participates && validGoalValue(row?.goal) !== null && effectiveAttainmentPercent(row) !== null;
+}
 function criticalMetricList(items, limit = 3) {
   return items
     .filter(metricGoalApplies)
@@ -1625,6 +1629,49 @@ function criticalMetricNames(items, limit = 3) {
   return rows.map((item) => `${item.metric?.name || item.item?.metricName || item.key}: ${formatPercent(effectiveAttainmentPercent(item))}`).join(", ");
 }
 
+function dashboardMetricRowName(row) {
+  return row?.metricName || row?.metric?.name || row?.item?.metricName || row?.key || "-";
+}
+
+function dashboardMetricAggregationKey(record) {
+  const group = record.groupMeta || metricGroup(record.metric);
+  const metricName = record.metric?.name || record.item?.metricName || record.metric?.id || record.item?.metricId || "";
+  const alias = metricAliasKey(metricName);
+  return `${group}|${alias || metricName}`;
+}
+
+function branchMetricGoalRows(records) {
+  return groupedPartialRows(records, dashboardMetricAggregationKey).map((row) => {
+    const sample = records.find((record) => dashboardMetricAggregationKey(record) === row.key) || {};
+    const metric = sample.metric || { id: sample.item?.metricId || row.key, name: sample.item?.metricName || row.key, unit: sample.item?.unit || "" };
+    return {
+      ...row,
+      groupKey: row.key,
+      key: metric.name || sample.item?.metricName || row.key,
+      metric,
+      metricName: metric.name || sample.item?.metricName || row.key,
+      item: sample.item || { metricName: metric.name || row.key },
+      groupMeta: sample.groupMeta || metricGroup(metric),
+      participates: row.participatingCount > 0,
+    };
+  });
+}
+
+function branchGoalCompletionStats(records) {
+  return goalCompletionStats(branchMetricGoalRows(records));
+}
+
+function branchCriticalMetricRows(records, limit = 3) {
+  return criticalMetricList(branchMetricGoalRows(records), limit);
+}
+
+function dashboardCriticalMetricRows(records, limit = 8) {
+  return groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
+    .filter(groupedMetricGoalApplies)
+    .filter((row) => effectiveAttainmentPercent(row) < 0.8)
+    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b))
+    .slice(0, limit);
+}
 function groupItems(items, keyFn) {
   const map = new Map();
   for (const item of items) {
@@ -4288,13 +4335,11 @@ function renderDashboardPartialPanel() {
   const period = getPeriodForPartial(partial, campaign);
   const periodWarning = partialPeriodWarning(partial, campaign);
   const blockRows = goalCompletionBlocksFromRecords(records);
-  const metricRows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
-    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
-    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b)).slice(0, 8);
+  const metricRows = dashboardCriticalMetricRows(records, 8);
   const branchRows = [...groupItems(records, (record) => record.seller.branch || record.item.branch).entries()].map(([branch, items]) => {
-    const stats = goalCompletionStats(items);
+    const stats = branchGoalCompletionStats(items);
     const branchTotals = partialRecordTotals(items);
-    const critical = criticalMetricList(items, 2);
+    const critical = branchCriticalMetricRows(items, 2);
     return { branch, stats, totals: branchTotals, critical };
   }).sort((a, b) =>
     Number(b.stats.metPercent ?? -1) - Number(a.stats.metPercent ?? -1)
@@ -4360,7 +4405,7 @@ function partialDashboardRowMarkup(row) {
 function branchRankingRowMarkup(row, index) {
   const percent = row.stats.metPercent === null ? null : Number(row.stats.metPercent);
   const width = Number.isFinite(percent) ? Math.min(100, Math.max(2, percent * 100)) : 0;
-  const critical = row.critical.map((item) => `${item.metric?.name || item.item.metricName}: ${formatPercent(effectiveAttainmentPercent(item))}`).join(", ") || "Nenhum";
+  const critical = row.critical.map((item) => `${dashboardMetricRowName(item)}: ${formatPercent(effectiveAttainmentPercent(item))}`).join(", ") || "Nenhum";
   return `<div class="dashboard-branch-ranking-row ${achievementClass(percent)}">
     <strong>${index + 1}</strong>
     <span class="dashboard-branch-ranking-name">${escapeHtml(row.branch)}<small>${row.stats.metCount}/${row.stats.applicableCount} metas | Proj. ${formatPercent(row.totals.projectedPercent)}</small></span>
@@ -4483,9 +4528,7 @@ function renderDashboard() {
   const completion = goalCompletionStats(records);
   const highlightSellers = sellerRows.filter((row) => (row.metPercent ?? -1) >= 1).length;
   const deflatorCounts = { withDeflator: 0, withoutDeflator: sellerRows.length };
-  const offender = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
-    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
-    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b))[0];
+  const offender = dashboardCriticalMetricRows(records, 1)[0];
 
   renderDashboardExecutiveCards(totals, totalCurrentPercent, totalProjectedPercent, riskBranches, highlightSellers, deflatorCounts, offender, completion);
   renderExecutiveSummary(sellers, branchRows, totalCurrentPercent, totalProjectedPercent, riskBranches, completion);
@@ -4593,9 +4636,9 @@ function renderBranchAttainmentBars(records) {
   const container = document.getElementById("branchAttainmentBars");
   if (!container) return;
   const branchRows = [...groupItems(records, (record) => record.seller.branch || record.item.branch).entries()].map(([branch, items]) => {
-    const stats = goalCompletionStats(items);
+    const stats = branchGoalCompletionStats(items);
     const totals = partialRecordTotals(items);
-    const critical = criticalMetricList(items, 3);
+    const critical = branchCriticalMetricRows(items, 3);
     const mainCritical = critical[0];
     return { branch, items, stats, totals, critical, mainCritical, status: stats.status };
   }).sort((a, b) =>
@@ -4605,13 +4648,13 @@ function renderBranchAttainmentBars(records) {
   );
   container.innerHTML = `<div class="dashboard-branch-table">${branchRows.map((row) => {
     const isOpen = activeDashboardBranchDetail === row.branch;
-    const criticalText = row.critical.map((item) => item.metric?.name || item.item.metricName).slice(0, 3).join(", ") || "Nenhum";
+    const criticalText = row.critical.map((item) => dashboardMetricRowName(item)).slice(0, 3).join(", ") || "Nenhum";
     return `<article class="dashboard-branch-row ${row.status.cls}">
       <div><span>Filial</span><strong>${escapeHtml(row.branch)}</strong></div>
       <div><span>% metas</span><strong>${achievementPill(row.stats.metPercent)}</strong><small>${row.stats.metCount}/${row.stats.applicableCount}</small></div>
       <div><span>% projetado</span><strong>${achievementPill(row.totals.projectedPercent)}</strong></div>
       <div><span>Indicadores &lt;80%</span><strong>${row.critical.length}</strong><small>${escapeHtml(criticalText)}</small></div>
-      <div><span>Principal ofensor</span><strong>${escapeHtml(row.mainCritical?.metric?.name || row.mainCritical?.item?.metricName || "-")}</strong></div>
+      <div><span>Principal ofensor</span><strong>${escapeHtml(dashboardMetricRowName(row.mainCritical))}</strong></div>
       <div><span>Status</span><strong><em class="status ${row.status.cls}">${row.status.label}</em></strong></div>
       <button class="ghost-button compact-action" type="button" data-dashboard-branch-detail="${escapeHtml(row.branch)}">${isOpen ? "Ocultar" : "Detalhes"}</button>
       ${isOpen ? `<div class="dashboard-branch-detail">${dashboardBranchDetailMarkup(row.items)}</div>` : ""}
@@ -4694,9 +4737,7 @@ function renderCriticalGoals(sellers) {
   const container = document.getElementById("goalOffenderList");
   if (!container) return;
   const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
-  const rows = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
-    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
-    .sort((a, b) => effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b)).slice(0, 8);
+  const rows = dashboardCriticalMetricRows(records, 8);
   container.innerHTML = rows.map((row) => {
     const status = partialStatusFromProjected(row.projectedPercent, row.percent);
     return `<div class="critical-row">
@@ -4714,8 +4755,7 @@ function renderAttentionPoints(sellers, branchRows, currentPercent, projectedPer
   const container = document.getElementById("attentionPointsList");
   if (!container) return;
   const records = officialPartialRecords(selectedDashboardPartial(), sellers, { metricName: activeDashboardIndicator });
-  const criticalMetrics = groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
-    .filter((row) => effectiveAttainmentPercent(row) !== null && effectiveAttainmentPercent(row) < 0.8)
+  const criticalMetrics = dashboardCriticalMetricRows(records, 50)
     .sort((a, b) => b.branchIds.size - a.branchIds.size || effectiveAttainmentPercent(a) - effectiveAttainmentPercent(b))
     .slice(0, 5);
   const points = [];
