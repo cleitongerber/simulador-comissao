@@ -1665,6 +1665,52 @@ function branchCriticalMetricRows(records, limit = 3) {
   return criticalMetricList(branchMetricGoalRows(records), limit);
 }
 
+function consolidatedMetricGoalRows(records) {
+  return branchMetricGoalRows(records).filter(groupedMetricGoalApplies);
+}
+
+function consolidatedMetricTotals(rows) {
+  const applicable = rows.filter(groupedMetricGoalApplies);
+  const goal = applicable.reduce((sum, row) => sum + Number(row.goal || 0), 0);
+  const realized = applicable.reduce((sum, row) => sum + Number(row.realized || 0), 0);
+  const projectedRows = applicable.filter((row) => row.projected !== null && row.projected !== undefined && Number.isFinite(Number(row.projected)));
+  const projected = projectedRows.length ? projectedRows.reduce((sum, row) => sum + Number(row.projected || 0), 0) : null;
+  const percent = goal ? realized / goal : null;
+  const projectedPercent = goal && projected !== null ? projected / goal : null;
+  const gap = goal ? Math.max(goal - realized, 0) : null;
+  const status = applicable.length
+    ? partialStatusFromProjected(projectedPercent, percent)
+    : { label: "Sem metas", cls: "neutral", action: "Sem dados" };
+  return { goal, realized, projected, percent, projectedPercent, gap, status };
+}
+
+function consolidatedBlockRows(records) {
+  const metricRows = consolidatedMetricGoalRows(records);
+  return PRIMARY_METRIC_GROUPS.map((group) => {
+    const items = metricRows.filter((row) => (row.groupMeta || metricGroup(row.metric)) === group);
+    const totals = consolidatedMetricTotals(items);
+    const stats = goalCompletionStats(items);
+    return {
+      key: group,
+      items,
+      totals,
+      ...stats,
+      status: stats.applicableCount ? stats.status : totals.status,
+    };
+  });
+}
+
+function blockSummaryCardMarkup(row) {
+  const critical = criticalMetricNames(row.items, 3) || "Nenhum";
+  return `<article class="block-summary-card ${row.status.cls}">
+    <span>${escapeHtml(metricGroupDisplay(row.key))}</span>
+    <strong><small>Atual</small>${achievementPill(row.totals.percent)}</strong>
+    <small>Projetado: ${achievementPill(row.totals.projectedPercent)}</small>
+    <small>Projetados na meta: ${row.metCount} de ${row.applicableCount} indicadores</small>
+    <small>Criticos: ${escapeHtml(critical)}</small>
+  </article>`;
+}
+
 function dashboardCriticalMetricRows(records, limit = 8) {
   return groupedPartialRows(records, (record) => record.metric?.name || record.item.metricName)
     .filter(groupedMetricGoalApplies)
@@ -4324,7 +4370,7 @@ function renderDashboardPartialPanel() {
   const partial = selectedDashboardPartial();
   if (!partial) {
     if (hero) hero.innerHTML = `<div><p class="eyebrow">Dashboard executivo</p><h2>Dashboard Executivo</h2><span>Nenhuma parcial publicada para esta campanha.</span></div>`;
-    if (container) container.innerHTML = `<div class="dashboard-card-head"><div><h3>Blocos de metas</h3><p>Publique uma parcial para visualizar a analise por bloco.</p></div></div>`;
+    if (container) container.innerHTML = `<div class="dashboard-card-head"><div><h3>Blocos de metas da rede</h3><p>Publique uma parcial para visualizar a analise por bloco.</p></div></div>`;
     if (criticalPanel) criticalPanel.innerHTML = `<div class="dashboard-card-head"><div><h3>Indicadores abaixo de 80%</h3><p>Nenhuma parcial publicada para esta campanha.</p></div></div>`;
     if (infoPanel) infoPanel.innerHTML = `<div class="dashboard-card-head"><div><h3>Informacoes da parcial</h3><p>Nenhuma parcial publicada.</p></div></div>`;
     return;
@@ -4334,7 +4380,7 @@ function renderDashboardPartialPanel() {
   const campaign = activeCampaign();
   const period = getPeriodForPartial(partial, campaign);
   const periodWarning = partialPeriodWarning(partial, campaign);
-  const blockRows = goalCompletionBlocksFromRecords(records);
+  const blockRows = consolidatedBlockRows(records);
   const metricRows = dashboardCriticalMetricRows(records, 8);
   const branchRows = [...groupItems(records, (record) => record.seller.branch || record.item.branch).entries()].map(([branch, items]) => {
     const stats = branchGoalCompletionStats(items);
@@ -4363,15 +4409,10 @@ function renderDashboardPartialPanel() {
     </div>`;
   }
   if (container) container.innerHTML = `<div class="dashboard-card-head">
-    <div><h3>Blocos de metas</h3><p>Produtos, Servicos Movel e Servicos Residencial.</p></div>
+    <div><h3>Blocos de metas da rede</h3><p>Consolidado da parcial oficial por bloco, sem multiplicar por vendedor.</p></div>
   </div>
   <div class="block-summary-grid dashboard-block-grid">
-    ${blockRows.map((row) => `<article class="block-summary-card ${row.status.cls}">
-      <span>${escapeHtml(metricGroupDisplay(row.key))}</span>
-      <strong>${achievementPill(row.metPercent)}</strong>
-      <small>${row.metCount}/${row.applicableCount} metas | Proj. ${achievementPill(row.totals.projectedPercent)}</small>
-      <small>Gap ${row.totals.gap === null ? "-" : num.format(row.totals.gap)} | Criticos: ${criticalMetricNames(row.items, 3) || "Nenhum"}</small>
-    </article>`).join("")}
+    ${blockRows.map(blockSummaryCardMarkup).join("")}
   </div>`;
   if (criticalPanel) criticalPanel.innerHTML = `<div class="dashboard-card-head">
     <div><h3>Indicadores abaixo de 80%</h3><p>Ordenado do indicador mais critico para o menos critico.</p></div>
@@ -4408,7 +4449,7 @@ function branchRankingRowMarkup(row, index) {
   const critical = row.critical.map((item) => `${dashboardMetricRowName(item)}: ${formatPercent(effectiveAttainmentPercent(item))}`).join(", ") || "Nenhum";
   return `<div class="dashboard-branch-ranking-row ${achievementClass(percent)}">
     <strong>${index + 1}</strong>
-    <span class="dashboard-branch-ranking-name">${escapeHtml(row.branch)}<small>${row.stats.metCount}/${row.stats.applicableCount} metas | Proj. ${formatPercent(row.totals.projectedPercent)}</small></span>
+    <span class="dashboard-branch-ranking-name">${escapeHtml(row.branch)}<small>${row.stats.metCount}/${row.stats.applicableCount} indicadores | Proj. ${formatPercent(row.totals.projectedPercent)}</small></span>
     <span class="dashboard-branch-ranking-track"><i style="width:${width}%"></i></span>
     <em>${formatPercent(row.stats.metPercent)}</em>
     <small class="dashboard-branch-ranking-critical">Críticos: ${escapeHtml(critical)}</small>
@@ -4703,7 +4744,7 @@ function dashboardBranchDetailMarkup(records) {
 function renderBranchCommissionBars(records) {
   const container = document.getElementById("branchCommissionBars");
   if (!container) return;
-  const blockRows = goalCompletionBlocksFromRecords(records).filter((row) => row.applicableCount);
+  const blockRows = consolidatedBlockRows(records).filter((row) => row.applicableCount);
   const priorities = blockRows
     .filter((row) => {
       const percent = effectiveAttainmentPercent(row.totals);
@@ -6577,7 +6618,7 @@ function branchOfficialPartialCard(branch, sellers) {
   const records = branchPartialRecords(partial, branch, sellers, showBranchPartialDetails ? activeManagerSellerId : "");
   const period = getPeriodForPartial(partial, activeCampaign());
   const totals = partialRecordTotals(records);
-  const blockRows = goalCompletionBlocksFromRecords(records);
+  const blockRows = consolidatedBlockRows(records);
   const completion = goalCompletionStats(records);
   const sellerRows = branchPartialSellerRows(records);
   const riskSellers = sellerRows.filter((row) => (row.metPercent !== null && row.metPercent < 0.8) || (row.projectedAverage !== null && row.projectedAverage < 0.8)).length;
@@ -6592,8 +6633,9 @@ function branchOfficialPartialCard(branch, sellers) {
       <article><span>Vendedores em risco</span><strong>${riskSellers}</strong><small>Abaixo de 80% proj.</small></article>
       <article><span>Principal gargalo</span><strong>${escapeHtml(criticalMetric?.key || "-")}</strong><small>${criticalMetric?.projectedPercent !== null && criticalMetric ? pct.format(criticalMetric.projectedPercent) : "Sem dado"}</small></article>
     </div>
+    <div class="block-summary-head"><strong>Blocos de metas da filial</strong><span>Consolidado da equipe na parcial oficial.</span></div>
     <div class="block-summary-grid branch-block-summary">
-      ${blockRows.map((row) => `<article class="block-summary-card ${row.status.cls}"><span>${escapeHtml(metricGroupDisplay(row.key))}</span><strong>${achievementPill(row.metPercent)}</strong><small>${row.metCount}/${row.applicableCount} metas | Proj. ${achievementPill(row.totals.projectedPercent)}</small><small>Criticos: ${criticalMetricNames(row.items, 3) || "Nenhum"}</small></article>`).join("")}
+      ${blockRows.map(blockSummaryCardMarkup).join("")}
     </div>
     <div class="branch-partial-actions"><button class="ghost-button" data-toggle-branch-partial-details type="button">${showBranchPartialDetails ? "Ocultar detalhes" : "Detalhes"}</button></div>
   </section>`;
@@ -6959,7 +7001,8 @@ function collaboratorKpiMarkup(seller) {
     ${blockRows.map((row) => `<article class="block-summary-card ${row.status.cls}">
       <span>${escapeHtml(metricGroupDisplay(row.key))}</span>
       <strong>${achievementPill(row.metPercent)}</strong>
-      <small>${row.metCount}/${row.applicableCount} metas | Proj. ${achievementPill(row.projectedPercent)}</small>
+      <small>Indicadores na meta: ${row.metCount} de ${row.applicableCount}</small>
+      <small>Projetado: ${achievementPill(row.projectedPercent)}</small>
     </article>`).join("")}
   </div>`;
   return `<section class="collab-card collab-main-kpi">
@@ -7251,7 +7294,7 @@ function collaboratorOfficialSummaryMarkup(seller) {
       <span>Dias restantes<strong>${num.format(period.daysRemaining)}</strong></span>
     </div>
     <div class="block-summary-grid collab-block-summary">
-      ${blockGoalRows.map((row) => `<article class="block-summary-card ${row.status.cls}"><span>${escapeHtml(metricGroupDisplay(row.key))}</span><strong>${achievementPill(row.metPercent)}</strong><small>Metas atingidas: ${row.metCount}/${row.applicableCount}</small><small>Projetado do bloco: ${achievementPill(row.totals.projectedPercent)} | Críticos: ${criticalMetricNames(row.items, 3) || "Nenhum"}</small></article>`).join("")}
+      ${blockGoalRows.map((row) => `<article class="block-summary-card ${row.status.cls}"><span>${escapeHtml(metricGroupDisplay(row.key))}</span><strong>${achievementPill(row.metPercent)}</strong><small>Indicadores na meta: ${row.metCount} de ${row.applicableCount}</small><small>Projetado do bloco: ${achievementPill(row.totals.projectedPercent)} | Criticos: ${criticalMetricNames(row.items, 3) || "Nenhum"}</small></article>`).join("")}
     </div>
     <div class="branch-partial-summary analytic">
       <article><span>Comissao estimada</span><strong>${commission ? money.format(commission.projected) : "-"}</strong><small>Com base na parcial</small></article>

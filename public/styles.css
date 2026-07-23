@@ -6308,6 +6308,33 @@ body[data-view="home"] .main > .view > * {
   margin: 7px 0;
 }
 
+.block-summary-card strong small {
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.block-summary-head {
+  margin: 14px 0 0;
+}
+
+.block-summary-head strong,
+.block-summary-head span {
+  display: block;
+}
+
+.block-summary-head strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.block-summary-head span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
 .block-summary-card.ok {
   border-color: rgba(22, 163, 74, 0.24);
 }
