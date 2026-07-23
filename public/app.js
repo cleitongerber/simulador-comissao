@@ -1779,6 +1779,134 @@ function bestBranchByIndicatorVolume(branchRows) {
 function indicatorCountText(count, total) {
   return `${Number(count || 0)} de ${Number(total || 0)}`;
 }
+
+function commercialMetricKeys(record) {
+  const values = [
+    record?.metric?.id,
+    record?.metric?.name,
+    record?.metric?.importKey,
+    record?.item?.metricId,
+    record?.item?.metricName,
+  ].filter(Boolean);
+  const keys = new Set();
+  for (const value of values) {
+    const text = String(value || "");
+    const spaced = text.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ");
+    for (const candidate of [text, spaced]) {
+      const normalized = normalizedKey(candidate).replace(/\s+/g, " ").trim();
+      const compact = normalized.replace(/\s+/g, "");
+      const alias = metricAliasKey(candidate);
+      if (normalized) keys.add(normalized);
+      if (compact) keys.add(compact);
+      if (alias) {
+        keys.add(alias);
+        keys.add(alias.replace(/\s+/g, ""));
+      }
+    }
+  }
+  return keys;
+}
+
+function commercialMetricCategory(record) {
+  const keys = commercialMetricKeys(record);
+  const has = (...values) => values.some((value) => keys.has(value));
+  if (has("aparelhos receita", "aparelhosreceita", "receita aparelhos", "receitaaparelhos", "device revenue", "devicerevenue", "aparelhos_receita")) return "deviceRevenue";
+  if (has("aparelhos qtde", "aparelhosqtde", "aparelhos qtd", "aparelhosqtd", "aparelhos", "volume aparelhos", "volumeaparelhos", "device quantity", "devicequantity", "aparelho volume", "aparelhovolume", "aparelhos volume", "aparelhosvolume")) return "deviceVolume";
+  if (has("gross volume", "grossvolume")) return "grossVolume";
+  if (has("franquia bruta", "franquiabruta", "franquia bruta gross", "franquiabrutagross", "gross revenue", "grossrevenue", "receita gross", "receitagross", "receita de gross", "receitadegross", "gross receita", "grossreceita", "gross franchise revenue", "grossfranchiserevenue", "gross")) return "grossRevenue";
+  return "";
+}
+
+function commercialReadingTotals(records) {
+  const totals = {
+    deviceVolume: { current: 0, projected: 0, hasCurrent: false, hasProjected: false },
+    deviceRevenue: { current: 0, projected: 0, hasCurrent: false, hasProjected: false },
+    grossVolume: { current: 0, projected: 0, hasCurrent: false, hasProjected: false },
+    grossRevenue: { current: 0, projected: 0, hasCurrent: false, hasProjected: false },
+  };
+  for (const record of records || []) {
+    const category = commercialMetricCategory(record);
+    if (!category || !totals[category]) continue;
+    const realized = Number(record.realized);
+    if (Number.isFinite(realized)) {
+      totals[category].current += realized;
+      totals[category].hasCurrent = true;
+    }
+    const projected = Number(record.projectedValue);
+    if (Number.isFinite(projected)) {
+      totals[category].projected += projected;
+      totals[category].hasProjected = true;
+    }
+  }
+  const safeMetricRatio = (numeratorItem, denominatorItem, mode) => {
+    const hasNumerator = Boolean(numeratorItem?.[`has${mode === "current" ? "Current" : "Projected"}`]);
+    const hasDenominator = Boolean(denominatorItem?.[`has${mode === "current" ? "Current" : "Projected"}`]);
+    const numerator = Number(numeratorItem?.[mode]);
+    const denominator = Number(denominatorItem?.[mode]);
+    return hasNumerator && hasDenominator && Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0 ? numerator / denominator : null;
+  };
+  return {
+    ...totals,
+    deviceTicket: {
+      current: safeMetricRatio(totals.deviceRevenue, totals.deviceVolume, "current"),
+      projected: safeMetricRatio(totals.deviceRevenue, totals.deviceVolume, "projected"),
+    },
+    deviceGrossShare: {
+      current: safeMetricRatio(totals.deviceVolume, totals.grossVolume, "current"),
+      projected: safeMetricRatio(totals.deviceVolume, totals.grossVolume, "projected"),
+    },
+    grossAverage: {
+      current: safeMetricRatio(totals.grossRevenue, totals.grossVolume, "current"),
+      projected: safeMetricRatio(totals.grossRevenue, totals.grossVolume, "projected"),
+    },
+  };
+}
+
+function commercialNumberValue(item, mode = "current", formatter = num0) {
+  if (!item?.[`has${mode === "current" ? "Current" : "Projected"}`]) return "-";
+  return formatter.format(item[mode]);
+}
+
+function commercialOptionalValue(value, formatter) {
+  return value === null || value === undefined || !Number.isFinite(Number(value)) ? "-" : formatter.format(Number(value));
+}
+
+function commercialMetricPairMarkup(label, current, projected) {
+  return `<div class="commercial-metric">
+    <span>${escapeHtml(label)}</span>
+    <strong><small>Atual</small>${current}</strong>
+    <strong><small>Proj.</small>${projected}</strong>
+  </div>`;
+}
+
+function commercialReadingMarkup({ title, subtitle, records, emptyMessage }) {
+  if (!records?.length) {
+    return `<div class="dashboard-card-head"><div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(subtitle)}</p></div></div><p class="muted-note">${escapeHtml(emptyMessage || "Nenhuma parcial oficial disponivel para leitura comercial.")}</p>`;
+  }
+  const data = commercialReadingTotals(records);
+  return `<div class="dashboard-card-head">
+    <div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(subtitle)}</p></div>
+  </div>
+  <div class="commercial-reading-grid">
+    <article class="commercial-card">
+      <div class="commercial-card-head"><strong>Aparelhos</strong><span>Volume, receita, ticket medio e participacao no Gross.</span></div>
+      <div class="commercial-metric-grid">
+        ${commercialMetricPairMarkup("Aparelhos vendidos", commercialNumberValue(data.deviceVolume, "current", num0), commercialNumberValue(data.deviceVolume, "projected", num0))}
+        ${commercialMetricPairMarkup("Receita de aparelhos", commercialNumberValue(data.deviceRevenue, "current", money), commercialNumberValue(data.deviceRevenue, "projected", money))}
+        ${commercialMetricPairMarkup("Ticket medio", commercialOptionalValue(data.deviceTicket.current, money), commercialOptionalValue(data.deviceTicket.projected, money))}
+        ${commercialMetricPairMarkup("Participacao sobre Gross Volume", commercialOptionalValue(data.deviceGrossShare.current, pct), commercialOptionalValue(data.deviceGrossShare.projected, pct))}
+      </div>
+    </article>
+    <article class="commercial-card">
+      <div class="commercial-card-head"><strong>Gross</strong><span>Volume, franquia bruta e franquia media.</span></div>
+      <div class="commercial-metric-grid">
+        ${commercialMetricPairMarkup("Gross Volume", commercialNumberValue(data.grossVolume, "current", num0), commercialNumberValue(data.grossVolume, "projected", num0))}
+        ${commercialMetricPairMarkup("Franquia bruta", commercialNumberValue(data.grossRevenue, "current", money), commercialNumberValue(data.grossRevenue, "projected", money))}
+        ${commercialMetricPairMarkup("Franquia media bruta", commercialOptionalValue(data.grossAverage.current, money), commercialOptionalValue(data.grossAverage.projected, money))}
+      </div>
+    </article>
+  </div>`;
+}
 function groupItems(items, keyFn) {
   const map = new Map();
   for (const item of items) {
@@ -4423,6 +4551,20 @@ function renderDashboardGraphicPanel() {
   });
 }
 
+function renderDashboardCommercialPanel() {
+  const container = document.getElementById("dashboardCommercialPanel");
+  if (!container) return;
+  const partial = selectedDashboardPartial();
+  const sellers = dashboardSellers();
+  const records = partial ? officialPartialRecords(partial, sellers, { metricName: "Todos" }) : [];
+  container.innerHTML = commercialReadingMarkup({
+    title: "Leitura comercial da rede",
+    subtitle: "Indicadores complementares de qualidade e composicao da venda.",
+    records,
+    emptyMessage: "Nenhuma parcial oficial publicada para leitura comercial da rede.",
+  });
+}
+
 function renderDashboardPartialPanel() {
   const container = document.getElementById("dashboardPartialPanel");
   const hero = document.getElementById("dashboardHero");
@@ -4623,6 +4765,7 @@ function renderDashboard() {
   renderDashboardPartialPanel();
   renderDashboardGraphicPanel();
   const sellers = dashboardSellers();
+  renderDashboardCommercialPanel();
   const empty = document.getElementById("dashboardEmptyState");
   const hasData = sellers.length > 0;
   if (empty) {
@@ -6829,9 +6972,20 @@ function branchGraphicPanel(branch, sellers) {
   });
 }
 
+function branchCommercialPanel(branch, sellers) {
+  const partial = getVisiblePartial("filial");
+  const records = partial ? branchPartialRecords(partial, branch, sellers, "", "Todos") : [];
+  return `<section class="branch-card-panel wide commercial-reading-panel">${commercialReadingMarkup({
+    title: "Leitura comercial da filial",
+    subtitle: "Indicadores complementares da equipe na parcial oficial.",
+    records,
+    emptyMessage: "Nenhuma parcial oficial publicada para leitura comercial da filial.",
+  })}</section>`;
+}
+
 function branchDashboardMarkup(branch, sellers) {
   if (!sellers.length) return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
-  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div>${branchGraphicPanel(branch, sellers)}${branchPartialDetails(branch, sellers)}</div>`;
+  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div>${branchGraphicPanel(branch, sellers)}${branchCommercialPanel(branch, sellers)}${branchPartialDetails(branch, sellers)}</div>`;
 }
 function renderManager() {
   const loginPanel = document.getElementById("managerLoginPanel");
