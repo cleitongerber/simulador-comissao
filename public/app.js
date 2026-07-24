@@ -3926,8 +3926,7 @@ function groupedPartialRows(records, keyFn) {
 }
 
 function partialGraphicKey(record) {
-  const metricId = record.metric?.id || record.item?.metricId || metricAliasKey(record.metric?.name || record.item?.metricName || "");
-  return `${record.groupMeta || metricGroup(record.metric)}|${metricId}`;
+  return dashboardMetricAggregationKey(record);
 }
 
 function partialGraphicRows(records) {
