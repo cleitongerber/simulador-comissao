@@ -5600,43 +5600,6 @@ body[data-view="home"] .main > .view > * {
   font-size: 19px;
 }
 
-.dashboard-finance-composition {
-  grid-column: 1 / -1;
-  min-height: 66px;
-}
-
-.dashboard-finance-composition > span::before {
-  content: "$";
-}
-
-.dashboard-finance-composition > div {
-  width: 100%;
-}
-
-.finance-mini-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 5px;
-}
-
-.finance-mini-grid strong {
-  display: grid;
-  gap: 2px;
-  margin: 0;
-  padding: 7px 9px;
-  border: 1px solid #f0e1e4;
-  border-radius: 10px;
-  background: #fffafa;
-  font-size: 14px;
-}
-
-.finance-mini-grid b {
-  color: var(--muted);
-  font-size: 9px;
-  text-transform: uppercase;
-}
-
 .executive-summary-card {
   padding: 14px;
 }
@@ -5896,13 +5859,8 @@ body[data-view="home"] .main > .view > * {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .dashboard-finance-composition,
   .branch-kpi.money {
     grid-column: 1 / -1;
-  }
-
-  .finance-mini-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .branch-filter-panel label {
@@ -6611,10 +6569,6 @@ body[data-view="home"] .main > .view > * {
   gap: 12px;
 }
 
-#dashboardView .dashboard-finance-composition {
-  grid-column: span 4;
-}
-
 #dashboardView .dashboard-kpi {
   min-height: 104px;
   align-items: flex-start;
@@ -6622,7 +6576,6 @@ body[data-view="home"] .main > .view > * {
 
 #dashboardView .dashboard-kpi > div,
 #dashboardView .block-summary-card,
-#dashboardView .finance-mini-grid strong,
 #dashboardView .dashboard-branch-ranking-name,
 #dashboardView .dashboard-branch-ranking-critical {
   min-width: 0;
@@ -6634,8 +6587,6 @@ body[data-view="home"] .main > .view > * {
 #dashboardView .block-summary-card span,
 #dashboardView .block-summary-card strong,
 #dashboardView .block-summary-card small,
-#dashboardView .finance-mini-grid b,
-#dashboardView .finance-mini-grid strong,
 #dashboardView .dashboard-branch-ranking-name,
 #dashboardView .dashboard-branch-ranking-name small,
 #dashboardView .dashboard-branch-ranking-critical {
@@ -6646,22 +6597,6 @@ body[data-view="home"] .main > .view > * {
 
 #dashboardView .dashboard-kpi strong {
   font-size: clamp(18px, 1.55vw, 26px);
-  line-height: 1.05;
-}
-
-#dashboardView .finance-mini-grid {
-  grid-template-columns: repeat(4, minmax(96px, 1fr));
-}
-
-#dashboardView .finance-mini-grid b,
-#dashboardView .finance-mini-grid strong {
-  overflow-wrap: normal;
-  word-break: normal;
-  white-space: nowrap;
-}
-
-#dashboardView .finance-mini-grid strong {
-  font-size: clamp(13px, 1.05vw, 15px);
   line-height: 1.05;
 }
 
@@ -6872,10 +6807,6 @@ body[data-view="home"] .main > .view > * {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  #dashboardView .dashboard-finance-composition {
-    grid-column: 1 / -1;
-  }
-
   #dashboardView .dashboard-filter-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -6924,7 +6855,6 @@ body[data-view="home"] .main > .view > * {
   #dashboardView .dashboard-executive-grid,
   #dashboardView .dashboard-block-grid,
   #dashboardView .dashboard-critical-grid,
-  #dashboardView .finance-mini-grid,
   #dashboardView .dashboard-detail-card-grid,
   #dashboardView .dashboard-branch-row {
     grid-template-columns: 1fr;
@@ -7232,26 +7162,6 @@ body[data-view="home"] .main > .view > * {
   overflow-wrap: anywhere;
 }
 
-#dashboardView .dashboard-finance-composition {
-  grid-column: 1 / -1;
-  min-height: 90px;
-}
-
-#dashboardView .dashboard-finance-composition > div {
-  align-content: stretch;
-}
-
-#dashboardView .finance-mini-grid {
-  grid-template-columns: repeat(4, minmax(135px, 1fr));
-  gap: 10px;
-}
-
-#dashboardView .finance-mini-grid strong {
-  min-height: 52px;
-  justify-content: center;
-  white-space: normal;
-}
-
 #dashboardView .dashboard-block-grid,
 #gerenteView .branch-block-summary {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -7413,7 +7323,6 @@ body[data-view="home"] .main > .view > * {
   #dashboardView .dashboard-executive-grid,
   #dashboardView .dashboard-block-grid,
   #dashboardView .dashboard-critical-grid,
-  #dashboardView .finance-mini-grid,
   #gerenteView .branch-filter-grid,
   #gerenteView .branch-partial-summary,
   #gerenteView .branch-block-summary,
@@ -7423,10 +7332,6 @@ body[data-view="home"] .main > .view > * {
 
   #dashboardView .dashboard-kpi {
     min-height: 86px;
-  }
-
-  #dashboardView .dashboard-finance-composition {
-    min-height: 0;
   }
 
   #gerenteView .branch-table-wrap table,
