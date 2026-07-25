@@ -4806,22 +4806,10 @@ function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent,
     ["Melhor filial", bestBranch?.branch || "-", bestBranch ? `Projeta ${indicatorCountText(bestBranch.projectedMetCount, bestBranch.indicatorCount)}` : "Sem filial", "star", bestBranch?.projectedRatio ?? null],
     ["Principal ofensor", offender?.key || "-", offender?.projectedPercent !== null && offender ? `${formatPercent(offender.projectedPercent)} projetado` : "Sem indicador", "target", offender?.projectedPercent ?? null],
   ];
-  const financialComposition = `<article class="dashboard-kpi dashboard-finance-composition">
-    <span aria-hidden="true"></span>
-    <div>
-      <small>Parcial oficial</small>
-      <div class="finance-mini-grid">
-        <strong><b>Realizado</b>${num.format(totals.current)}</strong>
-        <strong><b>Projetado</b>${totals.projected ? num.format(totals.projected) : "-"}</strong>
-        <strong><b>% parcial</b>${formatPercent(currentPercent)}</strong>
-        <strong><b>% projetado</b>${formatPercent(projectedPercent)}</strong>
-      </div>
-    </div>
-  </article>`;
   container.innerHTML = cards.map(([label, value, detail, icon, percent]) => `<article class="dashboard-kpi ${icon}">
     <span aria-hidden="true"></span>
     <div><small>${label}</small><strong>${value}</strong><em class="${achievementClass(percent)}">${detail}</em></div>
-  </article>`).join("") + financialComposition;
+  </article>`).join("");
 }
 
 function renderExecutiveSummary(sellers, branchRows, riskBranches, lowSellers, indicators) {
