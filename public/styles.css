@@ -8425,9 +8425,10 @@ body[data-view="home"] .main > .view > * {
 }
 
 .commission-table-wrap th {
-  color: #64748b;
+  background: #b00018;
+  color: #ffffff;
   font-size: 9px;
-  font-weight: 850;
+  font-weight: 900;
   letter-spacing: .02em;
   text-transform: uppercase;
 }
