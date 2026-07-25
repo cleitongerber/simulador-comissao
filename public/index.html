@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260725-force-password-change-p0" />
+    <link rel="stylesheet" href="./styles.css?v=20260725-security-user-search-p0" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -526,6 +526,10 @@
                     </div>
                     <button id="addSecurityUser" class="primary-button" type="button">Novo usuario</button>
                   </div>
+                  <label class="security-search-field">
+                    Pesquisar usuario
+                    <input id="securityUserSearch" type="search" placeholder="Nome, login, e-mail, perfil, filial ou vendedor" autocomplete="off" />
+                  </label>
                   <div id="securityUsersList" class="security-user-list"></div>
                 </section>
 
@@ -759,6 +763,6 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260725-force-password-change-p0"></script>
+    <script src="./app.js?v=20260725-security-user-search-p0"></script>
   </body>
 </html>

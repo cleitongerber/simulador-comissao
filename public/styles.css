@@ -4058,6 +4058,24 @@ body[data-view="home"] .sidebar .nav-button.active::after {
   gap: 14px;
 }
 
+.security-search-field {
+  display: grid;
+  gap: 6px;
+  max-width: 620px;
+  margin: 0 0 14px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.security-search-field input {
+  min-height: 42px;
+}
+
+.security-search-result {
+  margin: 0;
+}
+
 .security-user-card,
 .security-profile-card {
   display: grid;

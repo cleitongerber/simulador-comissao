@@ -6687,12 +6687,36 @@ function sellerOptionsMarkup(selected) {
   return optionsMarkup([["", "Nenhum"], ...state.sellers.map((seller) => [seller.id, `${seller.name} - ${seller.branch}`])], selected || "");
 }
 
+function securityUserSearchText(user) {
+  const profile = profileById(user.profileId);
+  const seller = user.sellerId ? state.sellers.find((item) => item.id === user.sellerId) : null;
+  const fields = [
+    user.name,
+    user.login,
+    user.email,
+    profile?.name,
+    profile?.role,
+    user.status === "inactive" ? "inativo" : "ativo",
+    user.mustChangePassword ? "senha temporaria troca obrigatoria" : "senha definitiva",
+    branchScopeLabel(user.branchScope),
+    user.branchId,
+    ...(user.allowedBranchIds || []),
+    seller?.name,
+    seller?.branch,
+    seller?.area,
+    commissionScopeLabel(user.commissionScope),
+  ];
+  return normalizedKey(fields.filter(Boolean).join(" "));
+}
+
 function renderSecurityUsers() {
   const container = document.getElementById("securityUsersList");
   if (!container) return;
   state.users = normalizeUsers(state.users, state, state.profiles);
   const branchList = branches();
-  container.innerHTML = state.users.map((user) => {
+  const search = normalizedKey(document.getElementById("securityUserSearch")?.value || "");
+  const users = search ? state.users.filter((user) => securityUserSearchText(user).includes(search)) : state.users;
+  container.innerHTML = users.map((user) => {
     const issues = validateUserConfig(user);
     const allowedChecks = branchList.map((branch) => `<label class="security-mini-check"><input data-security-user-allowed-branch="${escapeHtml(branch)}" data-security-user-id="${escapeHtml(user.id)}" type="checkbox" ${user.allowedBranchIds.includes(branch) ? "checked" : ""}>${escapeHtml(branch)}</label>`).join("");
     const passwordValue = passwordFromVault(user.passwordVault, user.id);
@@ -6727,7 +6751,10 @@ function renderSecurityUsers() {
       <div class="security-branch-checks"><span>Filiais permitidas</span><div>${allowedChecks || "<em>Nenhuma filial cadastrada.</em>"}</div></div>
       ${issues.length ? `<p class="admin-inline-note warning">${issues.map(escapeHtml).join(" ")}</p>` : ""}
     </article>`;
-  }).join("") || `<p class="muted-note">Nenhum usuario cadastrado.</p>`;
+  }).join("") || `<p class="muted-note">${search ? "Nenhum usuario encontrado para a pesquisa." : "Nenhum usuario cadastrado."}</p>`;
+  if (search) {
+    container.insertAdjacentHTML("afterbegin", `<p class="muted-note security-search-result">Mostrando ${users.length} de ${state.users.length} usuarios.</p>`);
+  }
 }
 
 function renderSecurityProfiles() {
@@ -10650,6 +10677,10 @@ document.addEventListener("input", (event) => {
   const target = event.target;
   if (target.id === "auditSearch") {
     renderAuditLogs();
+    return;
+  }
+  if (target.id === "securityUserSearch") {
+    renderSecurityUsers();
     return;
   }
   if (target.id === "collabSimulationDaysDone") {
