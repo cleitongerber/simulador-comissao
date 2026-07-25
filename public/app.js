@@ -173,6 +173,7 @@ let activeDashboardCompareTargetId = "";
 let activeDashboardCompareBlock = "Todos";
 let activeDashboardSellerDetailId = "";
 let activeDashboardBranchDetail = "";
+let activeDashboardInternalTab = "overview";
 let activeCollaboratorId = sessionStorage.getItem(COLLAB_SESSION_KEY) || "";
 let activeBranchSession = sessionStorage.getItem(BRANCH_SESSION_KEY) || "";
 let activeManagerSellerId = "";
@@ -182,6 +183,7 @@ let activeManagerCompareBaseId = "";
 let activeManagerCompareTargetId = "";
 let activeManagerCompareBlock = "Todos";
 let activeManagerGraphicBlock = "Todos";
+let activeManagerInternalTab = "overview";
 let activeCollaboratorPartialId = "latest";
 let activeCollaboratorGraphicBlock = "Todos";
 let activeCollaboratorSimulationDaysDone = sessionStorage.getItem("commission-collaborator-simulation-days-done") || "";
@@ -1907,6 +1909,288 @@ function commercialReadingMarkup({ title, subtitle, records, emptyMessage }) {
     </article>
   </div>`;
 }
+
+function commissionForecastSellerRows(partial, sellers, options = {}) {
+  if (!partial) return [];
+  const period = getPeriodForPartial(partial, activeCampaign());
+  const rows = (sellers || []).map((seller) => {
+    if (options.branch && normalizedKey(seller.branch) !== normalizedKey(options.branch)) return null;
+    const records = officialPartialRecords(partial, [seller], { metricName: "Todos" });
+    if (!records.length) return null;
+    const partialSeller = sellerWithCommissionPartialValues(seller, records);
+    const result = withProjectionPeriod(period, () => sellerResult(partialSeller));
+    const currentGross = finiteNumber(result.currentSubtotal);
+    const projectedGross = finiteNumber(result.projectedSubtotal);
+    const currentDeflator = Math.abs(finiteNumber(result.currentDeflator));
+    const projectedDeflator = Math.abs(finiteNumber(result.projectedDeflator));
+    const currentEstornos = Math.abs(finiteNumber(result.estornos));
+    const projectedEstornos = currentEstornos;
+    const currentLiquid = finiteNumber(result.current, currentGross - currentDeflator - currentEstornos);
+    const projectedLiquid = finiteNumber(result.projected, projectedGross - projectedDeflator - projectedEstornos);
+    const status = seller.emExperiencia
+      ? "Em experiência"
+      : currentEstornos || projectedEstornos
+        ? "Com estorno"
+        : projectedLiquid > 0
+          ? "Com previsão"
+          : "Sem comissão projetada";
+    return {
+      seller,
+      sellerId: seller.id,
+      sellerName: seller.name,
+      branch: seller.branch || "Sem filial",
+      area: seller.area || "-",
+      emExperiencia: seller.emExperiencia === true,
+      currentGross,
+      projectedGross,
+      currentDeflator,
+      projectedDeflator,
+      currentEstornos,
+      projectedEstornos,
+      currentLiquid,
+      projectedLiquid,
+      variation: projectedLiquid - currentLiquid,
+      status,
+    };
+  }).filter(Boolean);
+  const deflatorFilter = options.deflatorFilter || "Todos";
+  return rows.filter((row) => {
+    if (deflatorFilter === "Com deflator") return row.currentDeflator > 0 || row.projectedDeflator > 0;
+    if (deflatorFilter === "Sem deflator") return row.currentDeflator === 0 && row.projectedDeflator === 0;
+    return true;
+  }).sort((a, b) =>
+    Number(b.projectedLiquid || 0) - Number(a.projectedLiquid || 0)
+    || String(a.sellerName || "").localeCompare(String(b.sellerName || ""))
+  );
+}
+
+function sellerWithCommissionPartialValues(seller, records) {
+  const clone = {
+    ...seller,
+    values: {},
+    adjustments: { ...(seller.adjustments || {}) },
+  };
+  ensureSellerValues(clone);
+  for (const metric of metricsFor(clone.area)) {
+    const current = clone.values[metric.id] || { goal: metric.goal, realized: 0 };
+    clone.values[metric.id] = { ...current, realized: 0 };
+  }
+  for (const record of records || []) {
+    if (!record.metric) continue;
+    const current = clone.values[record.metric.id] || { goal: record.metric.goal, realized: 0 };
+    const goal = record.goal !== null && record.goal !== undefined ? record.goal : (current.goal !== undefined && current.goal !== "" ? current.goal : record.metric.goal);
+    clone.values[record.metric.id] = {
+      ...current,
+      goal,
+      realized: record.realized,
+    };
+  }
+  return clone;
+}
+
+function commissionForecastTotals(rows) {
+  return (rows || []).reduce((acc, row) => {
+    acc.currentGross += row.currentGross || 0;
+    acc.projectedGross += row.projectedGross || 0;
+    acc.currentDeflator += row.currentDeflator || 0;
+    acc.projectedDeflator += row.projectedDeflator || 0;
+    acc.currentEstornos += row.currentEstornos || 0;
+    acc.projectedEstornos += row.projectedEstornos || 0;
+    acc.currentLiquid += row.currentLiquid || 0;
+    acc.projectedLiquid += row.projectedLiquid || 0;
+    acc.sellers += 1;
+    if ((row.currentLiquid || 0) > 0) acc.currentPositive += 1;
+    if ((row.projectedLiquid || 0) > 0) acc.projectedPositive += 1;
+    if (row.emExperiencia) acc.experience += 1;
+    return acc;
+  }, {
+    currentGross: 0,
+    projectedGross: 0,
+    currentDeflator: 0,
+    projectedDeflator: 0,
+    currentEstornos: 0,
+    projectedEstornos: 0,
+    currentLiquid: 0,
+    projectedLiquid: 0,
+    sellers: 0,
+    currentPositive: 0,
+    projectedPositive: 0,
+    experience: 0,
+  });
+}
+
+function commissionForecastBranchRows(rows) {
+  return [...groupItems(rows || [], (row) => row.branch || "Sem filial").entries()].map(([branch, branchRows]) => {
+    const totals = commissionForecastTotals(branchRows);
+    return { branch, rows: branchRows, ...totals };
+  }).sort((a, b) =>
+    Number(b.projectedLiquid || 0) - Number(a.projectedLiquid || 0)
+    || String(a.branch || "").localeCompare(String(b.branch || ""))
+  );
+}
+
+function commissioningMoney(value) {
+  return money.format(finiteNumber(value));
+}
+
+function commissioningDiscount(value) {
+  return discountMoney(value);
+}
+
+function commissioningPairMarkup(currentLabel, currentValue, projectedLabel, projectedValue) {
+  return `<div class="commission-pair">
+    <span>${escapeHtml(currentLabel)}</span><strong>${currentValue}</strong>
+    <span>${escapeHtml(projectedLabel)}</span><strong>${projectedValue}</strong>
+  </div>`;
+}
+
+function commissioningSummaryCardsMarkup(totals) {
+  const cards = [
+    ["Comissão bruta", commissioningPairMarkup("Atual", commissioningMoney(totals.currentGross), "Projetada", commissioningMoney(totals.projectedGross))],
+    ["Deflatores", commissioningPairMarkup("Atual", commissioningDiscount(totals.currentDeflator), "Projetado", commissioningDiscount(totals.projectedDeflator))],
+    ["Estornos", commissioningPairMarkup("Atuais", commissioningDiscount(totals.currentEstornos), "Projetados", commissioningDiscount(totals.projectedEstornos))],
+    ["Comissão líquida", commissioningPairMarkup("Atual", commissioningMoney(totals.currentLiquid), "Projetada", commissioningMoney(totals.projectedLiquid))],
+    ["Vendedores considerados", commissioningPairMarkup("Atual > 0", num0.format(totals.currentPositive), "Proj. > 0", num0.format(totals.projectedPositive)) + `<small>${num0.format(totals.sellers)} com parcial válida | ${num0.format(totals.experience)} em experiência</small>`],
+  ];
+  return `<div class="commission-summary-grid">${cards.map(([title, body]) => `<article class="commission-summary-card"><span>${escapeHtml(title)}</span>${body}</article>`).join("")}</div>`;
+}
+
+function commissioningNoticeMarkup() {
+  return `<div class="commission-notice">Esta é uma previsão de comissionamento baseada na parcial oficial selecionada. Os valores atuais consideram o realizado até a parcial; os valores projetados estimam o fechamento mantendo o ritmo atual.</div>`;
+}
+
+function commissioningMetaMarkup(partial, period, items = []) {
+  if (!partial) return "";
+  const metaItems = [
+    ["Campanha", activeCampaign()?.name || "-"],
+    ["Parcial", partial.name || "Parcial oficial"],
+    ["Data base", partial.baseDate || "-"],
+    ["Dias", `${period?.daysDone || "-"} de ${period?.daysTotal || "-"}`],
+    ["Atualização", partial.publishedAt ? dateTime.format(new Date(partial.publishedAt)) : partial.importedAt ? dateTime.format(new Date(partial.importedAt)) : "-"],
+    ...items,
+  ];
+  return `<div class="commission-meta-grid">${metaItems.map(([label, value]) => `<span><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span>`).join("")}</div>`;
+}
+
+function commissioningStatusBadge(row) {
+  if (row.emExperiencia) return `<span class="status neutral">Em experiência</span>`;
+  if ((row.currentEstornos || row.projectedEstornos) > 0) return `<span class="status warn">Com estorno</span>`;
+  if ((row.projectedLiquid || 0) > 0) return `<span class="status ok">Com previsão</span>`;
+  return `<span class="status neutral">Sem comissão projetada</span>`;
+}
+
+function commissioningBranchTableMarkup(rows) {
+  return `<section class="dashboard-card commission-table-card">
+    <div class="dashboard-card-head"><div><h3>Comissionamento por filial</h3><p>Valores agrupados por filial, ordenados pela comissão líquida projetada.</p></div></div>
+    <div class="table-wrap commission-table-wrap"><table><thead><tr>
+      <th>Filial</th><th>Vendedores</th><th>Bruta atual</th><th>Bruta proj.</th><th>Deflator atual</th><th>Deflator proj.</th><th>Estornos atuais</th><th>Estornos proj.</th><th>Líquida atual</th><th>Líquida proj.</th>
+    </tr></thead><tbody>${rows.map((row) => `<tr>
+      <td data-label="Filial"><strong>${escapeHtml(row.branch)}</strong></td>
+      <td data-label="Vendedores">${num0.format(row.sellers)}</td>
+      <td data-label="Bruta atual">${commissioningMoney(row.currentGross)}</td>
+      <td data-label="Bruta proj.">${commissioningMoney(row.projectedGross)}</td>
+      <td data-label="Deflator atual">${commissioningDiscount(row.currentDeflator)}</td>
+      <td data-label="Deflator proj.">${commissioningDiscount(row.projectedDeflator)}</td>
+      <td data-label="Estornos atuais">${commissioningDiscount(row.currentEstornos)}</td>
+      <td data-label="Estornos proj.">${commissioningDiscount(row.projectedEstornos)}</td>
+      <td data-label="Líquida atual">${commissioningMoney(row.currentLiquid)}</td>
+      <td data-label="Líquida proj."><strong>${commissioningMoney(row.projectedLiquid)}</strong></td>
+    </tr>`).join("") || `<tr><td colspan="10">Nenhuma filial com parcial oficial válida.</td></tr>`}</tbody></table></div>
+  </section>`;
+}
+
+function commissioningSellerTableMarkup(rows, options = {}) {
+  const includeBranch = options.includeBranch !== false;
+  const headBranch = includeBranch ? "<th>Filial</th>" : "";
+  return `<section class="dashboard-card commission-table-card">
+    <div class="dashboard-card-head"><div><h3>Comissionamento por vendedor</h3><p>Previsão financeira por vendedor com valores atuais e projetados.</p></div></div>
+    <div class="table-wrap commission-table-wrap"><table><thead><tr>
+      <th>Vendedor</th>${headBranch}<th>Área</th><th>Bruta atual</th><th>Bruta proj.</th><th>Deflator atual</th><th>Deflator proj.</th><th>Estornos atuais</th><th>Estornos proj.</th><th>Líquida atual</th><th>Líquida proj.</th><th>Em experiência</th><th>Status</th>
+    </tr></thead><tbody>${rows.map((row) => `<tr>
+      <td data-label="Vendedor"><strong>${escapeHtml(row.sellerName)}</strong></td>
+      ${includeBranch ? `<td data-label="Filial">${escapeHtml(row.branch)}</td>` : ""}
+      <td data-label="Área">${escapeHtml(row.area)}</td>
+      <td data-label="Bruta atual">${commissioningMoney(row.currentGross)}</td>
+      <td data-label="Bruta proj.">${commissioningMoney(row.projectedGross)}</td>
+      <td data-label="Deflator atual">${commissioningDiscount(row.currentDeflator)}</td>
+      <td data-label="Deflator proj.">${commissioningDiscount(row.projectedDeflator)}</td>
+      <td data-label="Estornos atuais">${commissioningDiscount(row.currentEstornos)}</td>
+      <td data-label="Estornos proj.">${commissioningDiscount(row.projectedEstornos)}</td>
+      <td data-label="Líquida atual">${commissioningMoney(row.currentLiquid)}</td>
+      <td data-label="Líquida proj."><strong>${commissioningMoney(row.projectedLiquid)}</strong></td>
+      <td data-label="Em experiência">${row.emExperiencia ? `<span class="status neutral">Sim</span>` : "Não"}</td>
+      <td data-label="Status">${commissioningStatusBadge(row)}</td>
+    </tr>`).join("") || `<tr><td colspan="${includeBranch ? 13 : 12}">Nenhum vendedor com parcial oficial válida.</td></tr>`}</tbody></table></div>
+  </section>`;
+}
+
+function commissioningRankingMarkup(rows, options = {}) {
+  const includeBranch = options.includeBranch !== false;
+  const topRows = [...(rows || [])].sort((a, b) => Number(b.projectedLiquid || 0) - Number(a.projectedLiquid || 0)).slice(0, 10);
+  return `<section class="dashboard-card commission-ranking-card">
+    <div class="dashboard-card-head"><div><h3>${escapeHtml(options.title || "Ranking de comissão líquida projetada")}</h3><p>Top 10 por comissão líquida projetada, com valor atual para comparação.</p></div></div>
+    <div class="commission-ranking-list">${topRows.map((row, index) => `<article class="commission-ranking-row">
+      <strong>${index + 1}º</strong>
+      <span>${escapeHtml(row.sellerName)}${includeBranch ? `<small>${escapeHtml(row.branch)}</small>` : ""}</span>
+      <em><small>Atual</small>${commissioningMoney(row.currentLiquid)}</em>
+      <em><small>Projetada</small>${commissioningMoney(row.projectedLiquid)}</em>
+      ${row.emExperiencia ? `<i class="status neutral">Em experiência</i>` : ""}
+    </article>`).join("") || `<p class="muted-note">Nenhum vendedor com previsão de comissionamento.</p>`}</div>
+  </section>`;
+}
+
+function commissioningRulesMarkup() {
+  return `<section class="dashboard-card commission-rules-card">
+    <div class="dashboard-card-head"><div><h3>Observações e regras aplicadas</h3><p>Leitura de previsão, sem efeito de fechamento oficial.</p></div></div>
+    <ul class="commission-rules-list">
+      <li>Os valores usam a parcial oficial selecionada e os dias salvos nessa parcial.</li>
+      <li>Comissão atual usa o realizado acumulado; comissão projetada usa o ritmo da parcial até o fechamento.</li>
+      <li>Vendedores em experiência calculam comissão bruta normalmente, mas não sofrem deflator.</li>
+      <li>Estornos só entram quando já existem na base de previsão; nenhum estorno é inventado.</li>
+    </ul>
+  </section>`;
+}
+
+function dashboardCommissioningPanelMarkup() {
+  const partial = selectedDashboardPartial();
+  const period = partial ? getPeriodForPartial(partial, activeCampaign()) : null;
+  const rows = commissionForecastSellerRows(partial, dashboardBaseSellers(), { deflatorFilter: activeDashboardDeflator });
+  if (!partial) {
+    return `<div class="commissioning-view"><div class="dashboard-card commission-page-head"><div><h3>Previsão de comissionamento da rede</h3><p>Valores atuais e projetados com base na parcial oficial selecionada.</p></div></div>${commissioningNoticeMarkup()}<section class="dashboard-card"><p class="muted-note">Nenhuma parcial oficial publicada para calcular a previsão de comissionamento.</p></section></div>`;
+  }
+  const totals = commissionForecastTotals(rows);
+  const branchRows = commissionForecastBranchRows(rows);
+  return `<div class="commissioning-view">
+    <div class="dashboard-card commission-page-head"><div><h3>Previsão de comissionamento da rede</h3><p>Valores atuais e projetados com base na parcial oficial selecionada.</p></div></div>
+    ${commissioningNoticeMarkup()}
+    ${commissioningMetaMarkup(partial, period)}
+    ${commissioningSummaryCardsMarkup(totals)}
+    ${commissioningBranchTableMarkup(branchRows)}
+    ${commissioningSellerTableMarkup(rows)}
+    ${commissioningRankingMarkup(rows)}
+    ${commissioningRulesMarkup()}
+  </div>`;
+}
+
+function renderDashboardCommissioningPanel() {
+  const container = document.getElementById("dashboardCommissioningPanel");
+  if (!container) return;
+  container.innerHTML = dashboardCommissioningPanelMarkup();
+}
+
+function syncDashboardInternalTabs() {
+  const isCommissioning = activeDashboardInternalTab === "commissioning";
+  document.querySelectorAll("[data-dashboard-internal-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.dashboardInternalTab === activeDashboardInternalTab);
+  });
+  const generalPanel = document.getElementById("dashboardGeneralPanel");
+  const commissioningPanel = document.getElementById("dashboardCommissioningPanel");
+  const empty = document.getElementById("dashboardEmptyState");
+  if (generalPanel) generalPanel.hidden = isCommissioning;
+  if (commissioningPanel) commissioningPanel.hidden = !isCommissioning;
+  if (empty) empty.hidden = isCommissioning;
+}
+
 function groupItems(items, keyFn) {
   const map = new Map();
   for (const item of items) {
@@ -4765,6 +5049,7 @@ function renderDashboard() {
   renderDashboardGraphicPanel();
   const sellers = dashboardSellers();
   renderDashboardCommercialPanel();
+  renderDashboardCommissioningPanel();
   const empty = document.getElementById("dashboardEmptyState");
   const hasData = sellers.length > 0;
   if (empty) {
@@ -4792,6 +5077,7 @@ function renderDashboard() {
   renderRanking(sellers);
   renderCriticalGoals(sellers);
   renderAttentionPoints(sellers, branchRows, totalCurrentPercent, totalProjectedPercent);
+  syncDashboardInternalTabs();
 }
 
 function renderDashboardExecutiveCards(totals, currentPercent, projectedPercent, riskBranches, lowSellers, bestBranch, offender, indicators) {
@@ -6970,9 +7256,39 @@ function branchCommercialPanel(branch, sellers) {
   })}</section>`;
 }
 
+function internalViewTabsMarkup(context, activeTab) {
+  const tabAttr = context === "dashboard" ? "data-dashboard-internal-tab" : "data-manager-internal-tab";
+  const aria = context === "dashboard" ? "Abas internas do Dashboard" : "Abas internas da Filial";
+  return `<nav class="internal-view-tabs" aria-label="${aria}">
+    <button class="${activeTab === "overview" ? "active" : ""}" ${tabAttr}="overview" type="button">Visão geral</button>
+    <button class="${activeTab === "commissioning" ? "active" : ""}" ${tabAttr}="commissioning" type="button">Comissionamento</button>
+  </nav>`;
+}
+
+function branchCommissioningPanel(branch, sellers) {
+  const partial = getVisiblePartial("filial");
+  const period = partial ? getPeriodForPartial(partial, activeCampaign()) : null;
+  const scopedSellers = activeManagerSellerId ? sellers.filter((seller) => seller.id === activeManagerSellerId) : sellers;
+  const rows = commissionForecastSellerRows(partial, scopedSellers, { branch });
+  if (!partial) {
+    return `<div class="commissioning-view"><div class="dashboard-card commission-page-head"><div><h3>Previsão de comissionamento da filial</h3><p>Valores atuais e projetados com base na parcial oficial selecionada.</p></div></div>${commissioningNoticeMarkup()}<section class="dashboard-card"><p class="muted-note">Nenhuma parcial oficial publicada para calcular a previsão de comissionamento da filial.</p></section></div>`;
+  }
+  const totals = commissionForecastTotals(rows);
+  return `<div class="commissioning-view">
+    <div class="dashboard-card commission-page-head"><div><h3>Previsão de comissionamento da filial</h3><p>Valores atuais e projetados com base na parcial oficial selecionada.</p></div></div>
+    ${commissioningNoticeMarkup()}
+    ${commissioningMetaMarkup(partial, period, [["Filial", branch]])}
+    ${commissioningSummaryCardsMarkup(totals)}
+    ${commissioningSellerTableMarkup(rows, { includeBranch: false })}
+    ${commissioningRankingMarkup(rows, { includeBranch: false, title: "Ranking interno de comissão líquida projetada" })}
+    ${commissioningRulesMarkup()}
+  </div>`;
+}
+
 function branchDashboardMarkup(branch, sellers) {
   if (!sellers.length) return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div><div class="dashboard-empty-state active"><strong>Nenhum dado disponivel para esta filial.</strong><span>Configure vendedores, metas e realizados no Admin para visualizar o painel.</span></div></div>`;
-  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}<div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div>${branchGraphicPanel(branch, sellers)}${branchCommercialPanel(branch, sellers)}${branchPartialDetails(branch, sellers)}</div>`;
+  const overview = `<div class="branch-overview-panel"><div class="branch-main-grid"><div>${branchOfficialPartialCard(branch, sellers)}${branchPartialTeamSummary(branch, sellers)}</div><aside>${branchPartialAttention(branch, sellers)}${branchPartialRanking(branch, sellers)}${branchPartialOpportunities(branch, sellers)}</aside></div>${branchGraphicPanel(branch, sellers)}${branchCommercialPanel(branch, sellers)}${branchPartialDetails(branch, sellers)}</div>`;
+  return `<div class="branch-modern"><div class="branch-title-row"><div><p class="eyebrow">Comissao 360</p><h2>Gestao da Filial</h2><span>${escapeHtml(branch)}</span></div>${moduleCampaignSelectorMarkup("filial")}</div>${branchPartialFilterControls(branch, sellers)}${internalViewTabsMarkup("filial", activeManagerInternalTab)}${activeManagerInternalTab === "commissioning" ? branchCommissioningPanel(branch, sellers) : overview}</div>`;
 }
 function renderManager() {
   const loginPanel = document.getElementById("managerLoginPanel");
@@ -6985,6 +7301,7 @@ function renderManager() {
   if (!activeBranchSession || !state.branches.includes(activeBranchSession)) {
     activeManagerSellerId = "";
     activeManagerIndicator = "Todos";
+    activeManagerInternalTab = "overview";
     managerView?.classList.remove("manager-authenticated");
     managerView?.classList.add("manager-login-mode");
     if (topAccess) {
@@ -8122,6 +8439,18 @@ document.addEventListener("click", async (event) => {
     }
     return;
   }
+  const dashboardInternalTab = event.target.closest("[data-dashboard-internal-tab]");
+  if (dashboardInternalTab) {
+    activeDashboardInternalTab = dashboardInternalTab.dataset.dashboardInternalTab || "overview";
+    renderDashboard();
+    return;
+  }
+  const managerInternalTab = event.target.closest("[data-manager-internal-tab]");
+  if (managerInternalTab) {
+    activeManagerInternalTab = managerInternalTab.dataset.managerInternalTab || "overview";
+    renderManager();
+    return;
+  }
   const nav = event.target.closest(".nav-button");
   if (nav && nav.dataset.view) openView(nav.dataset.view);
 
@@ -8670,6 +8999,7 @@ document.addEventListener("click", async (event) => {
     activeManagerSellerId = "";
     activeManagerIndicator = "Todos";
     activeManagerPartialId = "latest";
+    activeManagerInternalTab = "overview";
     sessionStorage.removeItem(BRANCH_SESSION_KEY);
     renderAll();
   }
