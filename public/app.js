@@ -9359,12 +9359,37 @@ function clearUserSession() {
   sessionStorage.removeItem(USER_SESSION_KEY);
 }
 
+function accessPasswordIconMarkup(revealed = false) {
+  return revealed
+    ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.9 4.2A10.8 10.8 0 0 1 12 4c6 0 9.5 6 9.5 6a17.8 17.8 0 0 1-2.6 3.3"></path><path d="M14.1 14.1A3 3 0 0 1 9.9 9.9"></path><path d="M3 3l18 18"></path><path d="M6.6 6.6C3.9 8.4 2.5 12 2.5 12s3.5 6 9.5 6c1.2 0 2.3-.2 3.3-.6"></path></svg>`
+    : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+}
+
+function syncAccessPasswordToggle(revealed = false) {
+  const input = document.getElementById("accessPassword");
+  const button = document.getElementById("accessPasswordToggle");
+  if (!input || !button) return;
+  input.type = revealed ? "text" : "password";
+  button.innerHTML = accessPasswordIconMarkup(revealed);
+  button.title = revealed ? "Ocultar senha" : "Exibir senha";
+  button.setAttribute("aria-label", revealed ? "Ocultar senha" : "Exibir senha");
+  button.setAttribute("aria-pressed", String(revealed));
+}
+
+function toggleAccessPasswordVisibility() {
+  const input = document.getElementById("accessPassword");
+  if (!input) return;
+  syncAccessPasswordToggle(input.type === "password");
+  input.focus({ preventScroll: true });
+}
+
 function showAccessLogin(view = "dashboard") {
   pendingAccessView = view;
   document.getElementById("accessLock").classList.add("active");
   const login = document.getElementById("accessLoginName");
   if (login) login.value = "";
   document.getElementById("accessPassword").value = "";
+  syncAccessPasswordToggle(false);
   document.getElementById("accessLoginError").textContent = "";
   (login || document.getElementById("accessPassword")).focus();
 }
@@ -9540,6 +9565,11 @@ function openView(view, options = {}) {
 }
 
 document.addEventListener("click", async (event) => {
+  if (event.target.closest("#accessPasswordToggle")) {
+    toggleAccessPasswordVisibility();
+    return;
+  }
+
   const securityPasswordToggle = event.target.closest("[data-security-toggle-password]");
   if (securityPasswordToggle) {
     toggleSecurityPasswordVisibility(securityPasswordToggle);
