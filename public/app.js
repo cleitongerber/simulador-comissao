@@ -6,6 +6,7 @@ const OWNER_SESSION_KEY = "commission-owner-session";
 const COLLAB_SESSION_KEY = "commission-collaborator-session";
 const COLLAB_SESSION_META_KEY = `${COLLAB_SESSION_KEY}-meta`;
 const BRANCH_SESSION_KEY = "commission-branch-session";
+const USER_SESSION_KEY = "commission-user-session";
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const pct = new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -47,6 +48,29 @@ const METRIC_FORMULA_TYPES = [
   { value: "deviceRevenue", label: "Receita de aparelho" },
   { value: "deviceQty", label: "Quantidade de aparelho" },
 ];
+const BRANCH_SCOPE_OPTIONS = ["all", "selected", "own_branch", "none"];
+const COMMISSION_SCOPE_OPTIONS = ["none", "own", "branch", "allowed_branches", "network"];
+const SECURITY_PERMISSION_FIELDS = [
+  ["canAccessDashboard", "Acessar Dashboard"],
+  ["canAccessFilial", "Acessar Filial"],
+  ["canAccessColaborador", "Acessar Colaborador"],
+  ["canAccessAdmin", "Acessar Admin"],
+  ["canAccessFechamento", "Acessar Fechamento"],
+  ["canAccessComissionamento", "Acessar Comissionamento"],
+  ["canAccessAuditoria", "Acessar Auditoria"],
+  ["canAccessImportacaoBackup", "Acessar Importacao e Backup"],
+  ["canManageCampaigns", "Gerenciar campanhas"],
+  ["canManageSellers", "Gerenciar vendedores"],
+  ["canManageBranches", "Gerenciar filiais"],
+  ["canManageGoals", "Gerenciar metas"],
+  ["canManageRules", "Gerenciar regras"],
+  ["canManagePartials", "Gerenciar parciais"],
+  ["canManageClosing", "Gerenciar fechamento"],
+  ["canManageUsers", "Gerenciar usuarios"],
+  ["canManageProfiles", "Gerenciar perfis"],
+  ["canViewAudit", "Ver auditoria"],
+  ["canManageBackup", "Gerenciar backup"],
+];
 
 function makeId() {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -61,11 +85,11 @@ function isOwnerUnlocked() {
 }
 
 function isAdminUnlocked() {
-  return isOwnerUnlocked() || sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok";
+  return isOwnerUnlocked() || hasUserPermission("canAccessAdmin") || sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok";
 }
 
 function isDashboardUnlocked() {
-  return isAdminUnlocked() || sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok";
+  return isAdminUnlocked() || hasUserPermission("canAccessDashboard") || sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok";
 }
 
 function dashboardPassword() {
@@ -139,6 +163,354 @@ const defaultDeflators = {
     { id: "def-nao-cabo-tv", metricId: "tv", name: "TV minimo", min: 0.25, penaltyRate: 0.5 },
   ],
 };
+
+function allPermissions(value = false) {
+  return Object.fromEntries(SECURITY_PERMISSION_FIELDS.map(([key]) => [key, value]));
+}
+
+function profilePermissions(role = "Dashboard") {
+  const permissions = allPermissions(false);
+  const normalized = normalizedPermissionProfile(role);
+  if (normalized === "owner") {
+    return allPermissions(true);
+  }
+  if (normalized === "admin") {
+    return {
+      ...allPermissions(true),
+      canAccessColaborador: true,
+    };
+  }
+  if (normalized === "dashboard") {
+    Object.assign(permissions, {
+      canAccessDashboard: true,
+      canAccessComissionamento: true,
+      canViewDashboardOverview: true,
+      canViewDashboardAllBranches: true,
+      canViewDashboardAllowedBranches: true,
+      canViewDashboardCharts: true,
+      canViewDashboardCommercialReading: true,
+      canViewDashboardExecutiveSummary: true,
+      canViewDashboardCriticalIndicators: true,
+      canViewDashboardRankings: true,
+    });
+  } else if (normalized === "filial") {
+    Object.assign(permissions, {
+      canAccessFilial: true,
+      canAccessComissionamento: true,
+      canViewBranchOverview: true,
+      canViewAllowedBranches: true,
+      canViewBranchSellers: true,
+      canViewBranchCharts: true,
+      canViewBranchCommercialReading: true,
+      canViewBranchRanking: true,
+      canViewBranchAttentionPoints: true,
+    });
+  } else if (normalized === "colaborador") {
+    Object.assign(permissions, {
+      canAccessColaborador: true,
+    });
+  }
+  return permissions;
+}
+
+function systemProfiles() {
+  const now = new Date().toISOString();
+  return [
+    { id: "profile-developer", name: "Desenvolvedor", description: "Acesso tecnico completo.", role: "Desenvolvedor", isSystem: true, defaultBranchScope: "all", defaultCommissionScope: "network" },
+    { id: "profile-admin", name: "Admin", description: "Administracao operacional completa.", role: "Admin", isSystem: true, defaultBranchScope: "all", defaultCommissionScope: "network" },
+    { id: "profile-dashboard", name: "Dashboard", description: "Visao executiva/comercial da operacao.", role: "Dashboard", isSystem: true, defaultBranchScope: "all", defaultCommissionScope: "network" },
+    { id: "profile-filial", name: "Filial", description: "Gestao de filial ou filiais permitidas.", role: "Filial", isSystem: true, defaultBranchScope: "own_branch", defaultCommissionScope: "branch" },
+    { id: "profile-colaborador", name: "Colaborador", description: "Acesso individual do vendedor.", role: "Colaborador", isSystem: true, defaultBranchScope: "own_branch", defaultCommissionScope: "own" },
+  ].map((profile) => ({
+    ...profile,
+    permissions: profilePermissions(profile.role),
+    createdAt: now,
+    updatedAt: now,
+  }));
+}
+
+function normalizeProfile(profile = {}) {
+  const defaults = systemProfiles().find((item) => item.id === profile.id || item.name === profile.name) || {};
+  const role = profile.role || defaults.role || profile.name || "Dashboard";
+  const defaultCommissionScope = COMMISSION_SCOPE_OPTIONS.includes(profile.defaultCommissionScope) ? profile.defaultCommissionScope : (defaults.defaultCommissionScope || "none");
+  const defaultBranchScope = BRANCH_SCOPE_OPTIONS.includes(profile.defaultBranchScope) ? profile.defaultBranchScope : (defaults.defaultBranchScope || "none");
+  return {
+    id: profile.id || makeId(),
+    name: String(profile.name || defaults.name || "Perfil").trim() || "Perfil",
+    description: String(profile.description || defaults.description || "").trim(),
+    role,
+    isSystem: profile.isSystem === true || defaults.isSystem === true,
+    permissions: { ...profilePermissions(role), ...(defaults.permissions || {}), ...(profile.permissions || {}) },
+    defaultBranchScope,
+    defaultCommissionScope,
+    createdAt: profile.createdAt || new Date().toISOString(),
+    updatedAt: profile.updatedAt || profile.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeProfiles(source) {
+  const system = systemProfiles();
+  const custom = Array.isArray(source) ? source.filter((profile) => !system.some((item) => item.id === profile.id)).map(normalizeProfile) : [];
+  const byId = new Map([...system, ...custom].map((profile) => [profile.id, normalizeProfile(profile)]));
+  return [...byId.values()];
+}
+
+function slugForLogin(value, fallback = "usuario") {
+  const slug = String(value || fallback)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+  return slug || fallback;
+}
+
+// Camada local para nao persistir senha em texto puro no estado.
+function passwordHashFor(password, salt = "commission360") {
+  const input = `${salt}:${String(password || "")}`;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let index = 0; index < input.length; index += 1) {
+    const code = input.charCodeAt(index);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01000193) >>> 0;
+    h2 ^= code + index;
+    h2 = Math.imul(h2, 0x85ebca6b) >>> 0;
+  }
+  return `local-v1:${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
+}
+
+function profileById(profileId) {
+  return (state?.profiles || []).find((profile) => profile.id === profileId) || (state?.profiles || []).find((profile) => profile.id === "profile-dashboard") || null;
+}
+
+function profileByRole(role) {
+  const normalized = normalizedPermissionProfile(role);
+  return (state?.profiles || []).find((profile) => normalizedPermissionProfile(profile.role || profile.name) === normalized)
+    || (state?.profiles || []).find((profile) => profile.id === `profile-${normalized}`);
+}
+
+function normalizeUser(user = {}, context = {}) {
+  const profiles = context.profiles || [];
+  const profile = profiles.find((item) => item.id === user.profileId) || profiles.find((item) => item.id === "profile-dashboard") || {};
+  const id = user.id || makeId();
+  const branchScope = BRANCH_SCOPE_OPTIONS.includes(user.branchScope) ? user.branchScope : (profile.defaultBranchScope || "none");
+  const commissionScope = COMMISSION_SCOPE_OPTIONS.includes(user.commissionScope) ? user.commissionScope : (profile.defaultCommissionScope || "none");
+  return {
+    id,
+    name: String(user.name || user.login || "Usuario").trim() || "Usuario",
+    email: String(user.email || "").trim(),
+    login: slugForLogin(user.login || user.email || user.name || id, `usuario.${id.slice(-4)}`),
+    passwordHash: user.passwordHash || passwordHashFor(user.password || "1234", id),
+    profileId: profile.id || user.profileId || "profile-dashboard",
+    role: user.role || profile.role || profile.name || "Dashboard",
+    status: user.status === "inactive" || user.active === false ? "inactive" : "active",
+    branchScope,
+    allowedBranchIds: Array.isArray(user.allowedBranchIds) ? user.allowedBranchIds.map(String).filter(Boolean) : [],
+    branchId: String(user.branchId || "").trim(),
+    sellerId: String(user.sellerId || "").trim(),
+    commissionScope,
+    partnerId: user.partnerId || null,
+    organizationId: user.organizationId || null,
+    tenantId: user.tenantId || null,
+    createdAt: user.createdAt || new Date().toISOString(),
+    updatedAt: user.updatedAt || user.createdAt || new Date().toISOString(),
+    lastLoginAt: user.lastLoginAt || "",
+  };
+}
+
+function initialUsersFromLegacy(context = {}, profiles = []) {
+  const now = new Date().toISOString();
+  const branchesList = normalizeBranches(context.branches, context.sellers || []);
+  const users = [];
+  const addUser = (user) => users.push(normalizeUser({ createdAt: now, updatedAt: now, ...user }, { profiles }));
+  addUser({
+    id: "user-developer",
+    name: "Desenvolvedor",
+    login: "desenvolvedor",
+    email: "dev@comissao360.local",
+    profileId: "profile-developer",
+    status: "inactive",
+    branchScope: "all",
+    commissionScope: "network",
+    passwordHash: passwordHashFor("__definir_senha__", "user-developer"),
+  });
+  addUser({
+    id: "user-admin",
+    name: "Admin",
+    login: "admin",
+    email: "admin@comissao360.local",
+    profileId: "profile-admin",
+    branchScope: "all",
+    commissionScope: "network",
+    passwordHash: passwordHashFor(context.settings?.adminPassword || "admin123", "user-admin"),
+  });
+  addUser({
+    id: "user-dashboard",
+    name: "Dashboard Executivo",
+    login: "dashboard",
+    email: "dashboard@comissao360.local",
+    profileId: "profile-dashboard",
+    branchScope: "all",
+    commissionScope: "network",
+    passwordHash: passwordHashFor(context.settings?.dashboardPassword || "dashboard123", "user-dashboard"),
+  });
+  for (const branch of branchesList) {
+    const id = `user-branch-${slugForLogin(branch)}`;
+    addUser({
+      id,
+      name: `Gerente ${branch}`,
+      login: `filial.${slugForLogin(branch)}`,
+      email: `${slugForLogin(branch)}@filial.local`,
+      profileId: "profile-filial",
+      branchScope: "own_branch",
+      branchId: branch,
+      allowedBranchIds: [branch],
+      commissionScope: "branch",
+      passwordHash: passwordHashFor(context.branchPasswords?.[branch] || "1234", id),
+    });
+  }
+  for (const seller of context.sellers || []) {
+    const id = `user-seller-${seller.id}`;
+    addUser({
+      id,
+      name: seller.name,
+      login: slugForLogin(seller.name, `vendedor.${seller.id.slice(-4)}`),
+      email: `${slugForLogin(seller.name, "vendedor")}@vendedor.local`,
+      profileId: "profile-colaborador",
+      branchScope: "own_branch",
+      branchId: seller.branch || "",
+      allowedBranchIds: seller.branch ? [seller.branch] : [],
+      sellerId: seller.id,
+      commissionScope: "own",
+      passwordHash: passwordHashFor(seller.password || "1234", id),
+    });
+  }
+  return users;
+}
+
+function normalizeUsers(source, context = {}, profiles = []) {
+  const raw = Array.isArray(source) && source.length ? source : initialUsersFromLegacy(context, profiles);
+  const usedLogins = new Set();
+  return raw.map((user) => {
+    const normalized = normalizeUser(user, { profiles });
+    let login = normalized.login;
+    let suffix = 2;
+    while (usedLogins.has(login)) {
+      login = `${normalized.login}.${suffix}`;
+      suffix += 1;
+    }
+    normalized.login = login;
+    usedLogins.add(login);
+    return normalized;
+  });
+}
+
+function currentUser() {
+  const id = sessionStorage.getItem(USER_SESSION_KEY) || "";
+  if (!id) return null;
+  const user = (state?.users || []).find((item) => item.id === id && item.status !== "inactive") || null;
+  if (!user) sessionStorage.removeItem(USER_SESSION_KEY);
+  return user;
+}
+
+function currentUserProfile(user = currentUser()) {
+  return user ? profileById(user.profileId) : null;
+}
+
+function userPermissions(user = currentUser()) {
+  const profile = currentUserProfile(user);
+  return { ...(profile?.permissions || {}), commissionScope: user?.commissionScope || profile?.defaultCommissionScope || "none" };
+}
+
+function userCommissionScope(user = currentUser()) {
+  return user?.commissionScope || currentUserProfile(user)?.defaultCommissionScope || "none";
+}
+
+function hasUserPermission(permission, user = currentUser()) {
+  if (!user) return false;
+  const profile = currentUserProfile(user);
+  if (normalizedPermissionProfile(profile?.role || profile?.name) === "owner") return true;
+  return userPermissions(user)[permission] === true;
+}
+
+function allowedBranchesForUser(user = currentUser()) {
+  const all = branchesFromSellers(state?.sellers || state?.campaigns?.find((campaign) => campaign.id === state?.activeCampaignId)?.sellers || []);
+  if (!user) return all;
+  const seller = user.sellerId ? (state?.sellers || []).find((item) => item.id === user.sellerId) : null;
+  if (seller?.branch) return [seller.branch];
+  if (user.branchScope === "all") return all;
+  if (user.branchScope === "selected") return user.allowedBranchIds.filter((branch) => all.includes(branch));
+  if (user.branchScope === "own_branch") return user.branchId && all.includes(user.branchId) ? [user.branchId] : [];
+  return [];
+}
+
+function sellerInUserScope(seller, user = currentUser()) {
+  if (!user) return true;
+  if (user.sellerId) return seller.id === user.sellerId;
+  const allowed = allowedBranchesForUser(user);
+  return allowed.includes(seller.branch || "Sem filial");
+}
+
+function scopedSellers(sellers = state.sellers, user = currentUser()) {
+  return (sellers || []).filter((seller) => sellerInUserScope(seller, user));
+}
+
+function commissionScopeAllowsSeller(seller, user = currentUser()) {
+  if (!user) return true;
+  const scope = userCommissionScope(user);
+  if (scope === "network") return true;
+  if (scope === "none") return false;
+  if (scope === "own") return Boolean(user.sellerId && seller.id === user.sellerId);
+  if (scope === "branch") return Boolean(user.branchId && seller.branch === user.branchId);
+  if (scope === "allowed_branches") return allowedBranchesForUser(user).includes(seller.branch || "Sem filial");
+  return false;
+}
+
+function scopedCommissionSellers(sellers = state.sellers, user = currentUser()) {
+  return scopedSellers(sellers, user).filter((seller) => commissionScopeAllowsSeller(seller, user));
+}
+
+function canUserAccessView(view, user = currentUser()) {
+  if (!user) return false;
+  const permissions = userPermissions(user);
+  if (view === "home") return true;
+  if (view === "dashboard") return permissions.canAccessDashboard === true;
+  if (view === "gerente") return permissions.canAccessFilial === true;
+  if (view === "colaborador") return permissions.canAccessColaborador === true;
+  if (view === "admin") return permissions.canAccessAdmin === true;
+  return false;
+}
+
+function firstPermittedViewForUser(user = currentUser()) {
+  return ["dashboard", "gerente", "colaborador", "admin"].find((view) => canUserAccessView(view, user)) || "home";
+}
+
+function canViewCommissioning(context = "dashboard", user = currentUser()) {
+  if (isOwnerUnlocked()) return true;
+  if (!user) {
+    const profile = normalizedPermissionProfile(currentAuditProfile());
+    return ["owner", "admin", "dashboard", "filial"].includes(profile);
+  }
+  const scope = userCommissionScope(user);
+  if (!hasUserPermission("canAccessComissionamento", user) || scope === "none") return false;
+  if (context === "dashboard") return ["network", "allowed_branches", "branch"].includes(scope);
+  if (context === "filial") return ["network", "allowed_branches", "branch"].includes(scope);
+  return scope !== "none";
+}
+
+function validateUserConfig(user) {
+  const issues = [];
+  const profile = profileById(user.profileId);
+  if (!user.name?.trim()) issues.push("Nome obrigatorio.");
+  if (!user.login?.trim() && !user.email?.trim()) issues.push("Login ou e-mail obrigatorio.");
+  if (!profile) issues.push("Perfil obrigatorio.");
+  if (normalizedPermissionProfile(profile?.role || profile?.name) === "colaborador" && !user.sellerId) issues.push("Colaborador precisa de vendedor vinculado.");
+  if (user.branchScope === "selected" && !user.allowedBranchIds.length) issues.push("Selecione ao menos uma filial.");
+  if (user.branchScope === "own_branch" && !user.branchId) issues.push("Informe a filial principal.");
+  if (user.commissionScope !== "none" && profile?.permissions?.canAccessComissionamento !== true && normalizedPermissionProfile(profile?.role || profile?.name) !== "owner") issues.push("Escopo de comissionamento exige permissao de comissionamento no perfil.");
+  return issues;
+}
 function seedState() {
   return {
     period: { month: "JUNHO", daysDone: 15, daysTotal: 26 },
@@ -283,6 +655,19 @@ function normalizedPermissionProfile(profile = currentAuditProfile()) {
 }
 
 function canAccessModule(profile, module) {
+  const user = currentUser();
+  if (user && (!profile || profile === currentAuditProfile())) {
+    const key = String(module || "").toLowerCase();
+    if (key.includes("dashboard")) return hasUserPermission("canAccessDashboard", user);
+    if (key.includes("filial")) return hasUserPermission("canAccessFilial", user);
+    if (key.includes("colaborador") || key.includes("vendedor")) return hasUserPermission("canAccessColaborador", user);
+    if (key.includes("fechamento")) return hasUserPermission("canAccessFechamento", user) || hasUserPermission("canManageClosing", user);
+    if (key.includes("comissionamento")) return canViewCommissioning("dashboard", user) || canViewCommissioning("filial", user);
+    if (key.includes("auditoria")) return hasUserPermission("canAccessAuditoria", user) || hasUserPermission("canViewAudit", user);
+    if (key.includes("backup") || key.includes("importacao")) return hasUserPermission("canAccessImportacaoBackup", user) || hasUserPermission("canManageBackup", user);
+    if (key.includes("admin") || key.includes("seguranca")) return hasUserPermission("canAccessAdmin", user);
+    return true;
+  }
   const normalized = normalizedPermissionProfile(profile);
   const moduleKey = String(module || "").toLowerCase();
   if (normalized === "owner" || normalized === "admin") return true;
@@ -294,6 +679,50 @@ function canAccessModule(profile, module) {
 }
 
 function canPerformAction(profile, action) {
+  const user = currentUser();
+  if (user && (!profile || profile === currentAuditProfile())) {
+    const permissionByAction = {
+      createCampaign: "canManageCampaigns",
+      updateCampaign: "canManageCampaigns",
+      deleteCampaign: "canManageCampaigns",
+      updateOfficialBusinessDays: "canManageCampaigns",
+      updateOfficialElapsedDays: "canManageCampaigns",
+      updateSeller: "canManageSellers",
+      deleteSeller: "canManageSellers",
+      updateBranch: "canManageBranches",
+      deleteBranch: "canManageBranches",
+      updateMetric: "canManageGoals",
+      importGoals: "canManageGoals",
+      updateRules: "canManageRules",
+      updateDeflator: "canManageRules",
+      importPartial: "canManagePartials",
+      publishPartial: "canManagePartials",
+      cancelPartial: "canManagePartials",
+      replacePartial: "canManagePartials",
+      deletePartial: "canManagePartials",
+      closeOperationalCampaign: "canManageClosing",
+      startOfficialClosing: "canManageClosing",
+      reopenOperationalCampaign: "canManageClosing",
+      closeOfficialCampaign: "canManageClosing",
+      exportClosing: "canManageClosing",
+      exportBackup: "canManageBackup",
+      importBackup: "canManageBackup",
+      restoreBackup: "canManageBackup",
+      restoreDefault: "canManageBackup",
+      exportAudit: "canViewAudit",
+      updatePassword: "canManageUsers",
+      manageUsers: "canManageUsers",
+      manageProfiles: "canManageProfiles",
+      adminMutation: "canAccessAdmin",
+    };
+    if (normalizedPermissionProfile(currentUserProfile(user)?.role || currentUserProfile(user)?.name) === "owner") return true;
+    if (action === "updateSimulation") return hasUserPermission("canAccessColaborador", user) && Boolean(user.sellerId);
+    if (action === "readDashboard") return hasUserPermission("canAccessDashboard", user);
+    if (action === "readBranch") return hasUserPermission("canAccessFilial", user);
+    if (action === "readOwnPartial") return hasUserPermission("canAccessColaborador", user);
+    const permission = permissionByAction[action];
+    return permission ? hasUserPermission(permission, user) : hasUserPermission("canAccessAdmin", user);
+  }
   const normalized = normalizedPermissionProfile(profile);
   if (normalized === "owner") return true;
   if (ADMIN_ONLY_ACTIONS.has(action)) return normalized === "admin";
@@ -607,6 +1036,8 @@ function auditCampaignInfo(campaign = activeCampaign()) {
 }
 
 function currentAuditProfile() {
+  const user = currentUser();
+  if (user) return currentUserProfile(user)?.name || user.role || "Usuario";
   if (isOwnerUnlocked()) return "Desenvolvedor/Proprietario";
   if (sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok") return "Admin";
   if (sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok") return "Dashboard";
@@ -616,6 +1047,16 @@ function currentAuditProfile() {
 }
 
 function currentAuditUser() {
+  const user = currentUser();
+  if (user) {
+    const seller = user.sellerId ? state?.sellers?.find((item) => item.id === user.sellerId) : null;
+    return {
+      userId: user.id,
+      userName: user.name || user.login,
+      sellerName: seller?.name || "",
+      branchName: seller?.branch || user.branchId || "",
+    };
+  }
   const seller = state?.sellers?.find((item) => item.id === activeCollaboratorId);
   if (seller) return { userId: seller.id, userName: seller.name, sellerName: seller.name, branchName: seller.branch };
   if (activeBranchSession) return { userName: activeBranchSession, branchName: activeBranchSession };
@@ -1182,6 +1623,8 @@ function normalizeState(candidate) {
     seller.emExperiencia = seller.emExperiencia === true;
     ensureSellerValues(seller, candidate);
   }
+  candidate.profiles = normalizeProfiles(candidate.profiles);
+  candidate.users = normalizeUsers(candidate.users, candidate, candidate.profiles);
   return candidate;
 }
 let cloudSaveTimer = 0;
@@ -2153,9 +2596,12 @@ function commissioningRulesMarkup() {
 }
 
 function dashboardCommissioningPanelMarkup() {
+  if (!canViewCommissioning("dashboard")) {
+    return `<div class="commissioning-view"><section class="dashboard-card"><p class="muted-note">Voce nao tem permissao para acessar a previsao de comissionamento.</p></section></div>`;
+  }
   const partial = selectedDashboardPartial();
   const period = partial ? getPeriodForPartial(partial, activeCampaign()) : null;
-  const rows = commissionForecastSellerRows(partial, dashboardBaseSellers(), { deflatorFilter: activeDashboardDeflator });
+  const rows = commissionForecastSellerRows(partial, scopedCommissionSellers(dashboardBaseSellers()), { deflatorFilter: activeDashboardDeflator });
   if (!partial) {
     return `<div class="commissioning-view"><div class="dashboard-card commission-page-head"><div><h3>Previsão de comissionamento da rede</h3><p>Valores atuais e projetados com base na parcial oficial selecionada.</p></div></div>${commissioningNoticeMarkup()}<section class="dashboard-card"><p class="muted-note">Nenhuma parcial oficial publicada para calcular a previsão de comissionamento.</p></section></div>`;
   }
@@ -2180,8 +2626,10 @@ function renderDashboardCommissioningPanel() {
 }
 
 function syncDashboardInternalTabs() {
+  if (activeDashboardInternalTab === "commissioning" && !canViewCommissioning("dashboard")) activeDashboardInternalTab = "overview";
   const isCommissioning = activeDashboardInternalTab === "commissioning";
   document.querySelectorAll("[data-dashboard-internal-tab]").forEach((button) => {
+    if (button.dataset.dashboardInternalTab === "commissioning") button.hidden = !canViewCommissioning("dashboard");
     button.classList.toggle("active", button.dataset.dashboardInternalTab === activeDashboardInternalTab);
   });
   const generalPanel = document.getElementById("dashboardGeneralPanel");
@@ -3171,7 +3619,7 @@ function branches() {
 }
 
 function visibleSellers() {
-  return state.sellers.filter((seller) => {
+  return scopedSellers(state.sellers).filter((seller) => {
     const areaOk = activeAreaFilter === "Todas" || seller.area === activeAreaFilter;
     const branchOk = activeBranchFilter === "Todas" || seller.branch === activeBranchFilter;
     return areaOk && branchOk;
@@ -4043,7 +4491,8 @@ function partialItemsForBranch(partial, branch) {
 function renderBranchFilter() {
   const select = document.getElementById("branchFilter");
   if (!select) return;
-  const options = ["Todas", ...branches()];
+  const scopedBranches = allowedBranchesForUser();
+  const options = ["Todas", ...scopedBranches];
   select.innerHTML = options.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("");
   if (!options.includes(activeBranchFilter)) activeBranchFilter = "Todas";
   select.value = activeBranchFilter;
@@ -4079,7 +4528,7 @@ function renderDashboardFilterControls(baseSellers) {
 }
 
 function dashboardBaseSellers() {
-  return state.sellers.filter((seller) => {
+  return scopedSellers(state.sellers).filter((seller) => {
     const areaOk = activeAreaFilter === "Todas" || seller.area === activeAreaFilter;
     const branchOk = activeBranchFilter === "Todas" || seller.branch === activeBranchFilter;
     return areaOk && branchOk;
@@ -5703,23 +6152,53 @@ function downloadCampaignPreviewFile(campaign = activeCampaign()) {
 
 function renderSelectors() {
   const authenticatedCollaborator = resolveAuthenticatedCollaborator();
+  const user = currentUser();
+  const userSeller = user?.sellerId ? state.sellers.find((seller) => seller.id === user.sellerId) : null;
   const adminSelected = document.getElementById("adminSellerSelect")?.value;
-  const collabSelected = authenticatedCollaborator?.id || document.getElementById("collabSellerSelect")?.value;
+  const collabSelected = userSeller?.id || authenticatedCollaborator?.id || document.getElementById("collabSellerSelect")?.value;
   const options = state.sellers.map((seller) => `<option value="${seller.id}">${seller.name} - ${seller.branch} - ${seller.area}</option>`).join("");
+  const collabOptions = (userSeller ? [userSeller] : state.sellers).map((seller) => `<option value="${seller.id}">${seller.name} - ${seller.branch} - ${seller.area}</option>`).join("");
   const adminSelect = document.getElementById("adminSellerSelect");
   const collabSelect = document.getElementById("collabSellerSelect");
   adminSelect.innerHTML = options;
-  collabSelect.innerHTML = options;
-  collabSelect.disabled = Boolean(authenticatedCollaborator);
+  collabSelect.innerHTML = collabOptions;
+  collabSelect.disabled = Boolean(userSeller || authenticatedCollaborator);
   if (state.sellers.some((seller) => seller.id === adminSelected)) adminSelect.value = adminSelected;
   if (state.sellers.some((seller) => seller.id === collabSelected)) collabSelect.value = collabSelected;
 }
 
 function updateAdminTabs() {
+  const tabPermission = {
+    campanhas: "canManageCampaigns",
+    cadastros: "canManageSellers",
+    metas: "canManageGoals",
+    regras: "canManageRules",
+    parciais: "canManagePartials",
+    fechamento: "canManageClosing",
+    importacao: "canManageBackup",
+    seguranca: "canManageUsers",
+    auditoria: "canViewAudit",
+  };
+  const user = currentUser();
+  const visibleTabs = [];
+  document.querySelectorAll(".admin-tab").forEach((button) => {
+    const permission = tabPermission[button.dataset.adminTab];
+    const allowed = !user || !permission || hasUserPermission(permission, user)
+      || (button.dataset.adminTab === "cadastros" && hasUserPermission("canManageBranches", user))
+      || (button.dataset.adminTab === "seguranca" && hasUserPermission("canManageProfiles", user));
+    button.hidden = !allowed;
+    if (allowed) visibleTabs.push(button.dataset.adminTab);
+  });
+  if (!visibleTabs.includes(activeAdminTab)) activeAdminTab = visibleTabs[0] || "visao";
   document.querySelectorAll(".admin-tab").forEach((button) => {
     button.classList.toggle("active", button.dataset.adminTab === activeAdminTab);
   });
   document.querySelectorAll(".admin-tab-panel").forEach((panel) => {
+    const permission = tabPermission[panel.dataset.adminPanel];
+    const allowed = !user || !permission || hasUserPermission(permission, user)
+      || (panel.dataset.adminPanel === "cadastros" && hasUserPermission("canManageBranches", user))
+      || (panel.dataset.adminPanel === "seguranca" && hasUserPermission("canManageProfiles", user));
+    panel.hidden = !allowed;
     panel.classList.toggle("active", panel.dataset.adminPanel === activeAdminTab);
   });
 }
@@ -6066,6 +6545,8 @@ function toggleSecurityPasswordVisibility(button) {
 }
 
 function renderAdminSecurityAccesses() {
+  renderSecurityUsers();
+  renderSecurityProfiles();
   const adminPasswordInput = document.getElementById("newAdminPassword");
   const dashboardPasswordInput = document.getElementById("newDashboardPassword");
   if (adminPasswordInput && document.activeElement !== adminPasswordInput) adminPasswordInput.value = adminPassword();
@@ -6096,6 +6577,99 @@ function renderAdminSecurityAccesses() {
       </div>
     `).join("") || `<p class="muted-note">Nenhuma filial cadastrada.</p>`;
   }
+}
+
+function branchScopeLabel(value) {
+  return {
+    all: "Todas as filiais",
+    selected: "Filiais selecionadas",
+    own_branch: "Filial principal",
+    none: "Nenhuma filial",
+  }[value] || value || "-";
+}
+
+function commissionScopeLabel(value) {
+  return {
+    none: "Sem comissionamento",
+    own: "Proprio vendedor",
+    branch: "Filial principal",
+    allowed_branches: "Filiais permitidas",
+    network: "Rede inteira",
+  }[value] || value || "-";
+}
+
+function optionsMarkup(options, selected) {
+  return options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+}
+
+function profileOptionsMarkup(selected) {
+  return (state.profiles || []).map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === selected ? "selected" : ""}>${escapeHtml(profile.name)}</option>`).join("");
+}
+
+function branchOptionsMarkup(selected, includeEmpty = true) {
+  const list = includeEmpty ? [["", "Selecione"]] : [];
+  return optionsMarkup([...list, ...branches().map((branch) => [branch, branch])], selected || "");
+}
+
+function sellerOptionsMarkup(selected) {
+  return optionsMarkup([["", "Nenhum"], ...state.sellers.map((seller) => [seller.id, `${seller.name} - ${seller.branch}`])], selected || "");
+}
+
+function renderSecurityUsers() {
+  const container = document.getElementById("securityUsersList");
+  if (!container) return;
+  state.users = normalizeUsers(state.users, state, state.profiles);
+  const branchList = branches();
+  container.innerHTML = state.users.map((user) => {
+    const issues = validateUserConfig(user);
+    const allowedChecks = branchList.map((branch) => `<label class="security-mini-check"><input data-security-user-allowed-branch="${escapeHtml(branch)}" data-security-user-id="${escapeHtml(user.id)}" type="checkbox" ${user.allowedBranchIds.includes(branch) ? "checked" : ""}>${escapeHtml(branch)}</label>`).join("");
+    return `<article class="security-user-card ${user.status === "inactive" ? "inactive" : ""}">
+      <div class="security-card-head">
+        <div><strong>${escapeHtml(user.name || user.login)}</strong><span>${escapeHtml(profileById(user.profileId)?.name || "Sem perfil")} | ${escapeHtml(user.status === "inactive" ? "Inativo" : "Ativo")}</span></div>
+        <small>Ultimo acesso: ${user.lastLoginAt ? escapeHtml(dateTime.format(new Date(user.lastLoginAt))) : "-"}</small>
+      </div>
+      <div class="security-user-grid">
+        <label>Nome<input data-security-user-field="name" data-security-user-id="${escapeHtml(user.id)}" value="${escapeHtml(user.name)}"></label>
+        <label>Login<input data-security-user-field="login" data-security-user-id="${escapeHtml(user.id)}" value="${escapeHtml(user.login)}"></label>
+        <label>E-mail<input data-security-user-field="email" data-security-user-id="${escapeHtml(user.id)}" value="${escapeHtml(user.email)}"></label>
+        <label>Perfil<select data-security-user-field="profileId" data-security-user-id="${escapeHtml(user.id)}">${profileOptionsMarkup(user.profileId)}</select></label>
+        <label>Status<select data-security-user-field="status" data-security-user-id="${escapeHtml(user.id)}">${optionsMarkup([["active", "Ativo"], ["inactive", "Inativo"]], user.status)}</select></label>
+        <label>Escopo de filiais<select data-security-user-field="branchScope" data-security-user-id="${escapeHtml(user.id)}">${optionsMarkup(BRANCH_SCOPE_OPTIONS.map((item) => [item, branchScopeLabel(item)]), user.branchScope)}</select></label>
+        <label>Filial principal<select data-security-user-field="branchId" data-security-user-id="${escapeHtml(user.id)}">${branchOptionsMarkup(user.branchId)}</select></label>
+        <label>Vendedor vinculado<select data-security-user-field="sellerId" data-security-user-id="${escapeHtml(user.id)}">${sellerOptionsMarkup(user.sellerId)}</select></label>
+        <label>Escopo de comissionamento<select data-security-user-field="commissionScope" data-security-user-id="${escapeHtml(user.id)}">${optionsMarkup(COMMISSION_SCOPE_OPTIONS.map((item) => [item, commissionScopeLabel(item)]), user.commissionScope)}</select></label>
+        <label>Redefinir senha<input data-security-user-password="${escapeHtml(user.id)}" type="password" placeholder="Nova senha" autocomplete="new-password"></label>
+      </div>
+      <div class="security-branch-checks"><span>Filiais permitidas</span><div>${allowedChecks || "<em>Nenhuma filial cadastrada.</em>"}</div></div>
+      ${issues.length ? `<p class="admin-inline-note warning">${issues.map(escapeHtml).join(" ")}</p>` : ""}
+    </article>`;
+  }).join("") || `<p class="muted-note">Nenhum usuario cadastrado.</p>`;
+}
+
+function renderSecurityProfiles() {
+  const container = document.getElementById("securityProfilesList");
+  if (!container) return;
+  state.profiles = normalizeProfiles(state.profiles);
+  container.innerHTML = state.profiles.map((profile) => {
+    const readOnly = profile.isSystem;
+    const permissions = SECURITY_PERMISSION_FIELDS.map(([key, label]) => `<label class="security-mini-check"><input data-security-profile-permission="${escapeHtml(key)}" data-security-profile-id="${escapeHtml(profile.id)}" type="checkbox" ${profile.permissions?.[key] ? "checked" : ""} ${readOnly ? "disabled" : ""}>${escapeHtml(label)}</label>`).join("");
+    return `<article class="security-profile-card ${readOnly ? "system" : ""}">
+      <div class="security-card-head">
+        <div><strong>${escapeHtml(profile.name)}</strong><span>${readOnly ? "Perfil de sistema" : "Perfil personalizado"}</span></div>
+        <div class="security-card-actions">
+          <button class="ghost-button compact-action" data-duplicate-security-profile="${escapeHtml(profile.id)}" type="button">Duplicar</button>
+          ${readOnly ? "" : `<button class="danger-button compact-action" data-delete-security-profile="${escapeHtml(profile.id)}" type="button">Excluir</button>`}
+        </div>
+      </div>
+      <div class="security-profile-grid">
+        <label>Nome<input data-security-profile-field="name" data-security-profile-id="${escapeHtml(profile.id)}" value="${escapeHtml(profile.name)}" ${readOnly ? "disabled" : ""}></label>
+        <label>Descricao<input data-security-profile-field="description" data-security-profile-id="${escapeHtml(profile.id)}" value="${escapeHtml(profile.description)}" ${readOnly ? "disabled" : ""}></label>
+        <label>Escopo padrao<select data-security-profile-field="defaultBranchScope" data-security-profile-id="${escapeHtml(profile.id)}" ${readOnly ? "disabled" : ""}>${optionsMarkup(BRANCH_SCOPE_OPTIONS.map((item) => [item, branchScopeLabel(item)]), profile.defaultBranchScope)}</select></label>
+        <label>Comissionamento padrao<select data-security-profile-field="defaultCommissionScope" data-security-profile-id="${escapeHtml(profile.id)}" ${readOnly ? "disabled" : ""}>${optionsMarkup(COMMISSION_SCOPE_OPTIONS.map((item) => [item, commissionScopeLabel(item)]), profile.defaultCommissionScope)}</select></label>
+      </div>
+      <div class="security-permission-grid">${permissions}</div>
+    </article>`;
+  }).join("");
 }
 
 function filteredAdminSellers() {
@@ -6302,6 +6876,267 @@ function updateSecurityPassword(target) {
   });
   saveState("Senha salva");
   renderAdminSecurityAccesses();
+  return true;
+}
+
+function createSecurityUser() {
+  if (!requireAdminAction("manageUsers", "Seguranca")) return;
+  const profile = profileByRole("Dashboard") || state.profiles[0];
+  const id = makeId();
+  const user = normalizeUser({
+    id,
+    name: "Novo usuario",
+    login: `usuario.${(state.users || []).length + 1}`,
+    email: "",
+    profileId: profile?.id || "profile-dashboard",
+    branchScope: profile?.defaultBranchScope || "all",
+    commissionScope: profile?.defaultCommissionScope || "none",
+    passwordHash: passwordHashFor("1234", id),
+  }, { profiles: state.profiles });
+  state.users.push(user);
+  logUpdate({
+    type: "Seguranca",
+    action: "Criou usuario",
+    module: "Seguranca",
+    itemId: user.id,
+    itemName: user.name,
+    message: `Usuario ${user.name} criado.`,
+  });
+  saveState("Usuario criado");
+  renderAdminSecurityAccesses();
+}
+
+function updateSecurityUserField(target) {
+  const user = state.users.find((item) => item.id === target.dataset.securityUserId);
+  if (!user || !requireAdminAction("manageUsers", "Seguranca")) {
+    renderAdminSecurityAccesses();
+    return true;
+  }
+  const field = target.dataset.securityUserField;
+  const previous = user[field] || "";
+  let value = target.value;
+  if (field === "login") {
+    value = slugForLogin(value, user.login);
+    const duplicated = state.users.some((item) => item.id !== user.id && item.login.toLowerCase() === value.toLowerCase());
+    if (duplicated) {
+      alert("Ja existe usuario com este login.");
+      renderAdminSecurityAccesses();
+      return true;
+    }
+  }
+  user[field] = value;
+  if (field === "profileId") {
+    const profile = profileById(value);
+    user.role = profile?.role || profile?.name || user.role;
+    user.branchScope = profile?.defaultBranchScope || user.branchScope;
+    user.commissionScope = profile?.defaultCommissionScope || user.commissionScope;
+  }
+  const profile = profileById(user.profileId);
+  if (user.commissionScope !== "none" && profile?.permissions?.canAccessComissionamento !== true && normalizedPermissionProfile(profile?.role || profile?.name) !== "owner") {
+    alert("O perfil selecionado nao possui permissao para Comissionamento. O escopo foi ajustado para Sem comissionamento.");
+    user.commissionScope = "none";
+  }
+  if (field === "sellerId") {
+    const seller = state.sellers.find((item) => item.id === value);
+    if (seller) {
+      user.branchId = seller.branch || user.branchId;
+      user.allowedBranchIds = seller.branch ? [seller.branch] : user.allowedBranchIds;
+    }
+  }
+  user.updatedAt = new Date().toISOString();
+  logUpdate({
+    type: "Seguranca",
+    action: field === "status" && value === "inactive" ? "Inativou usuario" : "Editou usuario",
+    module: "Seguranca",
+    itemId: user.id,
+    itemName: user.name,
+    field,
+    previousValue: previous,
+    newValue: value,
+    message: `Usuario ${user.name} atualizado.`,
+  });
+  saveState("Usuario atualizado");
+  renderAdminSecurityAccesses();
+  updateActionVisibility();
+  return true;
+}
+
+function updateSecurityUserAllowedBranch(target) {
+  const user = state.users.find((item) => item.id === target.dataset.securityUserId);
+  if (!user || !requireAdminAction("manageUsers", "Seguranca")) {
+    renderAdminSecurityAccesses();
+    return true;
+  }
+  const branch = target.dataset.securityUserAllowedBranch;
+  user.allowedBranchIds = Array.isArray(user.allowedBranchIds) ? user.allowedBranchIds : [];
+  if (target.checked && !user.allowedBranchIds.includes(branch)) user.allowedBranchIds.push(branch);
+  if (!target.checked) user.allowedBranchIds = user.allowedBranchIds.filter((item) => item !== branch);
+  user.updatedAt = new Date().toISOString();
+  logUpdate({
+    type: "Seguranca",
+    action: "Alterou escopo de filiais",
+    module: "Seguranca",
+    itemId: user.id,
+    itemName: user.name,
+    newValue: user.allowedBranchIds.join(", "),
+    message: `Escopo de filiais do usuario ${user.name} atualizado.`,
+  });
+  saveState("Escopo atualizado");
+  renderAdminSecurityAccesses();
+  return true;
+}
+
+function resetSecurityUserPassword(target) {
+  const user = state.users.find((item) => item.id === target.dataset.securityUserPassword);
+  const value = String(target.value || "").trim();
+  if (!user || !value) return false;
+  if (!requireAdminAction("manageUsers", "Seguranca")) {
+    renderAdminSecurityAccesses();
+    return true;
+  }
+  if (!criticalConfirm(`Voce esta redefinindo a senha do usuario ${user.name}. Deseja continuar?`)) {
+    renderAdminSecurityAccesses();
+    return true;
+  }
+  user.passwordHash = passwordHashFor(value, user.id);
+  user.updatedAt = new Date().toISOString();
+  logUpdate({
+    type: "Seguranca",
+    action: "Redefiniu senha de usuario",
+    module: "Seguranca",
+    itemId: user.id,
+    itemName: user.name,
+    previousValue: "Senha alterada",
+    newValue: "Senha alterada",
+    message: `Senha do usuario ${user.name} redefinida.`,
+  });
+  saveState("Senha redefinida");
+  renderAdminSecurityAccesses();
+  return true;
+}
+
+function createSecurityProfile() {
+  if (!requireAdminAction("manageProfiles", "Seguranca")) return;
+  const base = profileByRole("Dashboard") || state.profiles[0];
+  const profile = normalizeProfile({
+    id: makeId(),
+    name: "Novo perfil",
+    description: "Perfil personalizado.",
+    role: "Personalizado",
+    isSystem: false,
+    permissions: { ...(base?.permissions || profilePermissions("Dashboard")) },
+    defaultBranchScope: "selected",
+    defaultCommissionScope: "none",
+  });
+  state.profiles.push(profile);
+  logUpdate({
+    type: "Seguranca",
+    action: "Criou perfil",
+    module: "Seguranca",
+    itemId: profile.id,
+    itemName: profile.name,
+    message: `Perfil ${profile.name} criado.`,
+  });
+  saveState("Perfil criado");
+  renderAdminSecurityAccesses();
+}
+
+function duplicateSecurityProfile(profileId) {
+  if (!requireAdminAction("manageProfiles", "Seguranca")) return;
+  const source = state.profiles.find((profile) => profile.id === profileId);
+  if (!source) return;
+  const profile = normalizeProfile({
+    ...source,
+    id: makeId(),
+    name: `${source.name} copia`,
+    isSystem: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  state.profiles.push(profile);
+  logUpdate({
+    type: "Seguranca",
+    action: "Duplicou perfil",
+    module: "Seguranca",
+    itemId: profile.id,
+    itemName: profile.name,
+    message: `Perfil ${source.name} duplicado.`,
+  });
+  saveState("Perfil duplicado");
+  renderAdminSecurityAccesses();
+}
+
+function deleteSecurityProfile(profileId) {
+  if (!requireAdminAction("manageProfiles", "Seguranca")) return;
+  const profile = state.profiles.find((item) => item.id === profileId);
+  if (!profile || profile.isSystem) return;
+  if (state.users.some((user) => user.profileId === profile.id)) {
+    alert("Este perfil possui usuarios vinculados.");
+    return;
+  }
+  if (!criticalConfirm(`Excluir o perfil ${profile.name}?`)) return;
+  state.profiles = state.profiles.filter((item) => item.id !== profile.id);
+  logUpdate({
+    type: "Seguranca",
+    action: "Excluiu perfil",
+    module: "Seguranca",
+    itemId: profile.id,
+    itemName: profile.name,
+    message: `Perfil ${profile.name} excluido.`,
+  });
+  saveState("Perfil excluido");
+  renderAdminSecurityAccesses();
+}
+
+function updateSecurityProfileField(target) {
+  const profile = state.profiles.find((item) => item.id === target.dataset.securityProfileId);
+  if (!profile || profile.isSystem || !requireAdminAction("manageProfiles", "Seguranca")) {
+    renderAdminSecurityAccesses();
+    return true;
+  }
+  const field = target.dataset.securityProfileField;
+  const previous = profile[field] || "";
+  profile[field] = target.value;
+  profile.updatedAt = new Date().toISOString();
+  logUpdate({
+    type: "Seguranca",
+    action: "Editou perfil",
+    module: "Seguranca",
+    itemId: profile.id,
+    itemName: profile.name,
+    field,
+    previousValue: previous,
+    newValue: target.value,
+    message: `Perfil ${profile.name} atualizado.`,
+  });
+  saveState("Perfil atualizado");
+  renderAdminSecurityAccesses();
+  return true;
+}
+
+function updateSecurityProfilePermission(target) {
+  const profile = state.profiles.find((item) => item.id === target.dataset.securityProfileId);
+  if (!profile || profile.isSystem || !requireAdminAction("manageProfiles", "Seguranca")) {
+    renderAdminSecurityAccesses();
+    return true;
+  }
+  const permission = target.dataset.securityProfilePermission;
+  profile.permissions = { ...(profile.permissions || {}) };
+  profile.permissions[permission] = target.checked;
+  profile.updatedAt = new Date().toISOString();
+  logUpdate({
+    type: "Seguranca",
+    action: "Alterou permissoes",
+    module: "Seguranca",
+    itemId: profile.id,
+    itemName: profile.name,
+    field: permission,
+    newValue: target.checked ? "Permitido" : "Bloqueado",
+    message: `Permissao ${permission} do perfil ${profile.name} atualizada.`,
+  });
+  saveState("Permissao atualizada");
+  renderAdminSecurityAccesses();
+  updateActionVisibility();
   return true;
 }
 
@@ -7308,16 +8143,20 @@ function branchCommercialPanel(branch, sellers) {
 function internalViewTabsMarkup(context, activeTab) {
   const tabAttr = context === "dashboard" ? "data-dashboard-internal-tab" : "data-manager-internal-tab";
   const aria = context === "dashboard" ? "Abas internas do Dashboard" : "Abas internas da Filial";
+  const showCommissioning = canViewCommissioning(context);
   return `<nav class="internal-view-tabs" aria-label="${aria}">
     <button class="${activeTab === "overview" ? "active" : ""}" ${tabAttr}="overview" type="button">Visão geral</button>
-    <button class="${activeTab === "commissioning" ? "active" : ""}" ${tabAttr}="commissioning" type="button">Comissionamento</button>
+    ${showCommissioning ? `<button class="${activeTab === "commissioning" ? "active" : ""}" ${tabAttr}="commissioning" type="button">Comissionamento</button>` : ""}
   </nav>`;
 }
 
 function branchCommissioningPanel(branch, sellers) {
+  if (!canViewCommissioning("filial")) {
+    return `<div class="commissioning-view"><section class="dashboard-card"><p class="muted-note">Voce nao tem permissao para acessar a previsao de comissionamento desta filial.</p></section></div>`;
+  }
   const partial = getVisiblePartial("filial");
   const period = partial ? getPeriodForPartial(partial, activeCampaign()) : null;
-  const scopedSellers = activeManagerSellerId ? sellers.filter((seller) => seller.id === activeManagerSellerId) : sellers;
+  const scopedSellers = (activeManagerSellerId ? sellers.filter((seller) => seller.id === activeManagerSellerId) : sellers).filter((seller) => commissionScopeAllowsSeller(seller));
   const rows = commissionForecastSellerRows(partial, scopedSellers, { branch });
   if (!partial) {
     return `<div class="commissioning-view"><div class="dashboard-card commission-page-head"><div><h3>Previsão de comissionamento da filial</h3><p>Valores atuais e projetados com base na parcial oficial selecionada.</p></div></div>${commissioningNoticeMarkup()}<section class="dashboard-card"><p class="muted-note">Nenhuma parcial oficial publicada para calcular a previsão de comissionamento da filial.</p></section></div>`;
@@ -7347,7 +8186,14 @@ function renderManager() {
   if (!loginPanel || !dashboard) return;
   state.branches = normalizeBranches(state.branches, state.sellers);
   state.branchPasswords = normalizeBranchPasswords(state.branchPasswords, state.managerAccess, state._legacyManagers, state.branches);
-  if (!activeBranchSession || !state.branches.includes(activeBranchSession)) {
+  const user = currentUser();
+  const branchScope = user && hasUserPermission("canAccessFilial", user) ? allowedBranchesForUser(user) : state.branches;
+  if (activeManagerInternalTab === "commissioning" && !canViewCommissioning("filial")) activeManagerInternalTab = "overview";
+  if (user && hasUserPermission("canAccessFilial", user) && (!activeBranchSession || !branchScope.includes(activeBranchSession))) {
+    activeBranchSession = branchScope[0] || "";
+    if (activeBranchSession) sessionStorage.setItem(BRANCH_SESSION_KEY, activeBranchSession);
+  }
+  if (!activeBranchSession || !branchScope.includes(activeBranchSession)) {
     activeManagerSellerId = "";
     activeManagerIndicator = "Todos";
     activeManagerInternalTab = "overview";
@@ -7357,7 +8203,7 @@ function renderManager() {
       topAccess.hidden = true;
       topAccess.innerHTML = "";
     }
-    const options = state.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("");
+    const options = branchScope.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("");
     loginPanel.innerHTML = options ? `<div class="branch-login-card">
       <div class="branch-login-title"><span>Área da filial</span><strong>Acesso do gerente</strong></div>
       ${moduleCampaignSelectorMarkup("filial-login")}
@@ -7366,10 +8212,10 @@ function renderManager() {
       <span id="managerLoginError" class="form-error"></span>
       <button id="managerLogin" class="nav-button active" type="button">Entrar</button>
     </div>` : `<div class="branch-login-card">${moduleCampaignSelectorMarkup("filial-login")}<div class="empty-state">Cadastre uma filial no Admin para liberar esta visao.</div></div>`;
-    dashboard.innerHTML = `<div class="branch-login-helper"><strong>Painel da filial</strong><span>A filial acessa somente a parcial oficial e o atingimento dos vendedores vinculados a ela.</span></div>`;
+    dashboard.innerHTML = user ? `<div class="branch-login-helper"><strong>Sem filial liberada</strong><span>Seu usuario nao possui filial no escopo de dados.</span></div>` : `<div class="branch-login-helper"><strong>Painel da filial</strong><span>A filial acessa somente a parcial oficial e o atingimento dos vendedores vinculados a ela.</span></div>`;
     return;
   }
-  const sellers = state.sellers.filter((seller) => (seller.branch || "Sem filial") === activeBranchSession);
+  const sellers = scopedSellers(state.sellers, user).filter((seller) => (seller.branch || "Sem filial") === activeBranchSession);
   if (activeManagerSellerId && !sellers.some((seller) => seller.id === activeManagerSellerId)) activeManagerSellerId = "";
   if (activeManagerIndicator !== "Todos" && !branchPartialRecords(getVisiblePartial("filial"), activeBranchSession, sellers, "", "Todos").some((record) => metricNameMatches(record.metric || { name: record.item.metricName }, activeManagerIndicator))) activeManagerIndicator = "Todos";
   managerView?.classList.add("manager-authenticated");
@@ -7377,12 +8223,17 @@ function renderManager() {
   loginPanel.innerHTML = "";
   if (topAccess) {
     topAccess.hidden = document.body.dataset.view !== "gerente";
-    topAccess.innerHTML = `<span>Filial</span><strong>${escapeHtml(activeBranchSession)}</strong><button id="managerLogout" class="ghost-button" type="button">Trocar filial</button>`;
+    const scopedSelect = user && branchScope.length > 1
+      ? `<select id="managerScopedBranchSelect">${branchScope.map((branch) => `<option value="${escapeHtml(branch)}" ${branch === activeBranchSession ? "selected" : ""}>${escapeHtml(branch)}</option>`).join("")}</select>`
+      : `<strong>${escapeHtml(activeBranchSession)}</strong>`;
+    topAccess.innerHTML = `<span>Filial</span>${scopedSelect}<button id="managerLogout" class="ghost-button" type="button">${user ? "Sair" : "Trocar filial"}</button>`;
   }
   dashboard.innerHTML = branchDashboardMarkup(activeBranchSession, sellers);
 }
 
 function selectedCollabSeller() {
+  const user = currentUser();
+  if (user?.sellerId) return state.sellers.find((seller) => seller.id === user.sellerId) || null;
   const authenticatedCollaborator = resolveAuthenticatedCollaborator();
   const id = authenticatedCollaborator?.id || document.getElementById("collabSellerSelect")?.value || state.sellers[0]?.id;
   return state.sellers.find((seller) => seller.id === id) || state.sellers[0];
@@ -8229,8 +9080,9 @@ function renderCollaborator() {
   const seller = selectedCollabSeller();
   const dashboard = document.getElementById("collabDashboard");
   const accessCard = document.getElementById("collabAccessCard");
+  const user = currentUser();
   const authenticatedSeller = resolveAuthenticatedCollaborator();
-  const isAuthenticated = Boolean(seller && authenticatedSeller?.id === seller.id);
+  const isAuthenticated = Boolean(seller && (authenticatedSeller?.id === seller.id || user?.sellerId === seller.id));
   if (!seller || !dashboard) return;
   accessCard?.classList.toggle("is-authenticated", isAuthenticated);
   if (!isAuthenticated) {
@@ -8239,7 +9091,7 @@ function renderCollaborator() {
     return;
   }
   ensureSellerValues(seller);
-  document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Vendedor</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button compact-action" type="button">Trocar</button>`;
+  document.getElementById("collabHero").innerHTML = `<div class="collab-login-identity"><span>Vendedor</span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></div><button id="collabLogout" class="ghost-button compact-action" type="button">${user ? "Sair" : "Trocar"}</button>`;
   if (!["resumo", "detalhes", "simulador", "extrato"].includes(activeCollaboratorTab)) activeCollaboratorTab = "resumo";
   let activeTabContent = "";
   try {
@@ -8267,12 +9119,22 @@ function updateActionVisibility() {
   const isAdminView = document.getElementById("adminView").classList.contains("active");
   const isDashboardView = document.getElementById("dashboardView").classList.contains("active");
   const canUseAdminActions = isAdminUnlocked() && (isAdminView || isDashboardView);
+  const user = currentUser();
+  document.querySelectorAll(".nav-button[data-view]").forEach((button) => {
+    const view = button.dataset.view || "home";
+    button.hidden = Boolean(user && !canUserAccessView(view, user));
+  });
   document.querySelectorAll(".admin-action").forEach((item) => {
     item.hidden = !canUseAdminActions;
   });
   const topAccess = document.getElementById("branchTopAccess");
   if (topAccess) topAccess.hidden = !(document.body.dataset.view === "gerente" && activeBranchSession);
-  const hasSession = isOwnerUnlocked() || sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok" || sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok" || activeBranchSession || activeCollaboratorId;
+  const hasSession = Boolean(user) || isOwnerUnlocked() || sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok" || sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok" || activeBranchSession || activeCollaboratorId;
+  const currentUserBadge = document.getElementById("currentUserBadge");
+  if (currentUserBadge) {
+    currentUserBadge.hidden = !user;
+    currentUserBadge.textContent = user ? `${user.name} | ${currentUserProfile(user)?.name || user.role}` : "";
+  }
   const logout = document.getElementById("globalLogout");
   if (logout) logout.hidden = !hasSession || document.body.dataset.view === "home";
 }
@@ -8339,12 +9201,65 @@ function setMetricValue(seller, metricId, field, value) {
   saveState();
 }
 
+function findUserByLogin(login) {
+  const key = String(login || "").trim().toLowerCase();
+  if (!key) return null;
+  return (state.users || []).find((user) => user.login?.toLowerCase() === key || user.email?.toLowerCase() === key) || null;
+}
+
+function authenticateUser(login, password) {
+  const user = findUserByLogin(login);
+  if (!user || user.status === "inactive") return null;
+  return user.passwordHash === passwordHashFor(password, user.id) ? user : null;
+}
+
+function applyUserSession(user, requestedView = pendingAccessView) {
+  sessionStorage.setItem(USER_SESSION_KEY, user.id);
+  const permissions = userPermissions(user);
+  if (permissions.canAccessAdmin) sessionStorage.setItem(ADMIN_SESSION_KEY, "ok"); else sessionStorage.removeItem(ADMIN_SESSION_KEY);
+  if (permissions.canAccessDashboard) sessionStorage.setItem(DASHBOARD_SESSION_KEY, "ok"); else sessionStorage.removeItem(DASHBOARD_SESSION_KEY);
+  const allowedBranches = allowedBranchesForUser(user);
+  if (permissions.canAccessFilial && allowedBranches.length) {
+    activeBranchSession = allowedBranches.includes(user.branchId) ? user.branchId : allowedBranches[0];
+    sessionStorage.setItem(BRANCH_SESSION_KEY, activeBranchSession);
+  } else {
+    activeBranchSession = "";
+    sessionStorage.removeItem(BRANCH_SESSION_KEY);
+  }
+  if (user.sellerId && permissions.canAccessColaborador) {
+    const seller = state.sellers.find((item) => item.id === user.sellerId);
+    if (seller) setCollaboratorSession(seller);
+  } else if (!permissions.canAccessColaborador) {
+    clearCollaboratorSession();
+  }
+  user.lastLoginAt = new Date().toISOString();
+  user.updatedAt = user.updatedAt || user.lastLoginAt;
+  const destination = canUserAccessView(requestedView, user) ? requestedView : firstPermittedViewForUser(user);
+  logAccess({
+    status: "Sucesso",
+    profile: currentUserProfile(user)?.name || user.role,
+    userId: user.id,
+    userName: user.name,
+    module: auditModuleName(destination),
+    action: "Login realizado",
+    message: `${user.name} acessou o sistema com perfil ${currentUserProfile(user)?.name || user.role}.`,
+  }, { persist: true });
+  saveState("Login registrado");
+  return destination;
+}
+
+function clearUserSession() {
+  sessionStorage.removeItem(USER_SESSION_KEY);
+}
+
 function showAccessLogin(view = "dashboard") {
   pendingAccessView = view;
   document.getElementById("accessLock").classList.add("active");
+  const login = document.getElementById("accessLoginName");
+  if (login) login.value = "";
   document.getElementById("accessPassword").value = "";
   document.getElementById("accessLoginError").textContent = "";
-  document.getElementById("accessPassword").focus();
+  (login || document.getElementById("accessPassword")).focus();
 }
 
 function closeAccessLogin() {
@@ -8367,9 +9282,31 @@ async function verifyOwnerAccess(password) {
 }
 
 async function handleAccessLogin() {
+  const login = document.getElementById("accessLoginName")?.value || "";
   const typed = document.getElementById("accessPassword").value;
   const error = document.getElementById("accessLoginError");
   error.textContent = "";
+
+  if (login.trim()) {
+    const user = authenticateUser(login, typed);
+    if (user) {
+      const destination = applyUserSession(user, pendingAccessView);
+      closeAccessLogin();
+      renderAll();
+      openView(destination);
+      return;
+    }
+    logAccess({
+      status: "Falha",
+      profile: "Sistema",
+      module: auditModuleName(pendingAccessView),
+      action: "Tentativa de login invalida",
+      userName: login.trim(),
+      message: `Tentativa invalida de login do usuario ${login.trim()}.`,
+    }, { persist: true });
+    error.textContent = "Login ou senha incorretos";
+    return;
+  }
 
   if (pendingAccessView === "dashboard" && typed === dashboardPassword()) {
     logAccess({
@@ -8435,6 +9372,26 @@ function openRouteView(options = {}) {
 
 function openView(view, options = {}) {
   if (!document.getElementById(`${view}View`)) view = "home";
+  const user = currentUser();
+  if (view !== "home" && user) {
+    if (!canUserAccessView(view, user)) {
+      logBlockedAttempt("Acesso bloqueado ao modulo", auditModuleName(view), "Voce nao tem permissao para acessar esta area.", {
+        userId: user.id,
+        userName: user.name,
+      });
+      alert("Voce nao tem permissao para acessar esta area.");
+      view = firstPermittedViewForUser(user);
+    }
+  } else if (view !== "home" && !user && !isOwnerUnlocked()) {
+    const legacyAllowed = (view === "admin" && sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok")
+      || (view === "dashboard" && (sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok" || sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok"))
+      || (view === "gerente" && activeBranchSession)
+      || (view === "colaborador" && activeCollaboratorId);
+    if (!legacyAllowed) {
+      showAccessLogin(view);
+      return;
+    }
+  }
   if (view === "admin" && !isAdminUnlocked()) {
     if (!["Sistema", "Admin"].includes(currentAuditProfile())) {
       logBlockedAttempt("Acesso bloqueado ao modulo Admin", "Admin", "Perfil sem permissao tentou acessar o modulo Admin.");
@@ -8482,6 +9439,28 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (event.target.id === "addSecurityUser") {
+    createSecurityUser();
+    return;
+  }
+
+  if (event.target.id === "addSecurityProfile") {
+    createSecurityProfile();
+    return;
+  }
+
+  const duplicateSecurityProfileButton = event.target.closest("[data-duplicate-security-profile]");
+  if (duplicateSecurityProfileButton) {
+    duplicateSecurityProfile(duplicateSecurityProfileButton.dataset.duplicateSecurityProfile);
+    return;
+  }
+
+  const deleteSecurityProfileButton = event.target.closest("[data-delete-security-profile]");
+  if (deleteSecurityProfileButton) {
+    deleteSecurityProfile(deleteSecurityProfileButton.dataset.deleteSecurityProfile);
+    return;
+  }
+
   const graphBlockButton = event.target.closest("[data-partial-graphic-block]");
   if (graphBlockButton) {
     const block = graphBlockButton.dataset.graphicBlock || "Todos";
@@ -8496,12 +9475,22 @@ document.addEventListener("click", async (event) => {
   }
   const dashboardInternalTab = event.target.closest("[data-dashboard-internal-tab]");
   if (dashboardInternalTab) {
+    if (dashboardInternalTab.dataset.dashboardInternalTab === "commissioning" && !canViewCommissioning("dashboard")) {
+      logBlockedAttempt("Acesso bloqueado ao comissionamento", "Comissionamento", "Voce nao tem permissao para acessar comissionamento.");
+      alert("Voce nao tem permissao para acessar esta area.");
+      return;
+    }
     activeDashboardInternalTab = dashboardInternalTab.dataset.dashboardInternalTab || "overview";
     renderDashboard();
     return;
   }
   const managerInternalTab = event.target.closest("[data-manager-internal-tab]");
   if (managerInternalTab) {
+    if (managerInternalTab.dataset.managerInternalTab === "commissioning" && !canViewCommissioning("filial")) {
+      logBlockedAttempt("Acesso bloqueado ao comissionamento", "Comissionamento", "Voce nao tem permissao para acessar comissionamento.");
+      alert("Voce nao tem permissao para acessar esta area.");
+      return;
+    }
     activeManagerInternalTab = managerInternalTab.dataset.managerInternalTab || "overview";
     renderManager();
     return;
@@ -9041,6 +10030,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "managerLogout") {
+    const hadUser = Boolean(currentUser());
     logAccess({
       status: "Sucesso",
       profile: "Filial",
@@ -9050,6 +10040,7 @@ document.addEventListener("click", async (event) => {
       userName: activeBranchSession,
       message: `Filial ${activeBranchSession} saiu do sistema.`,
     }, { persist: true });
+    if (hadUser) clearUserSession();
     activeBranchSession = "";
     activeManagerSellerId = "";
     activeManagerIndicator = "Todos";
@@ -9057,6 +10048,7 @@ document.addEventListener("click", async (event) => {
     activeManagerInternalTab = "overview";
     sessionStorage.removeItem(BRANCH_SESSION_KEY);
     renderAll();
+    if (hadUser) openView("home");
   }
   const managerSellerDetail = event.target.closest("[data-manager-seller-detail]");
   if (managerSellerDetail) {
@@ -9184,9 +10176,12 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "collabLogout") {
+    const hadUser = Boolean(currentUser());
+    if (hadUser) clearUserSession();
     clearCollaboratorSession();
     activeCollaboratorTab = "resumo";
     renderAll();
+    if (hadUser) openView("home");
   }
 
   const usePartialSimulationButton = event.target.closest("[data-use-partial-simulation]");
@@ -9220,6 +10215,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "globalLogout") {
+    clearUserSession();
     clearCollaboratorSession();
     activeCollaboratorTab = "resumo";
     activeBranchSession = "";
@@ -9293,6 +10289,26 @@ document.addEventListener("change", (event) => {
   }
   if (isSecurityPasswordTarget(event.target)) {
     updateSecurityPassword(event.target);
+    return;
+  }
+  if (event.target.dataset.securityUserField) {
+    updateSecurityUserField(event.target);
+    return;
+  }
+  if (event.target.dataset.securityUserAllowedBranch) {
+    updateSecurityUserAllowedBranch(event.target);
+    return;
+  }
+  if (event.target.dataset.securityUserPassword) {
+    resetSecurityUserPassword(event.target);
+    return;
+  }
+  if (event.target.dataset.securityProfileField) {
+    updateSecurityProfileField(event.target);
+    return;
+  }
+  if (event.target.dataset.securityProfilePermission) {
+    updateSecurityProfilePermission(event.target);
     return;
   }
   if (isOfficialPeriodTarget(event.target)) {
@@ -9751,6 +10767,17 @@ document.addEventListener("change", (event) => {
     activeManagerSellerId = event.target.value;
     showBranchPartialDetails = true;
     renderManager();
+  }
+  if (event.target.id === "managerScopedBranchSelect") {
+    const allowed = allowedBranchesForUser();
+    if (allowed.includes(event.target.value)) {
+      activeBranchSession = event.target.value;
+      sessionStorage.setItem(BRANCH_SESSION_KEY, activeBranchSession);
+      activeManagerSellerId = "";
+      activeManagerIndicator = "Todos";
+      showBranchPartialDetails = false;
+      renderManager();
+    }
   }
   if (event.target.id === "managerPartialFilter") {
     activeManagerPartialId = event.target.value || "latest";
