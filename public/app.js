@@ -280,6 +280,54 @@ function passwordHashFor(password, salt = "commission360") {
   return `local-v1:${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
 }
 
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+}
+
+function passwordVaultFor(password, salt = "commission360") {
+  const value = String(password || "");
+  if (!value) return "";
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(value);
+  const saltBytes = encoder.encode(String(salt || "commission360"));
+  const encoded = new Uint8Array(bytes.length);
+  for (let index = 0; index < bytes.length; index += 1) {
+    encoded[index] = bytes[index] ^ saltBytes[index % saltBytes.length] ^ 0x5a;
+  }
+  return `vault-v1:${bytesToBase64(encoded)}`;
+}
+
+function passwordFromVault(vault, salt = "commission360") {
+  if (!String(vault || "").startsWith("vault-v1:")) return "";
+  try {
+    const bytes = base64ToBytes(String(vault).slice("vault-v1:".length));
+    const encoder = new TextEncoder();
+    const saltBytes = encoder.encode(String(salt || "commission360"));
+    const decoded = new Uint8Array(bytes.length);
+    for (let index = 0; index < bytes.length; index += 1) {
+      decoded[index] = bytes[index] ^ saltBytes[index % saltBytes.length] ^ 0x5a;
+    }
+    return new TextDecoder().decode(decoded);
+  } catch {
+    return "";
+  }
+}
+
+function legacyPasswordForUser(user = {}, context = {}) {
+  if (user.password) return String(user.password);
+  if (user.id === "user-admin") return context.settings?.adminPassword || "admin123";
+  if (user.id === "user-dashboard") return context.settings?.dashboardPassword || "dashboard123";
+  if (user.branchId && context.branchPasswords?.[user.branchId]) return context.branchPasswords[user.branchId];
+  if (user.sellerId) return (context.sellers || []).find((seller) => seller.id === user.sellerId)?.password || "";
+  return "";
+}
+
 function profileById(profileId) {
   return (state?.profiles || []).find((profile) => profile.id === profileId) || (state?.profiles || []).find((profile) => profile.id === "profile-dashboard") || null;
 }
@@ -296,12 +344,15 @@ function normalizeUser(user = {}, context = {}) {
   const id = user.id || makeId();
   const branchScope = BRANCH_SCOPE_OPTIONS.includes(user.branchScope) ? user.branchScope : (profile.defaultBranchScope || "none");
   const commissionScope = COMMISSION_SCOPE_OPTIONS.includes(user.commissionScope) ? user.commissionScope : (profile.defaultCommissionScope || "none");
+  const passwordSeed = legacyPasswordForUser({ ...user, id }, context);
+  const initialPassword = passwordSeed || (!user.passwordHash ? "1234" : "");
   return {
     id,
     name: String(user.name || user.login || "Usuario").trim() || "Usuario",
     email: String(user.email || "").trim(),
     login: slugForLogin(user.login || user.email || user.name || id, `usuario.${id.slice(-4)}`),
-    passwordHash: user.passwordHash || passwordHashFor(user.password || "1234", id),
+    passwordHash: user.passwordHash || passwordHashFor(initialPassword || "1234", id),
+    passwordVault: user.passwordVault || (initialPassword ? passwordVaultFor(initialPassword, id) : ""),
     profileId: profile.id || user.profileId || "profile-dashboard",
     role: user.role || profile.role || profile.name || "Dashboard",
     status: user.status === "inactive" || user.active === false ? "inactive" : "active",
@@ -6508,6 +6559,7 @@ function securityPasswordKey(input) {
   if (!input) return "";
   if (input.id === "newAdminPassword") return "profile:admin";
   if (input.id === "newDashboardPassword") return "profile:dashboard";
+  if (input.dataset?.securityUserPassword) return `user:${input.dataset.securityUserPassword || ""}`;
   if (input.dataset?.sellerField === "password") return `seller:${input.dataset.sellerId || ""}`;
   if (input.dataset?.branchPassword) return `branch:${input.dataset.branchPassword || ""}`;
   return "";
@@ -6623,10 +6675,15 @@ function renderSecurityUsers() {
   container.innerHTML = state.users.map((user) => {
     const issues = validateUserConfig(user);
     const allowedChecks = branchList.map((branch) => `<label class="security-mini-check"><input data-security-user-allowed-branch="${escapeHtml(branch)}" data-security-user-id="${escapeHtml(user.id)}" type="checkbox" ${user.allowedBranchIds.includes(branch) ? "checked" : ""}>${escapeHtml(branch)}</label>`).join("");
+    const passwordValue = passwordFromVault(user.passwordVault, user.id);
+    const passwordRevealed = revealedSecurityPasswordKeys.has(`user:${user.id}`);
     return `<article class="security-user-card ${user.status === "inactive" ? "inactive" : ""}">
       <div class="security-card-head">
         <div><strong>${escapeHtml(user.name || user.login)}</strong><span>${escapeHtml(profileById(user.profileId)?.name || "Sem perfil")} | ${escapeHtml(user.status === "inactive" ? "Inativo" : "Ativo")}</span></div>
-        <small>Ultimo acesso: ${user.lastLoginAt ? escapeHtml(dateTime.format(new Date(user.lastLoginAt))) : "-"}</small>
+        <div class="security-card-actions">
+          <small>Ultimo acesso: ${user.lastLoginAt ? escapeHtml(dateTime.format(new Date(user.lastLoginAt))) : "-"}</small>
+          <button class="danger-button compact-action" data-delete-security-user="${escapeHtml(user.id)}" type="button" ${currentUser()?.id === user.id ? "disabled" : ""}>Excluir</button>
+        </div>
       </div>
       <div class="security-user-grid">
         <label>Nome<input data-security-user-field="name" data-security-user-id="${escapeHtml(user.id)}" value="${escapeHtml(user.name)}"></label>
@@ -6638,7 +6695,12 @@ function renderSecurityUsers() {
         <label>Filial principal<select data-security-user-field="branchId" data-security-user-id="${escapeHtml(user.id)}">${branchOptionsMarkup(user.branchId)}</select></label>
         <label>Vendedor vinculado<select data-security-user-field="sellerId" data-security-user-id="${escapeHtml(user.id)}">${sellerOptionsMarkup(user.sellerId)}</select></label>
         <label>Escopo de comissionamento<select data-security-user-field="commissionScope" data-security-user-id="${escapeHtml(user.id)}">${optionsMarkup(COMMISSION_SCOPE_OPTIONS.map((item) => [item, commissionScopeLabel(item)]), user.commissionScope)}</select></label>
-        <label>Redefinir senha<input data-security-user-password="${escapeHtml(user.id)}" type="password" placeholder="Nova senha" autocomplete="new-password"></label>
+        <label>Senha
+          <div class="security-password-control">
+            <input data-security-user-password="${escapeHtml(user.id)}" type="${passwordRevealed ? "text" : "password"}" value="${escapeHtml(passwordValue)}" placeholder="Redefina para salvar" autocomplete="new-password">
+            ${securityPasswordToggleMarkup(passwordRevealed)}
+          </div>
+        </label>
       </div>
       <div class="security-branch-checks"><span>Filiais permitidas</span><div>${allowedChecks || "<em>Nenhuma filial cadastrada.</em>"}</div></div>
       ${issues.length ? `<p class="admin-inline-note warning">${issues.map(escapeHtml).join(" ")}</p>` : ""}
@@ -6814,6 +6876,7 @@ function isSecurityPasswordTarget(target) {
   return Boolean(target && (
     target.id === "newAdminPassword"
     || target.id === "newDashboardPassword"
+    || target.dataset?.securityUserPassword
     || target.dataset?.sellerField === "password"
     || target.dataset?.branchPassword
   ));
@@ -6822,6 +6885,10 @@ function isSecurityPasswordTarget(target) {
 function securityPasswordDescriptor(target) {
   if (target.id === "newAdminPassword") return { label: "Admin", min: 4 };
   if (target.id === "newDashboardPassword") return { label: "Dashboard", min: 4 };
+  if (target.dataset?.securityUserPassword) {
+    const user = state.users.find((item) => item.id === target.dataset.securityUserPassword);
+    return { label: `Usuario ${user?.name || ""}`.trim(), user, min: 1 };
+  }
   if (target.dataset?.sellerField === "password") {
     const seller = state.sellers.find((item) => item.id === target.dataset.sellerId);
     return { label: `Vendedor ${seller?.name || ""}`.trim(), seller, min: 1 };
@@ -6857,6 +6924,11 @@ function updateSecurityPassword(target) {
     state.settings = { ...defaultSettings(), ...(state.settings || {}) };
     state.settings.dashboardPassword = value;
     itemName = "Senha Dashboard";
+  } else if (descriptor.user) {
+    descriptor.user.passwordHash = passwordHashFor(value, descriptor.user.id);
+    descriptor.user.passwordVault = passwordVaultFor(value, descriptor.user.id);
+    descriptor.user.updatedAt = new Date().toISOString();
+    itemName = descriptor.user.name;
   } else if (descriptor.seller) {
     descriptor.seller.password = value;
     itemName = descriptor.seller.name;
@@ -6892,6 +6964,7 @@ function createSecurityUser() {
     branchScope: profile?.defaultBranchScope || "all",
     commissionScope: profile?.defaultCommissionScope || "none",
     passwordHash: passwordHashFor("1234", id),
+    passwordVault: passwordVaultFor("1234", id),
   }, { profiles: state.profiles });
   state.users.push(user);
   logUpdate({
@@ -6904,6 +6977,39 @@ function createSecurityUser() {
   });
   saveState("Usuario criado");
   renderAdminSecurityAccesses();
+}
+
+function userCanManageSecurity(user) {
+  const profile = profileById(user?.profileId);
+  const normalized = normalizedPermissionProfile(profile?.role || profile?.name);
+  return user?.status !== "inactive" && (normalized === "owner" || profile?.permissions?.canManageUsers === true || profile?.permissions?.canManageProfiles === true);
+}
+
+function deleteSecurityUser(userId) {
+  if (!requireAdminAction("manageUsers", "Seguranca")) return;
+  const user = state.users.find((item) => item.id === userId);
+  if (!user) return;
+  if (currentUser()?.id === user.id) {
+    alert("Nao e possivel excluir o usuario que esta logado agora.");
+    return;
+  }
+  if (userCanManageSecurity(user) && !state.users.some((item) => item.id !== user.id && userCanManageSecurity(item))) {
+    alert("Nao e possivel excluir o ultimo usuario com permissao para gerenciar seguranca.");
+    return;
+  }
+  if (!criticalConfirm(`Excluir o usuario ${user.name}? Esta acao remove o acesso deste usuario, mas nao apaga vendedores, filiais, parciais ou historico.`)) return;
+  state.users = state.users.filter((item) => item.id !== user.id);
+  logUpdate({
+    type: "Seguranca",
+    action: "Excluiu usuario",
+    module: "Seguranca",
+    itemId: user.id,
+    itemName: user.name,
+    message: `Usuario ${user.name} excluido.`,
+  });
+  saveState("Usuario excluido");
+  renderAdminSecurityAccesses();
+  updateActionVisibility();
 }
 
 function updateSecurityUserField(target) {
@@ -6999,6 +7105,7 @@ function resetSecurityUserPassword(target) {
     return true;
   }
   user.passwordHash = passwordHashFor(value, user.id);
+  user.passwordVault = passwordVaultFor(value, user.id);
   user.updatedAt = new Date().toISOString();
   logUpdate({
     type: "Seguranca",
@@ -9446,6 +9553,12 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.id === "addSecurityProfile") {
     createSecurityProfile();
+    return;
+  }
+
+  const deleteSecurityUserButton = event.target.closest("[data-delete-security-user]");
+  if (deleteSecurityUserButton) {
+    deleteSecurityUser(deleteSecurityUserButton.dataset.deleteSecurityUser);
     return;
   }
 
