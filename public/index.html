@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260725-login-copy-p0" />
+    <link rel="stylesheet" href="./styles.css?v=20260725-force-password-change-p0" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -742,8 +742,23 @@
       </div>
     </div>
 
+    <div id="passwordChangeLock" class="modal-backdrop">
+      <div class="modal password-change-modal">
+        <h3>Alterar senha</h3>
+        <p>Por seguranca, altere sua senha antes de continuar.</p>
+        <label>Senha atual<input id="forceCurrentPassword" type="password" autocomplete="current-password" /></label>
+        <label>Nova senha<input id="forceNewPassword" type="password" autocomplete="new-password" /></label>
+        <label>Confirmar nova senha<input id="forceConfirmPassword" type="password" autocomplete="new-password" /></label>
+        <span id="passwordChangeError" class="form-error"></span>
+        <div class="modal-actions">
+          <button id="passwordChangeLogout" class="ghost-button" type="button">Sair</button>
+          <button id="saveForcedPasswordChange" class="nav-button active" type="button">Salvar nova senha</button>
+        </div>
+      </div>
+    </div>
+
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260725-login-copy-p0"></script>
+    <script src="./app.js?v=20260725-force-password-change-p0"></script>
   </body>
 </html>

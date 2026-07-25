@@ -7,6 +7,7 @@ const COLLAB_SESSION_KEY = "commission-collaborator-session";
 const COLLAB_SESSION_META_KEY = `${COLLAB_SESSION_KEY}-meta`;
 const BRANCH_SESSION_KEY = "commission-branch-session";
 const USER_SESSION_KEY = "commission-user-session";
+const PASSWORD_CHANGE_SESSION_KEY = "commission-password-change-session";
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const pct = new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -353,6 +354,9 @@ function normalizeUser(user = {}, context = {}) {
     login: slugForLogin(user.login || user.email || user.name || id, `usuario.${id.slice(-4)}`),
     passwordHash: user.passwordHash || passwordHashFor(initialPassword || "1234", id),
     passwordVault: user.passwordVault || (initialPassword ? passwordVaultFor(initialPassword, id) : ""),
+    mustChangePassword: user.mustChangePassword === true,
+    passwordUpdatedAt: user.passwordUpdatedAt || "",
+    lastPasswordChangeAt: user.lastPasswordChangeAt || "",
     profileId: profile.id || user.profileId || "profile-dashboard",
     role: user.role || profile.role || profile.name || "Dashboard",
     status: user.status === "inactive" || user.active === false ? "inactive" : "active",
@@ -462,6 +466,22 @@ function currentUser() {
   if (!id) return null;
   const user = (state?.users || []).find((item) => item.id === id && item.status !== "inactive") || null;
   if (!user) sessionStorage.removeItem(USER_SESSION_KEY);
+  if (user?.mustChangePassword) {
+    sessionStorage.setItem(PASSWORD_CHANGE_SESSION_KEY, user.id);
+    sessionStorage.removeItem(USER_SESSION_KEY);
+    return null;
+  }
+  return user;
+}
+
+function currentPasswordChangeUser() {
+  const id = sessionStorage.getItem(PASSWORD_CHANGE_SESSION_KEY) || "";
+  if (!id) return null;
+  const user = (state?.users || []).find((item) => item.id === id && item.status !== "inactive") || null;
+  if (!user || !user.mustChangePassword) {
+    sessionStorage.removeItem(PASSWORD_CHANGE_SESSION_KEY);
+    return null;
+  }
   return user;
 }
 
@@ -6677,9 +6697,10 @@ function renderSecurityUsers() {
     const allowedChecks = branchList.map((branch) => `<label class="security-mini-check"><input data-security-user-allowed-branch="${escapeHtml(branch)}" data-security-user-id="${escapeHtml(user.id)}" type="checkbox" ${user.allowedBranchIds.includes(branch) ? "checked" : ""}>${escapeHtml(branch)}</label>`).join("");
     const passwordValue = passwordFromVault(user.passwordVault, user.id);
     const passwordRevealed = revealedSecurityPasswordKeys.has(`user:${user.id}`);
+    const passwordStatus = user.mustChangePassword ? "Senha temporaria - troca obrigatoria" : "Senha definitiva";
     return `<article class="security-user-card ${user.status === "inactive" ? "inactive" : ""}">
       <div class="security-card-head">
-        <div><strong>${escapeHtml(user.name || user.login)}</strong><span>${escapeHtml(profileById(user.profileId)?.name || "Sem perfil")} | ${escapeHtml(user.status === "inactive" ? "Inativo" : "Ativo")}</span></div>
+        <div><strong>${escapeHtml(user.name || user.login)}</strong><span>${escapeHtml(profileById(user.profileId)?.name || "Sem perfil")} | ${escapeHtml(user.status === "inactive" ? "Inativo" : "Ativo")} | ${escapeHtml(passwordStatus)}</span></div>
         <div class="security-card-actions">
           <small>Ultimo acesso: ${user.lastLoginAt ? escapeHtml(dateTime.format(new Date(user.lastLoginAt))) : "-"}</small>
           <button class="danger-button compact-action" data-delete-security-user="${escapeHtml(user.id)}" type="button" ${currentUser()?.id === user.id ? "disabled" : ""}>Excluir</button>
@@ -6700,6 +6721,7 @@ function renderSecurityUsers() {
             <input data-security-user-password="${escapeHtml(user.id)}" type="${passwordRevealed ? "text" : "password"}" value="${escapeHtml(passwordValue)}" placeholder="Redefina para salvar" autocomplete="new-password">
             ${securityPasswordToggleMarkup(passwordRevealed)}
           </div>
+          <small>${user.mustChangePassword ? "Senha temporaria. O usuario devera trocar no proximo acesso." : "Senha definida pelo usuario ou ja validada."}</small>
         </label>
       </div>
       <div class="security-branch-checks"><span>Filiais permitidas</span><div>${allowedChecks || "<em>Nenhuma filial cadastrada.</em>"}</div></div>
@@ -6927,6 +6949,8 @@ function updateSecurityPassword(target) {
   } else if (descriptor.user) {
     descriptor.user.passwordHash = passwordHashFor(value, descriptor.user.id);
     descriptor.user.passwordVault = passwordVaultFor(value, descriptor.user.id);
+    descriptor.user.mustChangePassword = true;
+    descriptor.user.passwordUpdatedAt = new Date().toISOString();
     descriptor.user.updatedAt = new Date().toISOString();
     itemName = descriptor.user.name;
   } else if (descriptor.seller) {
@@ -6944,9 +6968,10 @@ function updateSecurityPassword(target) {
     itemName,
     previousValue: "Senha alterada",
     newValue: "Senha alterada",
-    message: "Senha alterada.",
+    message: descriptor.user ? "Senha redefinida. O usuario devera criar uma nova senha no proximo acesso." : "Senha alterada.",
   });
   saveState("Senha salva");
+  if (descriptor.user) alert("Senha redefinida. O usuario devera criar uma nova senha no proximo acesso.");
   renderAdminSecurityAccesses();
   return true;
 }
@@ -6965,6 +6990,8 @@ function createSecurityUser() {
     commissionScope: profile?.defaultCommissionScope || "none",
     passwordHash: passwordHashFor("1234", id),
     passwordVault: passwordVaultFor("1234", id),
+    mustChangePassword: true,
+    passwordUpdatedAt: new Date().toISOString(),
   }, { profiles: state.profiles });
   state.users.push(user);
   logUpdate({
@@ -6973,9 +7000,10 @@ function createSecurityUser() {
     module: "Seguranca",
     itemId: user.id,
     itemName: user.name,
-    message: `Usuario ${user.name} criado.`,
+    message: `Usuario ${user.name} criado com senha temporaria.`,
   });
-  saveState("Usuario criado");
+  saveState("Usuario criado. No primeiro acesso, ele devera trocar a senha.");
+  alert("Usuario criado. No primeiro acesso, ele devera trocar a senha.");
   renderAdminSecurityAccesses();
 }
 
@@ -7106,6 +7134,8 @@ function resetSecurityUserPassword(target) {
   }
   user.passwordHash = passwordHashFor(value, user.id);
   user.passwordVault = passwordVaultFor(value, user.id);
+  user.mustChangePassword = true;
+  user.passwordUpdatedAt = new Date().toISOString();
   user.updatedAt = new Date().toISOString();
   logUpdate({
     type: "Seguranca",
@@ -7115,9 +7145,10 @@ function resetSecurityUserPassword(target) {
     itemName: user.name,
     previousValue: "Senha alterada",
     newValue: "Senha alterada",
-    message: `Senha do usuario ${user.name} redefinida.`,
+    message: `Senha do usuario ${user.name} redefinida. Troca obrigatoria no proximo acesso.`,
   });
   saveState("Senha redefinida");
+  alert("Senha redefinida. O usuario devera criar uma nova senha no proximo acesso.");
   renderAdminSecurityAccesses();
   return true;
 }
@@ -9227,16 +9258,17 @@ function updateActionVisibility() {
   const isDashboardView = document.getElementById("dashboardView").classList.contains("active");
   const canUseAdminActions = isAdminUnlocked() && (isAdminView || isDashboardView);
   const user = currentUser();
+  const passwordChangeUser = currentPasswordChangeUser();
   document.querySelectorAll(".nav-button[data-view]").forEach((button) => {
     const view = button.dataset.view || "home";
-    button.hidden = Boolean(user && !canUserAccessView(view, user));
+    button.hidden = Boolean((passwordChangeUser && view !== "home") || (user && !canUserAccessView(view, user)));
   });
   document.querySelectorAll(".admin-action").forEach((item) => {
     item.hidden = !canUseAdminActions;
   });
   const topAccess = document.getElementById("branchTopAccess");
   if (topAccess) topAccess.hidden = !(document.body.dataset.view === "gerente" && activeBranchSession);
-  const hasSession = Boolean(user) || isOwnerUnlocked() || sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok" || sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok" || activeBranchSession || activeCollaboratorId;
+  const hasSession = Boolean(user || passwordChangeUser) || isOwnerUnlocked() || sessionStorage.getItem(ADMIN_SESSION_KEY) === "ok" || sessionStorage.getItem(DASHBOARD_SESSION_KEY) === "ok" || activeBranchSession || activeCollaboratorId;
   const currentUserBadge = document.getElementById("currentUserBadge");
   if (currentUserBadge) {
     currentUserBadge.hidden = !user;
@@ -9357,6 +9389,7 @@ function applyUserSession(user, requestedView = pendingAccessView) {
 
 function clearUserSession() {
   sessionStorage.removeItem(USER_SESSION_KEY);
+  sessionStorage.removeItem(PASSWORD_CHANGE_SESSION_KEY);
 }
 
 function accessPasswordIconMarkup(revealed = false) {
@@ -9398,6 +9431,125 @@ function closeAccessLogin() {
   document.getElementById("accessLock").classList.remove("active");
 }
 
+function clearPasswordChangeFields() {
+  for (const id of ["forceCurrentPassword", "forceNewPassword", "forceConfirmPassword"]) {
+    const input = document.getElementById(id);
+    if (input) input.value = "";
+  }
+  const error = document.getElementById("passwordChangeError");
+  if (error) error.textContent = "";
+}
+
+function showPasswordChangeModal(user = currentPasswordChangeUser()) {
+  if (!user) return;
+  closeAccessLogin();
+  const modal = document.getElementById("passwordChangeLock");
+  if (!modal) return;
+  modal.classList.add("active");
+  clearPasswordChangeFields();
+  document.getElementById("forceCurrentPassword")?.focus();
+}
+
+function closePasswordChangeModal() {
+  document.getElementById("passwordChangeLock")?.classList.remove("active");
+  clearPasswordChangeFields();
+}
+
+function startPasswordChangeFlow(user, requestedView = pendingAccessView) {
+  pendingAccessView = canUserAccessView(requestedView, user) ? requestedView : firstPermittedViewForUser(user);
+  sessionStorage.setItem(PASSWORD_CHANGE_SESSION_KEY, user.id);
+  sessionStorage.removeItem(USER_SESSION_KEY);
+  sessionStorage.removeItem(ADMIN_SESSION_KEY);
+  sessionStorage.removeItem(DASHBOARD_SESSION_KEY);
+  sessionStorage.removeItem(BRANCH_SESSION_KEY);
+  activeBranchSession = "";
+  clearCollaboratorSession();
+  user.lastLoginAt = new Date().toISOString();
+  user.updatedAt = user.updatedAt || user.lastLoginAt;
+  logAccess({
+    status: "Sucesso",
+    profile: currentUserProfile(user)?.name || user.role,
+    userId: user.id,
+    userName: user.name,
+    module: "Seguranca",
+    action: "Login com senha temporaria",
+    message: `${user.name} informou senha temporaria valida e foi direcionado para troca obrigatoria.`,
+  }, { persist: true });
+  logAccess({
+    status: "Bloqueado",
+    profile: currentUserProfile(user)?.name || user.role,
+    userId: user.id,
+    userName: user.name,
+    module: "Seguranca",
+    action: "Troca de senha obrigatoria",
+    message: "Acesso aos modulos bloqueado ate a troca da senha temporaria.",
+  }, { persist: true });
+  saveState("Troca de senha obrigatoria");
+  renderAll();
+  showPasswordChangeModal(user);
+}
+
+function validateForcedPasswordChange(user, currentPassword, newPassword, confirmation) {
+  if (!currentPassword || !newPassword || !confirmation) return "Preencha todos os campos.";
+  if (passwordHashFor(currentPassword, user.id) !== user.passwordHash) return "A senha atual esta incorreta.";
+  if (newPassword.length < 6) return "A nova senha deve ter pelo menos 6 caracteres.";
+  if (newPassword !== confirmation) return "A confirmacao da senha nao confere.";
+  if (newPassword === currentPassword) return "A nova senha deve ser diferente da senha atual.";
+  return "";
+}
+
+function saveForcedPasswordChange() {
+  const user = currentPasswordChangeUser();
+  const error = document.getElementById("passwordChangeError");
+  if (error) error.textContent = "";
+  if (!user) {
+    closePasswordChangeModal();
+    showAccessLogin(pendingAccessView);
+    return;
+  }
+  const currentPassword = document.getElementById("forceCurrentPassword")?.value || "";
+  const newPassword = document.getElementById("forceNewPassword")?.value || "";
+  const confirmation = document.getElementById("forceConfirmPassword")?.value || "";
+  const validation = validateForcedPasswordChange(user, currentPassword, newPassword, confirmation);
+  if (validation) {
+    if (error) error.textContent = validation;
+    logAccess({
+      status: "Falha",
+      profile: currentUserProfile(user)?.name || user.role,
+      userId: user.id,
+      userName: user.name,
+      module: "Seguranca",
+      action: "Tentativa invalida de troca de senha",
+      message: validation,
+    }, { persist: true });
+    return;
+  }
+  user.passwordHash = passwordHashFor(newPassword, user.id);
+  user.passwordVault = "";
+  user.mustChangePassword = false;
+  user.passwordUpdatedAt = new Date().toISOString();
+  user.lastPasswordChangeAt = user.passwordUpdatedAt;
+  user.updatedAt = user.passwordUpdatedAt;
+  sessionStorage.removeItem(PASSWORD_CHANGE_SESSION_KEY);
+  logUpdate({
+    type: "Seguranca",
+    action: "Troca de senha realizada",
+    module: "Seguranca",
+    itemId: user.id,
+    itemName: user.name,
+    userId: user.id,
+    userName: user.name,
+    previousValue: "Senha alterada",
+    newValue: "Senha alterada",
+    message: `${user.name} alterou a senha obrigatoria com sucesso.`,
+  }, { persist: true });
+  saveState("Senha alterada com sucesso");
+  closePasswordChangeModal();
+  const destination = applyUserSession(user, pendingAccessView);
+  renderAll();
+  openView(destination);
+}
+
 async function verifyOwnerAccess(password) {
   try {
     const response = await fetch("/api/auth", {
@@ -9422,6 +9574,10 @@ async function handleAccessLogin() {
   if (login.trim()) {
     const user = authenticateUser(login, typed);
     if (user) {
+      if (user.mustChangePassword) {
+        startPasswordChangeFlow(user, pendingAccessView);
+        return;
+      }
       const destination = applyUserSession(user, pendingAccessView);
       closeAccessLogin();
       renderAll();
@@ -9504,6 +9660,11 @@ function openRouteView(options = {}) {
 
 function openView(view, options = {}) {
   if (!document.getElementById(`${view}View`)) view = "home";
+  const passwordChangeUser = currentPasswordChangeUser();
+  if (view !== "home" && passwordChangeUser) {
+    showPasswordChangeModal(passwordChangeUser);
+    return;
+  }
   const user = currentUser();
   if (view !== "home" && user) {
     if (!canUserAccessView(view, user)) {
@@ -10373,6 +10534,25 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.id === "accessLogin") await handleAccessLogin();
   if (event.target.id === "accessCancel") closeAccessLogin();
+  if (event.target.id === "saveForcedPasswordChange") saveForcedPasswordChange();
+  if (event.target.id === "passwordChangeLogout") {
+    const user = currentPasswordChangeUser();
+    if (user) {
+      logAccess({
+        status: "Sucesso",
+        profile: currentUserProfile(user)?.name || user.role,
+        userId: user.id,
+        userName: user.name,
+        module: "Seguranca",
+        action: "Saiu da troca de senha",
+        message: `${user.name} saiu antes de concluir a troca obrigatoria de senha.`,
+      }, { persist: true });
+    }
+    clearUserSession();
+    closePasswordChangeModal();
+    renderAll();
+    openView("home");
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -10993,6 +11173,9 @@ document.addEventListener("change", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && document.getElementById("accessLock").classList.contains("active")) {
     document.getElementById("accessLogin").click();
+  }
+  if (event.key === "Enter" && document.getElementById("passwordChangeLock")?.classList.contains("active")) {
+    document.getElementById("saveForcedPasswordChange")?.click();
   }
 });
 
