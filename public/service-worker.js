@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260725-commissioning-contrast-p0";
+const CACHE_NAME = "comissao-pwa-v20260725-security-password-toggle-p0";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260725-commissioning-contrast-p0",
-  "/app.js?v=20260725-commissioning-contrast-p0",
+  "/styles.css?v=20260725-security-password-toggle-p0",
+  "/app.js?v=20260725-security-password-toggle-p0",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

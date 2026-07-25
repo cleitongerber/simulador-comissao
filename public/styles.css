@@ -3928,7 +3928,11 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 }
 
 .security-access-row input {
-  width: min(260px, 100%);
+  width: 100%;
+}
+
+.security-access-row .security-password-control {
+  width: min(340px, 100%);
 }
 
 .access-list + .ghost-button {
@@ -3972,6 +3976,47 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 .security-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-bottom: 16px;
+}
+
+.security-field {
+  display: grid;
+  gap: 6px;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.security-password-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.security-password-toggle {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.security-password-toggle:hover,
+.security-password-toggle:focus-visible {
+  border-color: #efb8bf;
+  background: #fff5f6;
+}
+
+.security-password-toggle[aria-pressed="true"] {
+  border-color: #efb8bf;
+  background: #fff1f3;
+  color: #7f1d1d;
 }
 
 .identity-grid {
@@ -4066,6 +4111,15 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
   #adminView .seller-card .delete-seller-button {
     grid-column: auto;
+  }
+
+  .security-access-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .security-access-row .security-password-control {
+    width: 100%;
   }
 }
 

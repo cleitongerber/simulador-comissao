@@ -194,6 +194,7 @@ let activeAuditLogId = "";
 let activeClosingSellerDetailId = "";
 let lastAccessLogKey = "";
 let confirmedCriticalEditKeys = new Set();
+let revealedSecurityPasswordKeys = new Set();
 let pendingPartialImport = null;
 let partialPreviewFilter = "Todos";
 let showBranchPartialDetails = false;
@@ -6024,27 +6025,75 @@ function renderAdminFilters() {
   }
 }
 
+function securityPasswordKey(input) {
+  if (!input) return "";
+  if (input.id === "newAdminPassword") return "profile:admin";
+  if (input.id === "newDashboardPassword") return "profile:dashboard";
+  if (input.dataset?.sellerField === "password") return `seller:${input.dataset.sellerId || ""}`;
+  if (input.dataset?.branchPassword) return `branch:${input.dataset.branchPassword || ""}`;
+  return "";
+}
+
+function securityPasswordToggleMarkup(revealed = false) {
+  return `<button class="security-password-toggle" data-security-toggle-password type="button" aria-pressed="${revealed ? "true" : "false"}" aria-label="${revealed ? "Ocultar senha" : "Exibir senha"}" title="${revealed ? "Ocultar senha" : "Exibir senha"}">${revealed ? "Ocultar" : "Exibir"}</button>`;
+}
+
+function syncSecurityPasswordControl(input) {
+  const key = securityPasswordKey(input);
+  if (!key) return;
+  const revealed = revealedSecurityPasswordKeys.has(key);
+  input.type = revealed ? "text" : "password";
+  const button = input.closest(".security-password-control")?.querySelector("[data-security-toggle-password]");
+  if (!button) return;
+  button.textContent = revealed ? "Ocultar" : "Exibir";
+  button.title = revealed ? "Ocultar senha" : "Exibir senha";
+  button.setAttribute("aria-label", revealed ? "Ocultar senha" : "Exibir senha");
+  button.setAttribute("aria-pressed", String(revealed));
+}
+
+function toggleSecurityPasswordVisibility(button) {
+  const input = button?.closest(".security-password-control")?.querySelector("input");
+  const key = securityPasswordKey(input);
+  if (!input || !key) return false;
+  if (revealedSecurityPasswordKeys.has(key)) {
+    revealedSecurityPasswordKeys.delete(key);
+  } else {
+    revealedSecurityPasswordKeys.add(key);
+  }
+  syncSecurityPasswordControl(input);
+  input.focus({ preventScroll: true });
+  return true;
+}
+
 function renderAdminSecurityAccesses() {
   const adminPasswordInput = document.getElementById("newAdminPassword");
   const dashboardPasswordInput = document.getElementById("newDashboardPassword");
   if (adminPasswordInput && document.activeElement !== adminPasswordInput) adminPasswordInput.value = adminPassword();
   if (dashboardPasswordInput && document.activeElement !== dashboardPasswordInput) dashboardPasswordInput.value = dashboardPassword();
+  syncSecurityPasswordControl(adminPasswordInput);
+  syncSecurityPasswordControl(dashboardPasswordInput);
   const sellerContainer = document.getElementById("sellerPasswordList");
   if (sellerContainer) {
     sellerContainer.innerHTML = state.sellers.map((seller) => `
-      <label class="access-row security-access-row">
+      <div class="access-row security-access-row">
         <span><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</small></span>
-        <input data-seller-field="password" data-seller-id="${seller.id}" type="password" minlength="1" value="${escapeHtml(seller.password || "1234")}" autocomplete="off">
-      </label>
+        <div class="security-password-control">
+          <input data-seller-field="password" data-seller-id="${seller.id}" type="${revealedSecurityPasswordKeys.has(`seller:${seller.id}`) ? "text" : "password"}" minlength="1" value="${escapeHtml(seller.password || "1234")}" autocomplete="off">
+          ${securityPasswordToggleMarkup(revealedSecurityPasswordKeys.has(`seller:${seller.id}`))}
+        </div>
+      </div>
     `).join("") || `<p class="muted-note">Nenhum vendedor cadastrado.</p>`;
   }
   const branchContainer = document.getElementById("branchPasswordList");
   if (branchContainer) {
     branchContainer.innerHTML = branches().map((branch) => `
-      <label class="access-row security-access-row">
+      <div class="access-row security-access-row">
         <span><strong>${escapeHtml(branch)}</strong><small>Acesso da filial</small></span>
-        <input data-branch-password="${escapeHtml(branch)}" type="password" minlength="1" value="${escapeHtml(state.branchPasswords?.[branch] || "1234")}" autocomplete="off">
-      </label>
+        <div class="security-password-control">
+          <input data-branch-password="${escapeHtml(branch)}" type="${revealedSecurityPasswordKeys.has(`branch:${branch}`) ? "text" : "password"}" minlength="1" value="${escapeHtml(state.branchPasswords?.[branch] || "1234")}" autocomplete="off">
+          ${securityPasswordToggleMarkup(revealedSecurityPasswordKeys.has(`branch:${branch}`))}
+        </div>
+      </div>
     `).join("") || `<p class="muted-note">Nenhuma filial cadastrada.</p>`;
   }
 }
@@ -8427,6 +8476,12 @@ function openView(view, options = {}) {
 }
 
 document.addEventListener("click", async (event) => {
+  const securityPasswordToggle = event.target.closest("[data-security-toggle-password]");
+  if (securityPasswordToggle) {
+    toggleSecurityPasswordVisibility(securityPasswordToggle);
+    return;
+  }
+
   const graphBlockButton = event.target.closest("[data-partial-graphic-block]");
   if (graphBlockButton) {
     const block = graphBlockButton.dataset.graphicBlock || "Todos";

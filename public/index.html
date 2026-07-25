@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-    <link rel="stylesheet" href="./styles.css?v=20260725-commissioning-contrast-p0" />
+    <link rel="stylesheet" href="./styles.css?v=20260725-security-password-toggle-p0" />
   </head>
   <body data-view="home">
     <div class="app-shell">
@@ -511,16 +511,22 @@
                     <p>Defina senhas independentes e permissao de cada acesso.</p>
                   </div>
                   <div class="security-grid">
-                    <label>
-                      Senha admin
-                      <input id="newAdminPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" autocomplete="off" />
+                    <div class="security-field">
+                      <label for="newAdminPassword">Senha admin</label>
+                      <div class="security-password-control">
+                        <input id="newAdminPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" autocomplete="off" />
+                        <button class="security-password-toggle" data-security-toggle-password type="button" aria-pressed="false" aria-label="Exibir senha" title="Exibir senha">Exibir</button>
+                      </div>
                       <small>Admin: configuracoes administrativas.</small>
-                    </label>
-                    <label>
-                      Senha Dashboard
-                      <input id="newDashboardPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" autocomplete="off" />
+                    </div>
+                    <div class="security-field">
+                      <label for="newDashboardPassword">Senha Dashboard</label>
+                      <div class="security-password-control">
+                        <input id="newDashboardPassword" type="password" minlength="4" placeholder="Minimo 4 caracteres" autocomplete="off" />
+                        <button class="security-password-toggle" data-security-toggle-password type="button" aria-pressed="false" aria-label="Exibir senha" title="Exibir senha">Exibir</button>
+                      </div>
                       <small>Dashboard: somente visualizacao.</small>
-                    </label>
+                    </div>
                   </div>
                   <div class="permission-list">
                     <div><strong>Dashboard</strong><span>Somente visualizacao</span></div>
@@ -694,6 +700,6 @@
 
     <div id="ownerCredit" class="owner-credit" title="Desenvolvido por Cleiton Gerber">Desenvolvido por Cleiton Gerber</div>
 
-    <script src="./app.js?v=20260725-commissioning-contrast-p0"></script>
+    <script src="./app.js?v=20260725-security-password-toggle-p0"></script>
   </body>
 </html>
