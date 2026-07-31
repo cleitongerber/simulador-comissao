@@ -3330,6 +3330,10 @@ body[data-view="home"] .sidebar .nav-button.active::after {
   .collab-bottom-grid {
     grid-template-columns: 1fr;
   }
+
+  .collab-simulator-control-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 980px) {
@@ -3357,6 +3361,19 @@ body[data-view="home"] .sidebar .nav-button.active::after {
 
   .collab-money {
     font-size: 36px;
+  }
+
+  .collab-simulator-head-card {
+    display: grid;
+  }
+
+  .collab-simulator-head-card .ghost-button {
+    width: 100%;
+  }
+
+  .collab-simulation-summary-grid,
+  .collab-simulation-period-card .collab-month-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .collab-guidance-card {
@@ -6171,6 +6188,11 @@ body[data-view="home"] .main > .view > * {
   .collab-page-head h2 {
     font-size: 24px;
   }
+
+  .collab-simulation-summary-grid,
+  .collab-simulation-period-card .collab-month-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .admin-card-title-row {
@@ -6711,6 +6733,96 @@ body[data-view="home"] .main > .view > * {
 .collab-tab-panel {
   display: grid;
   gap: 16px;
+}
+
+.collab-simulator-panel {
+  gap: 14px;
+}
+
+.collab-simulator-head-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+.collab-simulator-head-card h3,
+.collab-simulator-head-card p {
+  margin: 0;
+}
+
+.collab-simulator-head-card h3 {
+  color: var(--ink);
+  font-size: 20px;
+}
+
+.collab-simulator-head-card p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.collab-simulator-summary-card {
+  display: grid;
+  gap: 14px;
+}
+
+.collab-simulator-summary-card .collab-card-head {
+  margin-bottom: 0;
+}
+
+.collab-simulator-summary-card .collab-money {
+  display: block;
+}
+
+.collab-simulation-summary-grid,
+.collab-simulator-control-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.collab-simulation-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.collab-simulator-control-grid {
+  grid-template-columns: minmax(280px, .75fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.collab-simulation-summary-grid span,
+.collab-simulation-period-card .collab-month-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #eef0f4;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.collab-simulation-summary-grid strong,
+.collab-simulation-period-card .collab-month-grid label input {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 850;
+  text-transform: none;
+}
+
+.collab-simulation-period-card .collab-month-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.collab-simulation-period-card .collab-month-grid label input {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 2px;
 }
 
 .collab-simulator-intro .collab-card-head {

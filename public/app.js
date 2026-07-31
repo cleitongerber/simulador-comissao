@@ -9070,22 +9070,43 @@ function collaboratorSimulationPeriodMarkup() {
   </section>`;
 }
 
+function collaboratorSimulationSummaryMarkup(seller) {
+  const summary = collaboratorSummary(seller);
+  return `<section class="collab-card collab-simulator-summary-card">
+    <div class="collab-card-head">
+      <div><h3>Resultado da simulação</h3><p>Previsão calculada com os valores editados abaixo.</p></div>
+      <span class="status ${summary.status.cls}">${summary.status.label}</span>
+    </div>
+    <strong class="collab-money">${money.format(summary.final)}</strong>
+    <div class="collab-simulation-summary-grid">
+      <span>Comissão bruta<strong>${money.format(summary.gross)}</strong></span>
+      <span>Deflatores<strong>${money.format(summary.result.projectedDeflator)}</strong></span>
+      <span>Estornos<strong>${discountMoney(summary.estornos)}</strong></span>
+      <span>Metas atingidas<strong>${summary.goalCompletion.metCount}/${summary.goalCompletion.applicableCount}</strong></span>
+    </div>
+  </section>`;
+}
+
+function collaboratorSimulatorHeaderMarkup(usePartialButton = "") {
+  return `<section class="collab-card collab-simulator-head-card">
+    <div>
+      <h3>Simulador</h3>
+      <p>Ajuste dias e realizados para acompanhar sua previsão.</p>
+    </div>
+    ${usePartialButton}
+  </section>`;
+}
+
 function collaboratorSimulatorMarkup(seller) {
   const partial = getVisiblePartial("colaborador");
   const usePartialButton = partial && partialItemsForSeller(partial, seller).length
     ? `<button class="ghost-button compact-action" type="button" data-use-partial-simulation="${escapeHtml(partial.id)}" ${isCampaignOperationLocked() ? "disabled" : ""}>Usar parcial como base da simulação</button>`
     : "";
-  return withProjectionPeriod(collaboratorSimulationPeriod(), () => `<div class="collab-tab-panel">
-    <div class="collab-top-grid">${collaboratorKpiMarkup(seller)}</div>
-    <div class="collab-mid-grid">${collaboratorSimulationPeriodMarkup()}${collaboratorDeflatorMarkup(seller)}${collaboratorEstornosMarkup(seller)}</div>
-    <section class="collab-card collab-simulator-intro">
-      <div class="collab-card-head">
-        <div><h3>Minha simulação</h3><p>Use esta área para simular cenários. A simulação não altera o resultado parcial oficial.</p></div>
-        ${usePartialButton}
-      </div>
-    </section>
+  return withProjectionPeriod(collaboratorSimulationPeriod(), () => `<div class="collab-tab-panel collab-simulator-panel">
+    ${collaboratorSimulatorHeaderMarkup(usePartialButton)}
+    ${collaboratorSimulationSummaryMarkup(seller)}
+    <div class="collab-simulator-control-grid">${collaboratorSimulationPeriodMarkup()}${collaboratorOpportunityMarkup(seller)}</div>
     ${collaboratorIndicatorTableGrouped(seller)}
-    <div class="collab-bottom-grid">${collaboratorOpportunityMarkup(seller)}</div>
   </div>`);
 }
 
