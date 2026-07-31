@@ -8938,6 +8938,9 @@ function collaboratorOfficialSummaryMarkup(seller) {
   const deflatorBox = preview.triggered.length
     ? `<div class="partial-meta-line warning"><strong>Deflatores identificados</strong><span>${preview.triggered.map((item) => `${item.metric.name} abaixo da regra minima`).join(" | ")}${preview.ignored ? " | Ignorado por experiencia" : ""}</span></div>`
     : `<div class="partial-meta-line"><strong>Deflatores</strong><span>Nenhum deflator identificado.</span></div>`;
+  const commissionGross = commission ? money.format(commission.projectedSubtotal) : "-";
+  const commissionDeflator = commission ? money.format(commission.projectedDeflator) : "-";
+  const commissionLiquid = commission ? money.format(commission.projected) : "-";
   return `<section class="collab-card collab-official-summary-card">
     <div class="collab-card-head"><div><h3>Resultado parcial oficial</h3><p>Este é o resultado parcial oficial importado pela empresa.</p></div>${partialVisibilityBadge(partial)}</div>
     <div class="collab-month-grid">
@@ -8953,10 +8956,11 @@ function collaboratorOfficialSummaryMarkup(seller) {
       ${blockGoalRows.map((row) => `<article class="block-summary-card ${row.status.cls}"><span>${escapeHtml(metricGroupDisplay(row.key))}</span><strong>${achievementPill(row.metPercent)}</strong><small>Indicadores na meta: ${row.metCount} de ${row.applicableCount}</small><small>Projetado do bloco: ${achievementPill(row.totals.projectedPercent)} | Criticos: ${criticalMetricNames(row.items, 3) || "Nenhum"}</small></article>`).join("")}
     </div>
     <div class="branch-partial-summary analytic">
-      <article><span>Comissao estimada</span><strong>${commission ? money.format(commission.projected) : "-"}</strong><small>Com base na parcial</small></article>
+      <article><span>Comissao bruta</span><strong>${commissionGross}</strong><small>Antes dos descontos</small></article>
+      <article><span>Deflatores</span><strong>${commissionDeflator}</strong><small>${preview.triggered.length ? "Impacto projetado" : "Sem deflator"}</small></article>
+      <article><span>Comissao liquida</span><strong>${commissionLiquid}</strong><small>Valor projetado da parcial</small></article>
       <article><span>Metas atingidas</span><strong>${completion.metCount}/${completion.applicableCount}</strong><small>${completion.metPercent === null ? "-" : pct.format(completion.metPercent)}</small></article>
       <article><span>Indicadores abaixo de 80%</span><strong>${completion.criticalCount}</strong><small>Base: % projetado</small></article>
-      <article><span>Parcial publicada</span><strong>${escapeHtml(partial.name)}</strong><small>${escapeHtml(partial.baseDate || "-")}</small></article>
     </div>
     ${deflatorBox}
     <p class="recommended-action">${opportunity}</p>
@@ -9343,7 +9347,7 @@ function renderCollaborator() {
     } else if (activeCollaboratorTab === "extrato") {
       activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialExtractMarkup(seller)}</div>`;
     } else {
-      activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialSummaryMarkup(seller)}${collaboratorGraphicPanel(seller)}${collaboratorMonthMarkup()}</div>`;
+      activeTabContent = `<div class="collab-tab-panel">${collaboratorOfficialSummaryMarkup(seller)}${collaboratorGraphicPanel(seller)}</div>`;
     }
   } catch (error) {
     console.error("Erro ao montar painel do vendedor", error);
