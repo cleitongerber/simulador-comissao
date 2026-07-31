@@ -9076,8 +9076,8 @@ function collaboratorSimulatorMarkup(seller) {
     ? `<button class="ghost-button compact-action" type="button" data-use-partial-simulation="${escapeHtml(partial.id)}" ${isCampaignOperationLocked() ? "disabled" : ""}>Usar parcial como base da simulação</button>`
     : "";
   return withProjectionPeriod(collaboratorSimulationPeriod(), () => `<div class="collab-tab-panel">
-    <div class="collab-top-grid">${collaboratorKpiMarkup(seller)}${collaboratorGuidanceMarkup(seller)}</div>
-    <div class="collab-mid-grid">${collaboratorMonthMarkup()}${collaboratorSimulationPeriodMarkup()}${collaboratorDeflatorMarkup(seller)}${collaboratorEstornosMarkup(seller)}</div>
+    <div class="collab-top-grid">${collaboratorKpiMarkup(seller)}</div>
+    <div class="collab-mid-grid">${collaboratorSimulationPeriodMarkup()}${collaboratorDeflatorMarkup(seller)}${collaboratorEstornosMarkup(seller)}</div>
     <section class="collab-card collab-simulator-intro">
       <div class="collab-card-head">
         <div><h3>Minha simulação</h3><p>Use esta área para simular cenários. A simulação não altera o resultado parcial oficial.</p></div>
@@ -9085,7 +9085,7 @@ function collaboratorSimulatorMarkup(seller) {
       </div>
     </section>
     ${collaboratorIndicatorTableGrouped(seller)}
-    <div class="collab-bottom-grid">${collaboratorOpportunityMarkup(seller)}${collaboratorScenarioMarkup(seller)}</div>
+    <div class="collab-bottom-grid">${collaboratorOpportunityMarkup(seller)}</div>
   </div>`);
 }
 
@@ -9329,7 +9329,7 @@ function renderCollaborator() {
     activeTabContent = `<section class="collab-empty-state">Nao foi possivel carregar o painel deste vendedor. Tente atualizar a tela ou trocar o vendedor.</section>`;
   }
   dashboard.innerHTML = `
-    ${collaboratorPartialSelectorMarkup(seller)}
+    ${activeCollaboratorTab === "simulador" ? "" : collaboratorPartialSelectorMarkup(seller)}
     ${collaboratorTabsMarkup()}
     ${activeTabContent}
   `;
