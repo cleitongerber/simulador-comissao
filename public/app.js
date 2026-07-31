@@ -8915,39 +8915,41 @@ function collaboratorOfficialPartialMarkup(seller) {
   const items = partialItemsForSeller(partial, seller);
   if (!items.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Não há resultado parcial publicado para este vendedor.</p></section>`;
   const period = partialPeriodInfo(partial);
-  const rows = items.map((item) => ({ item, ...partialMetricContext(item, seller, partial) }));
-  const body = metricGroupHeaderRows(rows, 10, (row) => `<tr>
+  const baseRows = items.map((item) => ({ item, ...partialMetricContext(item, seller, partial) }));
+  const commissionSeller = sellerWithCommissionPartialValues(seller, baseRows);
+  const commissionPeriod = getPeriodForPartial(partial, activeCampaign());
+  const rows = baseRows.map((row) => ({
+    ...row,
+    projectedCommission: row.metric ? withProjectionPeriod(commissionPeriod, () => metricCommission(commissionSeller, row.metric, "projected")) : null,
+  }));
+  const body = metricGroupHeaderRows(rows, 8, (row) => `<tr>
     <td>${escapeHtml(row.metric?.name || row.item.metricName)}</td>
-    <td>${escapeHtml(metricGroupDisplay(row.groupMeta))}</td>
     <td>${row.goal ? formatMetricAmount(row.metric, row.goal) : row.participates ? "Meta nao configurada" : "Informativo"}</td>
     <td>${formatMetricAmount(row.metric, row.realized)}</td>
-    <td>${achievementPill(row.percent)}</td>
     <td>${row.projectedValue === null ? "-" : formatMetricAmount(row.metric, row.projectedValue)}</td>
     <td>${achievementPill(row.projectedPercent)}</td>
-    <td>${row.gap === null ? "-" : formatMetricAmount(row.metric, row.gap)}</td>
     <td>${row.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.paceNeeded)}</td>
+    <td>${row.projectedCommission === null ? "-" : money.format(finiteNumber(row.projectedCommission))}</td>
     <td><span class="status ${row.status.cls}">${row.status.label}</span></td>
   </tr>`);
   const cards = rows.map((row) => `<article class="collab-indicator-card">
     <div><strong>${escapeHtml(row.metric?.name || row.item.metricName)}</strong><span class="status ${row.status.cls}">${row.status.label}</span></div>
-    <small class="metric-block-label">${escapeHtml(metricGroupDisplay(row.groupMeta))}</small>
     <dl>
       <dt>Meta</dt><dd>${row.goal ? formatMetricAmount(row.metric, row.goal) : row.participates ? "Meta nao configurada" : "Informativo"}</dd>
       <dt>Realizado</dt><dd>${formatMetricAmount(row.metric, row.realized)}</dd>
-      <dt>% parcial</dt><dd>${row.percent === null ? "-" : pct.format(row.percent)}</dd>
       <dt>Projecao</dt><dd>${row.projectedValue === null ? "-" : formatMetricAmount(row.metric, row.projectedValue)}</dd>
       <dt>% projetado</dt><dd>${row.projectedPercent === null ? "-" : pct.format(row.projectedPercent)}</dd>
-      <dt>Falta</dt><dd>${row.gap === null ? "-" : formatMetricAmount(row.metric, row.gap)}</dd>
-      <dt>Ritmo/dia</dt><dd>${row.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.paceNeeded)}</dd>
+      <dt>ND necessidade diaria</dt><dd>${row.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.paceNeeded)}</dd>
+      <dt>Comissao projetada</dt><dd>${row.projectedCommission === null ? "-" : money.format(finiteNumber(row.projectedCommission))}</dd>
     </dl>
   </article>`).join("");
   const hasInformative = rows.some((row) => !row.participates);
   return `<section class="collab-card collab-official-partial-card">
-    <div class="collab-card-head"><div><h3>Detalhes da parcial</h3><p>Tabela completa por blocos com projeção, gap e ritmo necessário.</p></div>${partialVisibilityBadge(partial)}</div>
+    <div class="collab-card-head"><div><h3>Detalhes da parcial</h3><p>Tabela resumida por indicador com projecao, necessidade diaria e comissao projetada.</p></div>${partialVisibilityBadge(partial)}</div>
     ${partialHistoryMessage(partial)}
     <div class="collab-month-grid"><span>Campanha<strong>${escapeHtml(partial.campaignName || activeCampaign()?.name || "-")}</strong></span><span>Parcial<strong>${escapeHtml(partial.name)}</strong></span><span>Data base<strong>${escapeHtml(partial.baseDate || "-")}</strong></span><span>Dias da parcial<strong>${period.daysDone || "-"} de ${period.daysTotal || "-"}</strong></span><span>Importado em<strong>${partial.importedAt ? dateTime.format(new Date(partial.importedAt)) : "-"}</strong></span></div>
     ${hasInformative ? `<p class="metric-info-note">Receita de aparelhos e indicadores informativos nao compoem o atingimento de metas. Apenas o volume de aparelhos entra no calculo.</p>` : ""}
-    <div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Bloco</th><th>Meta</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="table-wrap collab-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>Projecao</th><th>% proj.</th><th>ND necessidade diaria</th><th>Comissao projetada</th><th>Status</th></tr></thead><tbody>${body}</tbody></table></div>
     <div class="collab-indicator-cards collab-detail-cards">${cards}</div>
   </section>`;
 }

@@ -1,9 +1,9 @@
-const CACHE_NAME = "comissao-pwa-v20260725-security-user-search-p0";
+const CACHE_NAME = "comissao-pwa-v20260731-collab-details-cleanup-p0";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css?v=20260725-security-user-search-p0",
-  "/app.js?v=20260725-security-user-search-p0",
+  "/styles.css?v=20260731-collab-details-cleanup-p0",
+  "/app.js?v=20260731-collab-details-cleanup-p0",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
