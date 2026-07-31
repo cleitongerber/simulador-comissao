@@ -5714,9 +5714,7 @@ function renderSellerSummary(sellers) {
 }
 
 function dashboardSellerDetailMarkup(records) {
-  const commissionMap = projectedCommissionMapForPartialRecords(records, selectedDashboardPartial());
   return `<div class="dashboard-detail-card-grid">${records.map((record) => {
-    const projectedCommission = projectedCommissionForPartialRecord(record, commissionMap);
     return `<article class="dashboard-detail-card ${record.status.cls}">
     <strong>${escapeHtml(record.metric?.name || record.item.metricName)}</strong>
     <dl>
@@ -5725,7 +5723,7 @@ function dashboardSellerDetailMarkup(records) {
       <div><dt>Projecao</dt><dd>${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</dd></div>
       <div><dt>% proj.</dt><dd>${achievementPill(record.projectedPercent)}</dd></div>
       <div><dt>ND necessidade diaria</dt><dd>${record.paceNeeded === null ? "-" : formatMetricPace(record.metric, record.paceNeeded)}</dd></div>
-      <div><dt>Comissao projetada</dt><dd>${projectedCommission === null ? "-" : money.format(finiteNumber(projectedCommission))}</dd></div>
+      <div><dt>Falta</dt><dd>${record.gap === null ? "-" : formatMetricAmount(record.metric, record.gap)}</dd></div>
     </dl>
     <em class="status ${record.status.cls}">${record.status.label}</em>
   </article>`;
@@ -5786,13 +5784,11 @@ function renderBranchAttainmentBars(records) {
 }
 
 function dashboardBranchDetailMarkup(records) {
-  const commissionMap = projectedCommissionMapForPartialRecords(records, selectedDashboardPartial());
   const detailRows = [...groupItems(records, (record) => `${record.groupMeta}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, items]) => {
     const [group] = key.split("|");
     const sample = items[0];
     const totals = partialRecordTotals(items);
-    const projectedCommission = projectedCommissionTotalForPartialRecords(items, commissionMap);
-    return { group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals, sample, projectedCommission };
+    return { group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals, sample };
   }).sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group)
     || (effectiveAttainmentPercent(a.totals) ?? 999) - (effectiveAttainmentPercent(b.totals) ?? 999)
     || a.metricName.localeCompare(b.metricName));
@@ -5804,7 +5800,7 @@ function dashboardBranchDetailMarkup(records) {
       <div><dt>Projecao</dt><dd>${formatMetricAmount(row.metric, row.totals.projected)}</dd></div>
       <div><dt>% proj.</dt><dd>${achievementPill(row.totals.projectedPercent)}</dd></div>
       <div><dt>ND necessidade diaria</dt><dd>${row.totals.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.totals.paceNeeded)}</dd></div>
-      <div><dt>Comissao projetada</dt><dd>${row.projectedCommission === null ? "-" : money.format(finiteNumber(row.projectedCommission))}</dd></div>
+      <div><dt>Falta</dt><dd>${row.totals.gap === null ? "-" : formatMetricAmount(row.metric, row.totals.gap)}</dd></div>
     </dl>
     <em class="status ${row.totals.status.cls}">${row.totals.status.label}</em>
   </article>`).join("") || `<p class="muted-note">Sem dados por indicador no filtro atual.</p>`}</div>`;
@@ -7981,12 +7977,13 @@ function branchTotals(sellers) {
 }
 
 function branchKpiCards(branch, sellers, totals) {
+  const projectedGap = Math.max((Number(totals.totalGoal) || 0) - (Number(totals.projectedTotal) || 0), 0);
   const cards = [
     ["Meta da filial", num.format(totals.totalGoal), "Meta consolidada", "target", null],
     ["Realizado", num.format(totals.realized), "Resultado atual", "trend", totals.currentPercent],
     ["% atual", pct.format(totals.currentPercent), "Atingimento atual", "percent", totals.currentPercent],
     ["Projetado", `${num.format(totals.projectedTotal)} (${pct.format(totals.projectedPercent)})`, "Projeção / meta", "trend", totals.projectedPercent],
-    ["Comissão estimada", money.format(totals.commissionFinal), `Bruta ${money.format(totals.commissionGross)} | Estornos ${discountMoney(totals.estornosTotal)}`, "money", null],
+    ["Gap projetado", num.format(projectedGap), projectedGap ? "Falta para 100% projetado" : "Meta projetada atingida", "target", totals.projectedPercent],
   ];
   return `<div class="branch-kpi-grid">${cards.map(([label, value, detail, icon, percent]) => `<article class="branch-kpi ${icon}"><span aria-hidden="true"></span><div><small>${label}</small><strong>${value}</strong><em class="${achievementClass(percent)}">${detail}</em></div></article>`).join("")}</div>`;
 }
@@ -8013,6 +8010,9 @@ function branchAlerts(sellers, totals) {
 function branchTeamTable(sellers) {
   const rows = [...sellers].sort((a, b) => sellerBranchSummary(b).currentPercent - sellerBranchSummary(a).currentPercent).map((seller) => {
     const summary = sellerBranchSummary(seller);
+    const metricTotals = collaboratorMetricRows(seller).totals;
+    const currentGap = metricTotals.goal ? Math.max(metricTotals.goal - metricTotals.realized, 0) : null;
+    const projectedGap = metricTotals.goal && metricTotals.projectedPercent !== null ? Math.max(metricTotals.goal - metricTotals.projected, 0) : null;
     const experience = seller.emExperiencia ? `<span class="status neutral">Em experiencia</span><small>Deflator ignorado</small>` : "";
     return `<tr>
       <td><strong>${escapeHtml(seller.name)}</strong><small>${escapeHtml(seller.area)}</small>${experience}</td>
@@ -8020,15 +8020,13 @@ function branchTeamTable(sellers) {
       <td>${achievementPill(summary.currentPercent)}</td>
       <td>${money.format(summary.gross)}</td>
       <td>${achievementPill(summary.projectedPercent)}</td>
-      <td>${money.format(summary.gross)}</td>
-      <td>${money.format(summary.deflator)}</td>
-      <td>${discountMoney(summary.estornos)}</td>
-      <td>${money.format(summary.final)}</td>
+      <td>${currentGap === null ? "-" : num.format(currentGap)}</td>
+      <td>${projectedGap === null ? "-" : num.format(projectedGap)}</td>
       <td><span class="status ${summary.status.cls}">${summary.status.label}</span></td>
       <td><button class="ghost-button compact-action" data-manager-seller-detail="${seller.id}" type="button">Ver detalhes</button></td>
     </tr>`;
   }).join("");
-  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Comissão bruta, deflator, estornos e comissão estimada por vendedor.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Comissão bruta</th><th>Deflator</th><th>Estornos</th><th>Comissão estimada</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows || `<tr><td colspan="11">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
+  return `<section class="branch-card-panel branch-team-panel"><div class="branch-card-head"><div><h3>Equipe da filial</h3><p>Resultado comercial por vendedor, com gap atual e projetado.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Vendedor</th><th>Realizado</th><th>% atual</th><th>Projetado</th><th>% proj.</th><th>Falta atual</th><th>Falta projetada</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows || `<tr><td colspan="9">Nenhum vendedor vinculado a esta filial.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function branchSellerFilter(sellers) {
@@ -8138,7 +8136,10 @@ function sellerRecommendedAction(seller) {
 function sellerDetailPanel(seller) {
   if (!seller) return "";
   const summary = sellerBranchSummary(seller);
-  return `<section class="branch-detail-grid"><section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhamento por vendedor</h3><p>${escapeHtml(seller.name)} - ${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</p></div></div><div class="seller-detail-kpis"><article><span>Realizado</span><strong>${money.format(summary.result.current)}</strong></article><article><span>% atual</span><strong>${formatPercent(summary.currentPercent)}</strong></article><article><span>Projetado</span><strong>${money.format(summary.gross)}</strong></article><article><span>% projetado</span><strong>${formatPercent(summary.projectedPercent)}</strong></article><article><span>Comissao bruta</span><strong>${money.format(summary.gross)}</strong></article><article><span>Deflator</span><strong>${money.format(summary.deflator)}</strong></article><article><span>Estornos</span><strong>${discountMoney(summary.estornos)}</strong></article><article><span>Comissao estimada</span><strong>${money.format(summary.final)}</strong></article><article><span>Status</span><strong><span class="status ${summary.status.cls}">${summary.status.label}</span></strong></article></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${sellerIndicatorDetailRowsGrouped(seller)}</tbody></table></div></section><div>${sellerDeflatorImpactCard(seller)}${sellerEstornoImpactCard(seller)}${sellerRecommendedAction(seller)}</div></section>`;
+  const metricTotals = collaboratorMetricRows(seller).totals;
+  const currentGap = metricTotals.goal ? Math.max(metricTotals.goal - metricTotals.realized, 0) : null;
+  const projectedGap = metricTotals.goal && metricTotals.projectedPercent !== null ? Math.max(metricTotals.goal - metricTotals.projected, 0) : null;
+  return `<section class="branch-detail-grid"><section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhamento por vendedor</h3><p>${escapeHtml(seller.name)} - ${escapeHtml(seller.branch)} - ${escapeHtml(seller.area)}</p></div></div><div class="seller-detail-kpis"><article><span>Realizado</span><strong>${money.format(summary.result.current)}</strong></article><article><span>% atual</span><strong>${formatPercent(summary.currentPercent)}</strong></article><article><span>Projetado</span><strong>${money.format(summary.gross)}</strong></article><article><span>% projetado</span><strong>${formatPercent(summary.projectedPercent)}</strong></article><article><span>Falta atual</span><strong>${currentGap === null ? "-" : num.format(currentGap)}</strong></article><article><span>Falta projetada</span><strong>${projectedGap === null ? "-" : num.format(projectedGap)}</strong></article><article><span>Status</span><strong><span class="status ${summary.status.cls}">${summary.status.label}</span></strong></article></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% atual</th><th>Falta</th><th>Projetado</th><th>% projetado</th><th>Deflator</th><th>Status</th></tr></thead><tbody>${sellerIndicatorDetailRowsGrouped(seller)}</tbody></table></div></section><div>${sellerRecommendedAction(seller)}</div></section>`;
 }
 
 function branchAttentionPoints(sellers) {
@@ -8253,26 +8254,23 @@ function branchPartialDetails(branch, sellers) {
   if (!showBranchPartialDetails) return "";
   const partial = getVisiblePartial("filial");
   const records = branchPartialRecords(partial, branch, sellers, activeManagerSellerId);
-  const commissionMap = projectedCommissionMapForPartialRecords(records, partial);
   if (activeManagerSellerId) {
     const body = metricGroupHeaderRows(records, 8, (record) => {
-      const projectedCommission = projectedCommissionForPartialRecord(record, commissionMap);
-      return `<tr><td data-label="Indicador">${escapeHtml(record.metric?.name || record.item.metricName)}</td><td data-label="Meta">${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(record.metric, record.realized)}</td><td data-label="Projecao">${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</td><td data-label="% proj.">${achievementPill(record.projectedPercent)}</td><td data-label="ND necessidade diaria">${record.paceNeeded === null ? "-" : formatMetricPace(record.metric, record.paceNeeded)}</td><td data-label="Comissao projetada">${projectedCommission === null ? "-" : money.format(finiteNumber(projectedCommission))}</td><td data-label="Status"><span class="status ${record.status.cls}">${record.status.label}</span></td></tr>`;
+      return `<tr><td data-label="Indicador">${escapeHtml(record.metric?.name || record.item.metricName)}</td><td data-label="Meta">${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(record.metric, record.realized)}</td><td data-label="Projecao">${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</td><td data-label="% proj.">${achievementPill(record.projectedPercent)}</td><td data-label="Falta">${record.gap === null ? "-" : formatMetricAmount(record.metric, record.gap)}</td><td data-label="ND necessidade diaria">${record.paceNeeded === null ? "-" : formatMetricPace(record.metric, record.paceNeeded)}</td><td data-label="Status"><span class="status ${record.status.cls}">${record.status.label}</span></td></tr>`;
     });
-    return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes do vendedor</h3><p>${escapeHtml(records[0]?.seller?.name || "Vendedor")} na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>Projecao</th><th>% proj.</th><th>ND necessidade diaria</th><th>Comissao projetada</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="8">Nenhum dado parcial para o vendedor selecionado.</td></tr>`}</tbody></table></div></section>`;
+    return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes do vendedor</h3><p>${escapeHtml(records[0]?.seller?.name || "Vendedor")} na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>ND necessidade diaria</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="8">Nenhum dado parcial para o vendedor selecionado.</td></tr>`}</tbody></table></div></section>`;
   }
   const metricGroups = [...groupItems(records, (record) => `${record.groupMeta || metricGroup(record.metric)}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, metricRecords]) => {
     const sample = metricRecords[0];
     const totals = partialRecordTotals(metricRecords);
-    const projectedCommission = projectedCommissionTotalForPartialRecords(metricRecords, commissionMap);
-    return { key, sample, totals, projectedCommission };
+    return { key, sample, totals };
   }).sort((a, b) => metricOrderIndex(a.sample.seller.area, a.sample.metric?.id || a.sample.item.metricId) - metricOrderIndex(b.sample.seller.area, b.sample.metric?.id || b.sample.item.metricId));
   const body = metricGroups.map((row) => {
     const metric = row.sample.metric;
     const status = row.totals.status;
-    return `<tr><td data-label="Indicador">${escapeHtml(metric?.name || row.sample.item.metricName)}</td><td data-label="Meta filial">${row.totals.goal ? formatMetricAmount(metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(metric, row.totals.realized)}</td><td data-label="Projecao">${row.totals.projected === null ? "-" : formatMetricAmount(metric, row.totals.projected)}</td><td data-label="% proj.">${achievementPill(row.totals.projectedPercent)}</td><td data-label="ND necessidade diaria">${row.totals.paceNeeded === null ? "-" : formatMetricPace(metric, row.totals.paceNeeded)}</td><td data-label="Comissao projetada">${row.projectedCommission === null ? "-" : money.format(finiteNumber(row.projectedCommission))}</td><td data-label="Status"><span class="status ${status.cls}">${status.label}</span></td></tr>`;
+    return `<tr><td data-label="Indicador">${escapeHtml(metric?.name || row.sample.item.metricName)}</td><td data-label="Meta filial">${row.totals.goal ? formatMetricAmount(metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(metric, row.totals.realized)}</td><td data-label="Projecao">${row.totals.projected === null ? "-" : formatMetricAmount(metric, row.totals.projected)}</td><td data-label="% proj.">${achievementPill(row.totals.projectedPercent)}</td><td data-label="Falta">${row.totals.gap === null ? "-" : formatMetricAmount(metric, row.totals.gap)}</td><td data-label="ND necessidade diaria">${row.totals.paceNeeded === null ? "-" : formatMetricPace(metric, row.totals.paceNeeded)}</td><td data-label="Status"><span class="status ${status.cls}">${status.label}</span></td></tr>`;
   }).join("");
-  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes da filial</h3><p>Consolidado por indicador da filial na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta filial</th><th>Realizado</th><th>Projecao</th><th>% proj.</th><th>ND necessidade diaria</th><th>Comissao projetada</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="8">Nenhum dado parcial para o filtro selecionado.</td></tr>`}</tbody></table></div></section>`;
+  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes da filial</h3><p>Consolidado por indicador da filial na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta filial</th><th>Realizado</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>ND necessidade diaria</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="8">Nenhum dado parcial para o filtro selecionado.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function branchPartialAttention(branch, sellers) {
