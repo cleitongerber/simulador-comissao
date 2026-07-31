@@ -4679,6 +4679,49 @@ function partialRecordTotals(records) {
   return { ...totals, realized: displayRealized, projected: displayProjected, percent, projectedPercent, gap, paceNeeded, status };
 }
 
+function projectedCommissionMapForPartialRecords(records, partial = null) {
+  const commissionByRecord = new Map();
+  const sellerContext = new Map();
+  for (const record of records || []) {
+    if (!record?.metric || !record?.seller) {
+      commissionByRecord.set(record, null);
+      continue;
+    }
+    const sellerKey = record.seller.id || `${normalizedKey(record.seller.name)}|${normalizedKey(record.seller.branch)}`;
+    let context = sellerContext.get(sellerKey);
+    if (!context) {
+      const sellerRecords = partial
+        ? officialPartialRecords(partial, [record.seller], { metricName: "Todos" })
+        : (records || []).filter((item) => (item.seller?.id || "") === (record.seller?.id || ""));
+      const sourceRecords = sellerRecords.length ? sellerRecords : [record];
+      context = {
+        seller: sellerWithCommissionPartialValues(record.seller, sourceRecords),
+        period: partial ? getPeriodForPartial(partial, activeCampaign()) : (sourceRecords.find((item) => item.period)?.period || record.period || null),
+      };
+      sellerContext.set(sellerKey, context);
+    }
+    const projectedCommission = withProjectionPeriod(context.period, () => metricCommission(context.seller, record.metric, "projected"));
+    commissionByRecord.set(record, projectedCommission);
+  }
+  return commissionByRecord;
+}
+
+function projectedCommissionForPartialRecord(record, commissionMap) {
+  if (!commissionMap?.has(record)) return null;
+  return finiteNumber(commissionMap.get(record), null);
+}
+
+function projectedCommissionTotalForPartialRecords(records, commissionMap) {
+  let hasValue = false;
+  const total = (records || []).reduce((sum, record) => {
+    const value = projectedCommissionForPartialRecord(record, commissionMap);
+    if (value === null) return sum;
+    hasValue = true;
+    return sum + value;
+  }, 0);
+  return hasValue ? total : null;
+}
+
 function groupedPartialRows(records, keyFn) {
   const map = new Map();
   for (const record of records) {
@@ -5671,17 +5714,22 @@ function renderSellerSummary(sellers) {
 }
 
 function dashboardSellerDetailMarkup(records) {
-  return `<div class="dashboard-detail-card-grid">${records.map((record) => `<article class="dashboard-detail-card ${record.status.cls}">
-    <span>${escapeHtml(metricGroupDisplay(record.groupMeta))}</span>
+  const commissionMap = projectedCommissionMapForPartialRecords(records, selectedDashboardPartial());
+  return `<div class="dashboard-detail-card-grid">${records.map((record) => {
+    const projectedCommission = projectedCommissionForPartialRecord(record, commissionMap);
+    return `<article class="dashboard-detail-card ${record.status.cls}">
     <strong>${escapeHtml(record.metric?.name || record.item.metricName)}</strong>
     <dl>
       <div><dt>Meta</dt><dd>${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</dd></div>
       <div><dt>Realizado</dt><dd>${formatMetricAmount(record.metric, record.realized)}</dd></div>
       <div><dt>Projecao</dt><dd>${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</dd></div>
       <div><dt>% proj.</dt><dd>${achievementPill(record.projectedPercent)}</dd></div>
+      <div><dt>ND necessidade diaria</dt><dd>${record.paceNeeded === null ? "-" : formatMetricPace(record.metric, record.paceNeeded)}</dd></div>
+      <div><dt>Comissao projetada</dt><dd>${projectedCommission === null ? "-" : money.format(finiteNumber(projectedCommission))}</dd></div>
     </dl>
     <em class="status ${record.status.cls}">${record.status.label}</em>
-  </article>`).join("")}</div>`;
+  </article>`;
+  }).join("")}</div>`;
 }
 
 function chartTone(percent) {
@@ -5738,24 +5786,25 @@ function renderBranchAttainmentBars(records) {
 }
 
 function dashboardBranchDetailMarkup(records) {
+  const commissionMap = projectedCommissionMapForPartialRecords(records, selectedDashboardPartial());
   const detailRows = [...groupItems(records, (record) => `${record.groupMeta}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, items]) => {
     const [group] = key.split("|");
     const sample = items[0];
     const totals = partialRecordTotals(items);
-    return { group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals, sample };
+    const projectedCommission = projectedCommissionTotalForPartialRecords(items, commissionMap);
+    return { group, metric: sample.metric, metricName: sample.metric?.name || sample.item.metricName, totals, sample, projectedCommission };
   }).sort((a, b) => PRIMARY_METRIC_GROUPS.indexOf(a.group) - PRIMARY_METRIC_GROUPS.indexOf(b.group)
     || (effectiveAttainmentPercent(a.totals) ?? 999) - (effectiveAttainmentPercent(b.totals) ?? 999)
     || a.metricName.localeCompare(b.metricName));
   return `<div class="dashboard-detail-card-grid">${detailRows.map((row) => `<article class="dashboard-detail-card ${row.totals.status.cls}">
-    <span>${escapeHtml(metricGroupDisplay(row.group))}</span>
     <strong>${escapeHtml(row.metricName)}</strong>
     <dl>
       <div><dt>Meta</dt><dd>${row.totals.goal ? formatMetricAmount(row.metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</dd></div>
       <div><dt>Realizado</dt><dd>${formatMetricAmount(row.metric, row.totals.realized)}</dd></div>
       <div><dt>Projecao</dt><dd>${formatMetricAmount(row.metric, row.totals.projected)}</dd></div>
       <div><dt>% proj.</dt><dd>${achievementPill(row.totals.projectedPercent)}</dd></div>
-      <div><dt>Gap</dt><dd>${row.totals.gap === null ? "-" : formatMetricAmount(row.metric, row.totals.gap)}</dd></div>
-      <div><dt>Ritmo/dia</dt><dd>${row.totals.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.totals.paceNeeded)}</dd></div>
+      <div><dt>ND necessidade diaria</dt><dd>${row.totals.paceNeeded === null ? "-" : formatMetricPace(row.metric, row.totals.paceNeeded)}</dd></div>
+      <div><dt>Comissao projetada</dt><dd>${row.projectedCommission === null ? "-" : money.format(finiteNumber(row.projectedCommission))}</dd></div>
     </dl>
     <em class="status ${row.totals.status.cls}">${row.totals.status.label}</em>
   </article>`).join("") || `<p class="muted-note">Sem dados por indicador no filtro atual.</p>`}</div>`;
@@ -8204,21 +8253,26 @@ function branchPartialDetails(branch, sellers) {
   if (!showBranchPartialDetails) return "";
   const partial = getVisiblePartial("filial");
   const records = branchPartialRecords(partial, branch, sellers, activeManagerSellerId);
+  const commissionMap = projectedCommissionMapForPartialRecords(records, partial);
   if (activeManagerSellerId) {
-    const body = metricGroupHeaderRows(records, 10, (record) => `<tr><td data-label="Bloco">${escapeHtml(metricGroupDisplay(record.groupMeta))}</td><td data-label="Indicador">${escapeHtml(record.metric?.name || record.item.metricName)}</td><td data-label="Meta">${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(record.metric, record.realized)}</td><td data-label="% parcial">${achievementPill(record.percent)}</td><td data-label="Projecao">${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</td><td data-label="% proj.">${achievementPill(record.projectedPercent)}</td><td data-label="Falta">${record.gap === null ? "-" : formatMetricAmount(record.metric, record.gap)}</td><td data-label="Ritmo/dia">${record.paceNeeded === null ? "-" : formatMetricPace(record.metric, record.paceNeeded)}</td><td data-label="Status"><span class="status ${record.status.cls}">${record.status.label}</span></td></tr>`);
-    return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes do vendedor</h3><p>${escapeHtml(records[0]?.seller?.name || "Vendedor")} na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="10">Nenhum dado parcial para o vendedor selecionado.</td></tr>`}</tbody></table></div></section>`;
+    const body = metricGroupHeaderRows(records, 8, (record) => {
+      const projectedCommission = projectedCommissionForPartialRecord(record, commissionMap);
+      return `<tr><td data-label="Indicador">${escapeHtml(record.metric?.name || record.item.metricName)}</td><td data-label="Meta">${record.goal ? formatMetricAmount(record.metric, record.goal) : record.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(record.metric, record.realized)}</td><td data-label="Projecao">${record.projectedValue === null ? "-" : formatMetricAmount(record.metric, record.projectedValue)}</td><td data-label="% proj.">${achievementPill(record.projectedPercent)}</td><td data-label="ND necessidade diaria">${record.paceNeeded === null ? "-" : formatMetricPace(record.metric, record.paceNeeded)}</td><td data-label="Comissao projetada">${projectedCommission === null ? "-" : money.format(finiteNumber(projectedCommission))}</td><td data-label="Status"><span class="status ${record.status.cls}">${record.status.label}</span></td></tr>`;
+    });
+    return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes do vendedor</h3><p>${escapeHtml(records[0]?.seller?.name || "Vendedor")} na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>Projecao</th><th>% proj.</th><th>ND necessidade diaria</th><th>Comissao projetada</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="8">Nenhum dado parcial para o vendedor selecionado.</td></tr>`}</tbody></table></div></section>`;
   }
   const metricGroups = [...groupItems(records, (record) => `${record.groupMeta || metricGroup(record.metric)}|${record.metric?.id || record.item.metricName}`).entries()].map(([key, metricRecords]) => {
     const sample = metricRecords[0];
     const totals = partialRecordTotals(metricRecords);
-    return { key, sample, totals };
+    const projectedCommission = projectedCommissionTotalForPartialRecords(metricRecords, commissionMap);
+    return { key, sample, totals, projectedCommission };
   }).sort((a, b) => metricOrderIndex(a.sample.seller.area, a.sample.metric?.id || a.sample.item.metricId) - metricOrderIndex(b.sample.seller.area, b.sample.metric?.id || b.sample.item.metricId));
   const body = metricGroups.map((row) => {
     const metric = row.sample.metric;
     const status = row.totals.status;
-    return `<tr><td data-label="Bloco">${escapeHtml(metricGroupDisplay(row.sample.groupMeta))}</td><td data-label="Indicador">${escapeHtml(metric?.name || row.sample.item.metricName)}</td><td data-label="Meta filial">${row.totals.goal ? formatMetricAmount(metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(metric, row.totals.realized)}</td><td data-label="% parcial">${achievementPill(row.totals.percent)}</td><td data-label="Projecao">${row.totals.projected === null ? "-" : formatMetricAmount(metric, row.totals.projected)}</td><td data-label="% proj.">${achievementPill(row.totals.projectedPercent)}</td><td data-label="Falta">${row.totals.gap === null ? "-" : formatMetricAmount(metric, row.totals.gap)}</td><td data-label="Ritmo/dia">${row.totals.paceNeeded === null ? "-" : formatMetricPace(metric, row.totals.paceNeeded)}</td><td data-label="Status"><span class="status ${status.cls}">${status.label}</span></td></tr>`;
+    return `<tr><td data-label="Indicador">${escapeHtml(metric?.name || row.sample.item.metricName)}</td><td data-label="Meta filial">${row.totals.goal ? formatMetricAmount(metric, row.totals.goal) : row.sample.participates ? "Meta nao configurada" : "Informativo"}</td><td data-label="Realizado">${formatMetricAmount(metric, row.totals.realized)}</td><td data-label="Projecao">${row.totals.projected === null ? "-" : formatMetricAmount(metric, row.totals.projected)}</td><td data-label="% proj.">${achievementPill(row.totals.projectedPercent)}</td><td data-label="ND necessidade diaria">${row.totals.paceNeeded === null ? "-" : formatMetricPace(metric, row.totals.paceNeeded)}</td><td data-label="Comissao projetada">${row.projectedCommission === null ? "-" : money.format(finiteNumber(row.projectedCommission))}</td><td data-label="Status"><span class="status ${status.cls}">${status.label}</span></td></tr>`;
   }).join("");
-  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes da filial</h3><p>Consolidado por indicador da filial na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Bloco</th><th>Indicador</th><th>Meta filial</th><th>Realizado</th><th>% parcial</th><th>Projecao</th><th>% proj.</th><th>Falta</th><th>Ritmo/dia</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="10">Nenhum dado parcial para o filtro selecionado.</td></tr>`}</tbody></table></div></section>`;
+  return `<section class="branch-card-panel wide"><div class="branch-card-head"><div><h3>Detalhes da filial</h3><p>Consolidado por indicador da filial na parcial selecionada.</p></div></div><div class="table-wrap branch-table-wrap"><table><thead><tr><th>Indicador</th><th>Meta filial</th><th>Realizado</th><th>Projecao</th><th>% proj.</th><th>ND necessidade diaria</th><th>Comissao projetada</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="8">Nenhum dado parcial para o filtro selecionado.</td></tr>`}</tbody></table></div></section>`;
 }
 
 function branchPartialAttention(branch, sellers) {
@@ -8916,11 +8970,10 @@ function collaboratorOfficialPartialMarkup(seller) {
   if (!items.length) return `<section class="collab-card collab-official-partial-card"><div class="collab-card-head"><h3>Resultado parcial oficial</h3><span class="status neutral">${escapeHtml(partial.name)}</span></div><p>Não há resultado parcial publicado para este vendedor.</p></section>`;
   const period = partialPeriodInfo(partial);
   const baseRows = items.map((item) => ({ item, ...partialMetricContext(item, seller, partial) }));
-  const commissionSeller = sellerWithCommissionPartialValues(seller, baseRows);
-  const commissionPeriod = getPeriodForPartial(partial, activeCampaign());
+  const commissionMap = projectedCommissionMapForPartialRecords(baseRows, partial);
   const rows = baseRows.map((row) => ({
     ...row,
-    projectedCommission: row.metric ? withProjectionPeriod(commissionPeriod, () => metricCommission(commissionSeller, row.metric, "projected")) : null,
+    projectedCommission: projectedCommissionForPartialRecord(row, commissionMap),
   }));
   const body = metricGroupHeaderRows(rows, 8, (row) => `<tr>
     <td>${escapeHtml(row.metric?.name || row.item.metricName)}</td>
